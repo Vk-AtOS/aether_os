@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict
@@ -57,10 +56,12 @@ def run_browser_job_sync(job: Dict[str, Any], *, project: Path, timeout: int = 1
     job_file = tmp / f"browser_job_{os.urandom(6).hex()}.json"
     safe_fs.safe_write_text(root, job_file, json.dumps(job))
     entry = runner.browser_entry()
+    copied = None
     if runner.name != "docker":
-        # host backends cannot read the platform tree: the driver is copied into the run dir
-        copied = tmp / "browser_entry.py"
-        shutil.copyfile(runner.browser_entry(), copied)
+        # host backends cannot read the platform tree: the driver is copied into the run dir. A random name written through
+        # safe_fs (O_NOFOLLOW, exclusive): a symlink planted at a fixed name must never redirect this write outside the run dir.
+        copied = tmp / f"browser_entry_{os.urandom(6).hex()}.py"
+        safe_fs.safe_write_bytes(root, copied, Path(runner.browser_entry()).read_bytes())
         entry = str(copied)
     env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1", **dirs)
     try:
@@ -68,6 +69,8 @@ def run_browser_job_sync(job: Dict[str, Any], *, project: Path, timeout: int = 1
                           timeout=timeout, network=False)
     finally:
         job_file.unlink(missing_ok=True)
+        if copied is not None:
+            copied.unlink(missing_ok=True)
     return parse_result(done)
 
 

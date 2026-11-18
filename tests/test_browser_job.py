@@ -152,3 +152,34 @@ def test_driver_reports_a_failed_job_as_json_not_a_crash(tmp_path, capsys):
     job.write_text(json.dumps({"action": "nope"}))
     assert entry.main(["x", str(job)]) == 1
     assert json.loads(capsys.readouterr().out)["ok"] is False
+
+
+def test_the_driver_copy_never_writes_through_a_planted_symlink(root, monkeypatch, tmp_path):
+    """Host backends copy the driver into the run dir. A fixed filename let a symlink planted there redirect the copy over any
+    file the process can write; the copy now has a random name and goes through safe_fs (O_NOFOLLOW, exclusive)."""
+    victim = tmp_path.parent / f"{tmp_path.name}_victim.py"
+    victim.write_text("# do not overwrite\n")
+    driver = tmp_path / "driver_src.py"
+    driver.write_text("print('driver')\n")
+    tmpdir = root / ".sandbox_tmp"
+    tmpdir.mkdir(exist_ok=True)
+    (tmpdir / "browser_entry.py").symlink_to(victim)                            # the old fixed name
+
+    class HostRunner(FakeRunner):
+        name = "host"
+
+        def browser_entry(self):
+            return str(driver)
+
+        def run(self, argv, *, run_dir, cwd=None, env, timeout=None, network=False):
+            self.calls.append((list(argv), network, None))
+            assert (run_dir / ".sandbox_tmp" / argv[1].split("/")[-1]).read_text() == "print('driver')\n"
+            return subprocess.CompletedProcess(argv, 0, b'{"ok": true}\n', b"")
+
+    host = HostRunner(b"")
+    monkeypatch.setattr(browser_job, "get_runner", lambda limits=None, profile="default": host)
+    out = browser_job.run_browser_job_sync({"action": "axe", "out": str(root / "o.json")}, project=root)
+    assert out == {"ok": True}
+    assert victim.read_text() == "# do not overwrite\n"                         # nothing was written through the link
+    assert not list(tmpdir.glob("browser_entry_*.py"))                          # and the copy is removed afterwards
+    victim.unlink()
