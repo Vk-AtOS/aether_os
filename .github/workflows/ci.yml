@@ -46,8 +46,8 @@ jobs:
       CORS_ORIGINS: http://localhost:3000
       ENVIRONMENT: test
       REQUIRE_REDIS: "false"
-      # Raise this as coverage grows; it must never go down.
-      COVERAGE_FLOOR: "50"
+      # Raise this as coverage grows; it must never go down. Measured 68% (pytest-cov 7.1, --cov=., r6/a_gen): floor = measured - 2.
+      COVERAGE_FLOOR: "66"
 
     steps:
       - uses: actions/checkout@v4
