@@ -79,7 +79,7 @@ async def create_org(email, password, org_name, plan, force=False):
         session.add(user)
 
         await session.commit()
-        print(f"Successfully created organisation and user.")
+        print("Successfully created organisation and user.")
         print(f"Org Name: {org_name}")
         print(f"Org Slug: {slug}")
         print(f"Plan:     {plan}")

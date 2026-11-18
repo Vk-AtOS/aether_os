@@ -6,7 +6,6 @@ Runs on the same port as the main app (8000) — no separate MCP server needed.
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 import logging
 from pathlib import Path
@@ -14,14 +13,16 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import PhaseCompletion, Run
 from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user as _get_current_user, require_run_user
 from aether_os.gateway.policy_guard import admit_run_start
 
 logger = logging.getLogger(__name__)
 
-_HOME_DB = Path.home() / ".aether_os" / "aether_os.db"
 
 # Auth: the shared get_current_user (revocation, is_active, token-type checks) —
 # MCP used to decode the JWT itself and skipped all of them.
@@ -36,16 +37,11 @@ async def mcp_list_runs(
 ) -> List[Dict[str, Any]]:
     """List all factory runs for the authenticated org."""
     org_id = user.get("org_id")
-    if not _HOME_DB.exists():
-        return []
-    with sqlite3.connect(str(_HOME_DB)) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, status, command, started_at, finished_at FROM runs "
-            "WHERE org_id = ? ORDER BY started_at DESC LIMIT 100",
-            (org_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    async with get_session_factory()() as db:
+        rows = (await db.execute(
+            select(Run.id, Run.status, Run.command, Run.started_at, Run.finished_at)
+            .where(Run.org_id == org_id).order_by(Run.started_at.desc()).limit(100))).all()
+    return [dict(r._mapping) for r in rows]
 
 
 @router.get("/get_run_status/{run_id}")
@@ -54,16 +50,11 @@ async def mcp_get_run_status(
     user: Dict[str, Any] = Depends(require_run_user),
 ) -> List[Dict[str, Any]]:
     """Get phase-by-phase status of a run."""
-    if not _HOME_DB.exists():
-        return []
-    with sqlite3.connect(str(_HOME_DB)) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT phase_name, status, updated_at FROM phase_completions "
-            "WHERE run_id = ? ORDER BY updated_at",
-            (run_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    async with get_session_factory()() as db:
+        rows = (await db.execute(
+            select(PhaseCompletion.phase_name, PhaseCompletion.status, PhaseCompletion.updated_at)
+            .where(PhaseCompletion.run_id == run_id).order_by(PhaseCompletion.updated_at))).all()
+    return [dict(r._mapping) for r in rows]
 
 
 @router.get("/get_artifact/{run_id}")

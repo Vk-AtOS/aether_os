@@ -362,7 +362,7 @@ def _fix_common_issues(code: str) -> str:
     # Fix missing typing imports (Optional, List, Dict, Any, Union, Tuple)
     _typing_needed = []
     for _t in ("Optional", "List", "Dict", "Any", "Union", "Tuple", "Set"):
-        if re.search(r'\b' + _t + r'\b', code) and f"from typing import" not in code.split(_t)[0].split("\n")[-1]:
+        if re.search(r'\b' + _t + r'\b', code) and "from typing import" not in code.split(_t)[0].split("\n")[-1]:
             _typing_needed.append(_t)
     if _typing_needed:
         if "from typing import" in code:

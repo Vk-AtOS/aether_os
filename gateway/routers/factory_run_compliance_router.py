@@ -112,7 +112,7 @@ async def get_run_compliance(
         _snap = pathlib.Path(_tmp) / "src" / "main.py"
         _snap.parent.mkdir()
         _snap.write_text(main_src, encoding="utf-8")
-        scan_result = scan_file(_snap, project_name=_project_name, domain=_domain)
+        scan_result = scan_file(_snap, project_name=_project_name, domain=_domain, root=pathlib.Path(_tmp))
 
     # Persist the result so subsequent calls are fast (links in project_dir are never followed)
     pdf_path = None
@@ -212,7 +212,8 @@ async def get_run_portal(
             "quality_score": _run_p.quality_score,
             "council_verdict": (
                 "passed" if _council.get("passed")
-                else ("failed" if _council else "pending")
+                else ("unavailable" if _council.get("status") == "unavailable"
+                      else ("failed" if _council else "pending"))
             ),
         },
         "deliverables": _deliverables,

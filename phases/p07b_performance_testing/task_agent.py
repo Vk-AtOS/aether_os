@@ -28,6 +28,23 @@ async def _hit_endpoint(session, url: str) -> Dict:
         return {"status": 0, "error": str(exc), "latency_ms": (time.monotonic() - start) * 1000}
 
 
+# p95 targets by domain, used when the requirements do not state one. Trading: 200 ms is the target the
+# capacity planner's real-time HPA metric already uses. Engineering defaults, the product's real SLA is the owner's.
+_DEFAULT_SLA_P95_MS = 2000
+_DOMAIN_SLA_P95_MS = {"trading": 200, "fintech": 500}
+
+
+def _latency_sla_p95_ms(data: dict) -> int:
+    """p95 target: an explicit latency_sla_p95_ms (from the requirements/IR) wins, then the domain's, then 2000."""
+    try:
+        explicit = int(data.get("latency_sla_p95_ms") or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit > 0:
+        return explicit
+    return _DOMAIN_SLA_P95_MS.get(str(data.get("domain", "")).lower(), _DEFAULT_SLA_P95_MS)
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -99,7 +116,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     results["success_count"] = statuses.count(200) + statuses.count(201)
     results["error_count"] = len(errors)
     results["error_rate_pct"] = round(len(errors) / max(len(responses), 1) * 100, 1)
-    results["passed"] = results["error_rate_pct"] < 10 and results.get("p95_ms", 9999) < 2000
+    sla_p95_ms = _latency_sla_p95_ms(data)
+    results["sla_p95_ms"] = sla_p95_ms
+    results["passed"] = results["error_rate_pct"] < 10 and results.get("p95_ms", 9999) < sla_p95_ms
 
     logger.info(
         "[p07b] load test done: p95=%.0fms errors=%.1f%%",

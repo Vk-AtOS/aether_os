@@ -1,0 +1,3 @@
+{"primary_hex": "#c026d3", "secondary_hex": "#06b6d4", "background_hex": "#f8fafc", "surface_hex": "#ffffff",
+ "font_pairing": "Inter / Source Serif", "border_radius": "xl", "density": "comfortable",
+ "widget_description": "A pipeline strip for LeadContact records with four stages, a count per stage and the three most recent contacts."}

@@ -18,6 +18,7 @@ _STATUS = {
     "trial_limit_reached": 402,
     "quota_runs_per_period": 402,
     "quota_concurrent_runs": 429,
+    "quota_seats": 402,
     "policy_unavailable": 503,
     "platform_at_capacity": 503,
 }
@@ -46,3 +47,9 @@ def _raise_if_denied(action: str, decision: Any) -> None:
     if status == 402:
         detail["upgrade_url"] = "/pricing"
     raise HTTPException(status_code=status, detail=detail)
+
+
+async def enforce_seat(org_id: str, actor: str) -> None:
+    """Every path that adds an active user to an existing org (invite, SCIM, SAML) calls this.
+    402 with detail.error == "quota_seats" when the plan's seats are used."""
+    await enforce("user.add", {"org_id": org_id, "role": "admin", "sub": actor})

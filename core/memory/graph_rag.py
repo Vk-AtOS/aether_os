@@ -32,7 +32,7 @@ import ast
 import logging
 import os
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Set, Tuple, Any
+from typing import Dict, List, Set, Any
 
 logger = logging.getLogger(__name__)
 

@@ -45,7 +45,7 @@ def generate_hpa(
 
     extra_metric = ""
     if performance_tier == "real_time":
-        extra_metric = f"""\
+        extra_metric = """\
     - type: Pods
       pods:
         metric:
@@ -174,9 +174,10 @@ def generate_pdb(service_name: str, namespace: str, performance_tier: str = "sta
     """Return PodDisruptionBudget YAML.
 
     real_time services keep 67% of pods available (2/3 minimum) during node
-    drains.  All other tiers use 50% to allow faster rolling upgrades.
+    drains.  All other tiers allow one pod down at a time: a percentage minAvailable on a
+    one-replica service (the batch tier) rounds up to 1 and blocks every node drain forever.
     """
-    min_available = "67%" if performance_tier == "real_time" else "50%"
+    budget = ('minAvailable: "67%"' if performance_tier == "real_time" else "maxUnavailable: 1")
 
     return f"""\
 apiVersion: policy/v1
@@ -188,7 +189,7 @@ metadata:
     app: {service_name}
     app.kubernetes.io/managed-by: AetherOS
 spec:
-  minAvailable: "{min_available}"
+  {budget}
   selector:
     matchLabels:
       app: {service_name}

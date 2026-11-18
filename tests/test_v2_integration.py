@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 
 # ── Stack Profile Routing ─────────────────────────────────────────────────────

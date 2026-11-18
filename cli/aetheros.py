@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import time
 import webbrowser
 from pathlib import Path
@@ -62,9 +61,14 @@ def _load_cfg() -> dict:
     return {}
 
 def _save_cfg(cfg: dict) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
-    CONFIG_FILE.chmod(0o600)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # created 0600 from the first byte (KAN-69 SC-07): write-then-chmod left the token readable in between
+    tmp = CONFIG_FILE.with_name(CONFIG_FILE.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(cfg, indent=2))
+    os.replace(tmp, CONFIG_FILE)
 
 def _require_cfg() -> dict:
     cfg = _load_cfg()
@@ -136,11 +140,24 @@ def login(
             r.raise_for_status()
         except requests.HTTPError as e:
             console.print(f"[red]Login failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
         except Exception as e:
             console.print(f"[red]Connection error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
+    if data.get("mfa_required"):
+        # MFA account: /auth/login returns only a short-lived challenge, no access_token.
+        code = typer.prompt("Authenticator code")
+        try:
+            r = requests.post(f"{url}/auth/mfa/confirm", json={"mfa_token": data["mfa_token"], "code": code}, timeout=15)
+            r.raise_for_status()
+        except requests.HTTPError as e:
+            console.print(f"[red]MFA failed:[/red] {e.response.text}")
+            raise typer.Exit(1) from e
+        except Exception as e:
+            console.print(f"[red]Connection error:[/red] {e}")
+            raise typer.Exit(1) from e
+        data = r.json()
     _save_cfg({"url": url, "token": data["access_token"], "email": email})
     console.print(Panel(f"[bold green]Logged in[/bold green] as [cyan]{email}[/cyan]\nGateway: {url}", title="AetherOS", border_style="green"))
 
@@ -195,7 +212,7 @@ def run_pipeline(
             r = _post(cfg, "/factory/start", json=payload)
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data   = r.json()
     run_id = data.get("run_id") or data.get("id")
     console.print(Panel(
@@ -221,7 +238,7 @@ def list_runs(
             r = _get(cfg, "/factory/runs", params=params)
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
     runs = data.get("items") or data.get("runs") or (data if isinstance(data, list) else [])
 
@@ -265,7 +282,7 @@ def status(
             r = _get(cfg, f"/factory/runs/{run_id}")
         except requests.HTTPError as e:
             console.print(f"[red]Not found:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     run = r.json()
     if raw:
         console.print_json(json.dumps(run))
@@ -387,7 +404,7 @@ def cancel(
             _post(cfg, f"/factory/runs/{run_id}/cancel")
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     console.print(f"[yellow]Cancelled[/yellow] run [cyan]{run_id}[/cyan]")
 
 
@@ -406,7 +423,7 @@ def download(
             r = _get(cfg, f"/factory/runs/{run_id}/artifacts")
         except requests.HTTPError as e:
             console.print(f"[red]Failed:[/red] {e.response.text}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     artifacts = r.json()
     if isinstance(artifacts, dict):
         artifacts = artifacts.get("items") or artifacts.get("artifacts") or []
@@ -478,7 +495,7 @@ def health():
             r = _get(cfg, "/health")
         except Exception as e:
             console.print(f"[red]Unreachable:[/red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     data = r.json()
     st = data.get("status", "unknown")
     style = "green" if st in ("ok", "healthy") else "yellow"

@@ -1,5 +1,5 @@
 """
-AetherOS Full Playwright Audit — targets live VPS at http://139.59.87.218
+AetherOS Full Playwright Audit — targets the server in $AETHER_BASE_URL
 Covers all 20 UI tabs + per-org API key flow + live build monitoring.
 
 Usage:
@@ -9,14 +9,13 @@ Outputs: tests/playwright_audit_report.md
 """
 import asyncio
 import json
-import time
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-BASE = "http://139.59.87.218"
-EMAIL = "demo@aetheros.ai"
-PASSWORD = "demo1234"
+BASE = os.environ["AETHER_BASE_URL"]  # no default: never hardcode the server
+EMAIL = os.environ["AETHER_ADMIN_EMAIL"]
+PASSWORD = os.environ["AETHER_ADMIN_PASS"]
 
 REPORT_PATH = Path(__file__).parent / "playwright_audit_report.md"
 
@@ -33,7 +32,7 @@ def log(check: str, status: str, detail: str = ""):
 
 
 async def run_audit():
-    from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+    from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -128,7 +127,6 @@ async def run_audit():
 
         # ── 4. Projects list ─────────────────────────────────────────────────
         print("\n=== Projects ===")
-        base_url = page.url.split("/dashboard")[0] + "/dashboard"
         if await goto("/dashboard/projects"):
             if await text_present("Project", 5000):
                 log("Projects page loads", "PASS")

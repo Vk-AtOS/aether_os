@@ -62,6 +62,14 @@ def image() -> str:
     return os.environ.get("AETHER_SANDBOX_IMAGE", "aether-sandbox:1")
 
 
+def browser_image() -> str:
+    """Image with Chromium, Playwright and axe-core (core/sandbox/Dockerfile.browser)."""
+    return os.environ.get("AETHER_SANDBOX_BROWSER_IMAGE", "aether-sandbox-browser:1")
+
+
+BROWSER_ENTRY_IN_IMAGE = "/opt/aether/browser_entry.py"
+
+
 def publish_ip() -> str:
     return os.environ.get("AETHER_SANDBOX_PUBLISH_IP", "127.0.0.1")
 
@@ -168,10 +176,14 @@ class ContainerProcess:
         self.returncode: Optional[int] = None
 
     def poll(self) -> Optional[int]:
+        """None while running; else the container's exit code (-1 when it no longer exists)."""
         if self.returncode is None:
-            out = _docker("inspect", "-f", "{{.State.Running}}", self.container_id)
-            if out.returncode != 0 or out.stdout.strip() != "true":
+            out = _docker("inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", self.container_id)
+            parts = out.stdout.split()
+            if out.returncode != 0 or len(parts) != 2:
                 self.returncode = -1
+            elif parts[0] != "true":
+                self.returncode = int(parts[1]) if parts[1].lstrip("-").isdigit() else -1
         return self.returncode
 
     def terminate(self) -> None:
@@ -183,10 +195,12 @@ class ContainerProcess:
 
     def wait(self, timeout: Optional[float] = None) -> int:
         try:
-            _docker("wait", self.container_id, timeout=int(timeout or 3600))
+            out = _docker("wait", self.container_id, timeout=int(timeout or 3600))
         except subprocess.TimeoutExpired:
-            raise subprocess.TimeoutExpired(["docker", "wait", self.container_id], timeout)
-        self.returncode = self.returncode if self.returncode is not None else 0
+            raise subprocess.TimeoutExpired(["docker", "wait", self.container_id], timeout) from None
+        if self.returncode is None:   # `docker wait` prints the exit code; unreadable output counts as a failure
+            text = out.stdout.strip()
+            self.returncode = int(text) if out.returncode == 0 and text.lstrip("-").isdigit() else -1
         return self.returncode
 
 
@@ -194,16 +208,19 @@ class DockerRunner(SandboxRunner):
     name = "docker"
     bind_host = "0.0.0.0"  # inside the container; reachable only through the published port
 
-    def __init__(self, limits: Limits = Limits()) -> None:
+    def __init__(self, limits: Limits = Limits(), img: Optional[str] = None) -> None:
         super().__init__(limits)
-        self._img, self._user = image(), sandbox_user()
+        self._img, self._user = img or image(), sandbox_user()
+
+    def browser_entry(self) -> str:
+        return BROWSER_ENTRY_IN_IMAGE
 
     def available(self) -> bool:
         try:
             if _docker("version", "--format", "{{.Server.Version}}").returncode != 0:
                 return False
             if _docker("image", "inspect", self._img).returncode != 0:
-                logger.error("sandbox: image %s not built (docker build -f core/sandbox/Dockerfile "
+                logger.error("sandbox: image %s not built (docker build -f core/sandbox/Dockerfile[.browser] "
                              "-t %s core/sandbox)", self._img, self._img)
                 return False
             for net in NETWORKS:

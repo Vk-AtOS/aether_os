@@ -15,7 +15,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -174,7 +173,7 @@ class TestGatewayPrimitives:
     def test_kong_config_has_plugins(self):
         from aether_os.core.cloud_primitives.gateway import generate_kong_declarative_config
         services = [{"name": "api", "port": 8000, "path_prefix": "/api"}]
-        yaml = generate_kong_declarative_config(services, "app")
+        yaml = generate_kong_declarative_config(services, "app", cors_origins=["https://app.example"])
         assert "rate-limiting" in yaml
         assert "jwt" in yaml
         assert "cors" in yaml

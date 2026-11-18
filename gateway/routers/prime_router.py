@@ -52,6 +52,7 @@ class LimitsIn(BaseModel):
     # No upper bound here: set_limits() refuses above the hard ceiling with a clear 400.
     payment_ceiling: Decimal = Field(gt=0, decimal_places=2, allow_inf_nan=False)
     max_delegation_days: int = Field(ge=1)
+    request_ttl_hours: Optional[int] = Field(default=None, ge=1)   # None keeps the current value
 
 
 class ActionIn(BaseModel):
@@ -100,7 +101,8 @@ async def meta(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, An
 
 def _limits_out(limits: OrgLimits) -> Dict[str, Any]:
     return {"payment_ceiling": str(limits.payment_ceiling),
-            "max_delegation_days": limits.max_delegation_days}
+            "max_delegation_days": limits.max_delegation_days,
+            "request_ttl_hours": limits.request_ttl_hours}
 
 
 @router.get("/limits")
@@ -121,7 +123,8 @@ async def write_limits(
     if user.get("role") not in ("owner", "admin") or not user.get("org_id"):
         raise HTTPException(status_code=403, detail="Only an organisation admin can change Prime limits")
     try:
-        new = await set_limits(user["org_id"], uid, body.payment_ceiling, body.max_delegation_days)
+        new = await set_limits(user["org_id"], uid, body.payment_ceiling, body.max_delegation_days,
+                                body.request_ttl_hours)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _limits_out(new)

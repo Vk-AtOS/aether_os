@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { hr, useHr, btn } from '../velaris/velarisApi';
 import { LoadView, Card, Table, SpecForm } from '../velaris/shared';
 import { useAct } from '../velaris/useAct';
-import { ReqSelect, Detail, StateBadge } from './hrParts';
+import { ReqSelect, Detail, StateBadge, ScreenLink } from './hrParts';
 import { inputClass } from '../prime/parts';
 
 // The JSON-LD and any HTML are shown as text, never rendered as markup.
@@ -71,6 +71,7 @@ const Postings = () => {
     { title: 'Prepare a careers posting?', message: 'A posting draft is made from the requisition. Nothing is public until it is approved and marked live.' });
   return (
     <div className="space-y-4">
+      <ScreenLink to="hiring-admin">The company profile (careers base URL), tracking codes and indexing notices are under Hiring intake admin.</ScreenLink>
       <Card title="Prepare a posting">
         <ReqSelect value={req} onChange={setReq} />
         {req && <SpecForm submitLabel="Prepare posting" busy={act.busy} onSubmit={prepare} fields={[{ name: 'valid_through', label: 'Valid through', type: 'date', required: true }, { name: 'salary', label: 'Salary (JSON, optional)', type: 'json' }]} />}

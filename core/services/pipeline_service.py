@@ -9,9 +9,8 @@ This is the root fix for the "business logic baked into HTTP handlers" problem.
 from __future__ import annotations
 import asyncio
 import logging
-import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +45,9 @@ class PipelineService:
 
         rl = get_rate_limiter()
         if not await rl.check_concurrent_runs(org_id):
-            raise ValueError(f"Organisation has reached the concurrent run limit.")
+            raise ValueError("Organisation has reached the concurrent run limit.")
         if not await rl.check_hourly_starts(org_id):
-            raise ValueError(f"Organisation has exceeded the hourly run limit.")
+            raise ValueError("Organisation has exceeded the hourly run limit.")
 
         # Plan sanity check. The full decision (role, quotas, trial allowance) is made
         # by the caller through gateway.policy_guard.admit_run_start before this runs.

@@ -3,7 +3,8 @@ AetherOS — OAuth2 Social Login (Google + GitHub)
 
 Routes:
   GET /auth/oauth/google           → redirect to Google authorization
-  GET /auth/oauth/google/callback  → exchange code, issue JWT, redirect frontend
+  GET /auth/oauth/google/callback  → exchange code, redirect frontend with a one-time code (never a token)
+  POST /auth/oauth/exchange        → the one-time code -> {kind: session|mfa, token | mfa_token}
   GET /auth/oauth/github           → redirect to GitHub authorization
   GET /auth/oauth/github/callback  → exchange code, issue JWT, redirect frontend
 
@@ -23,48 +24,38 @@ import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+from aether_os.gateway.auth_refresh import oauth_code_pop, oauth_code_set, oauth_state_pop, oauth_state_set
 
 logger = logging.getLogger(__name__)
 oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
-# ── CSRF state store (module-level, short-lived) ──────────────────────────────
-# Maps state_token → (provider, issued_at_timestamp)
-# Cleaned up on each new login initiation.
-# SEC NOTE: This in-process dict is NOT shared across multiple uvicorn workers.
-# In a multi-worker deployment, OAuth CSRF state validation may fail if the
-# callback lands on a different worker than the login request. To fix in
-# production: migrate _pending_states to Redis using the same pattern as
-# gateway/auth_refresh.py (sse_token_set / sse_token_pop).
-_STATE_TTL_SECONDS = 600  # 10 minutes
-_pending_states: dict = {}  # state_token → {"provider": str, "ts": float}
+# ── CSRF state ────────────────────────────────────────────────────────────────
+# Stored in Redis (gateway/auth_refresh.py): the callback can land on any worker.
 
-
-def _new_state(provider: str) -> str:
-    """Generate a cryptographically random CSRF state token and record it."""
-    import time  # deferred: was added incrementally; safe to move to module level if needed
+async def _new_state(provider: str) -> str:
     state = secrets.token_urlsafe(32)
-    # Prune expired entries on each generation (keeps dict bounded)
-    now = time.time()
-    expired = [k for k, v in _pending_states.items() if now - v["ts"] > _STATE_TTL_SECONDS]
-    for k in expired:
-        _pending_states.pop(k, None)
-    _pending_states[state] = {"provider": provider, "ts": now}
+    await oauth_state_set(state, provider)
     return state
 
 
-def _consume_state(state: str, provider: str) -> bool:
-    """Validate and consume a CSRF state token. Returns True if valid."""
-    import time  # deferred: was added incrementally; safe to move to module level if needed
-    entry = _pending_states.pop(state, None)
-    if entry is None:
-        return False
-    if time.time() - entry["ts"] > _STATE_TTL_SECONDS:
-        return False
-    if entry["provider"] != provider:
-        return False
-    return True
+# The state is also bound to the browser that started the flow by an HttpOnly cookie, so a callback URL an
+# attacker obtained cannot be replayed into a victim's browser (login CSRF, KAN-69 F9).
+_STATE_COOKIE = "aether_oauth_state"
+
+
+def _redirect_to_provider(url: str, state: str) -> RedirectResponse:
+    resp = RedirectResponse(url=url)
+    resp.set_cookie(_STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax",
+                    secure=_base_url().startswith("https://"), path="/")
+    return resp
+
+
+def _state_is_ours(request: Request, state: Optional[str]) -> bool:
+    return bool(state) and secrets.compare_digest(request.cookies.get(_STATE_COOKIE, ""), state)
+
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -84,23 +75,30 @@ def _frontend_url() -> str:
     return os.environ.get("FRONTEND_URL", _base_url()).rstrip("/")
 
 
-def _redirect_with_token(token: str) -> RedirectResponse:
-    return RedirectResponse(
-        url=f"{_frontend_url()}/auth/callback?token={urllib.parse.quote(token)}",
-        status_code=302,
-    )
+async def _redirect_with_code(payload: dict) -> RedirectResponse:
+    """The browser gets a one-time code, never a token (see oauth_code_set)."""
+    code = secrets.token_urlsafe(32)
+    await oauth_code_set(code, payload)
+    return RedirectResponse(url=f"{_frontend_url()}/auth/callback?code={urllib.parse.quote(code)}", status_code=302)
 
 
-def _signin_redirect(user, org) -> RedirectResponse:
-    """Token redirect, or a pending-MFA token when the account has MFA enabled."""
+async def _signin_redirect(user, org) -> RedirectResponse:
+    """Redirect with a code for a session, or for a pending-MFA challenge when the account has MFA enabled."""
     if getattr(user, "mfa_enabled", False):
         from aether_os.gateway.auth import create_access_token
         mfa_token = create_access_token({"mfa_pending": True, "user_id": user.id}, expires_hours=1)
-        return RedirectResponse(
-            url=f"{_frontend_url()}/auth/callback?mfa_required=1&mfa_token={urllib.parse.quote(mfa_token)}",
-            status_code=302,
-        )
-    return _redirect_with_token(_make_jwt(user, org))
+        return await _redirect_with_code({"kind": "mfa", "mfa_token": mfa_token})
+    return await _redirect_with_code({"kind": "session", "token": _make_jwt(user, org)})
+
+
+@oauth_router.post("/exchange")
+async def exchange_code(body: dict = Body(...)) -> dict:
+    """Trade the one-time code from the callback redirect for the session (or MFA challenge). Single use, 60 s."""
+    code = body.get("code")
+    payload = await oauth_code_pop(code) if isinstance(code, str) and 20 <= len(code) <= 100 else None
+    if payload is None:
+        raise HTTPException(status_code=400, detail="This sign-in link has expired or was already used. Sign in again.")
+    return payload
 
 
 def _redirect_with_error(message: str) -> RedirectResponse:
@@ -108,6 +106,12 @@ def _redirect_with_error(message: str) -> RedirectResponse:
         url=f"{_frontend_url()}/login?error={urllib.parse.quote(message)}",
         status_code=302,
     )
+
+
+async def _org_has_own_idp(session, org_id: str) -> bool:
+    from aether_os.core.models import SamlConfig
+    from sqlalchemy import select
+    return (await session.execute(select(SamlConfig.id).where(SamlConfig.org_id == org_id))).first() is not None
 
 
 async def _upsert_oauth_user(email: str):
@@ -128,6 +132,10 @@ async def _upsert_oauth_user(email: str):
         ).fetchone()
         if row:
             user, org = row
+            if await _org_has_own_idp(session, org.id):
+                # An org that runs its own SAML IdP controls which addresses exist in it; linking a Google or
+                # GitHub identity by email into it would hand that org's admins a way to capture accounts.
+                raise HTTPException(status_code=403, detail="Your organisation requires single sign-on")
             if not user.email_verified:
                 # Never auto-link an unverified local account: whoever pre-registered
                 # it may hold refresh tokens, API keys, MFA secrets or invites. The
@@ -178,7 +186,7 @@ async def google_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
 
-    state = _new_state("google")
+    state = await _new_state("google")
     callback_url = f"{_base_url()}/api/auth/oauth/google/callback"
     params = {
         "client_id": client_id,
@@ -189,18 +197,19 @@ async def google_login() -> RedirectResponse:
         "prompt": "select_account",
         "state": state,
     }
-    return RedirectResponse(url=_GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params))
+    return _redirect_to_provider(_GOOGLE_AUTH_URL + "?" + urllib.parse.urlencode(params), state)
 
 
 @oauth_router.get("/google/callback", include_in_schema=False)
 async def google_callback(
+    request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "Google sign-in was cancelled")
-    if not state or not _consume_state(state, "google"):
+    if not _state_is_ours(request, state) or not await oauth_state_pop(state, "google"):
         logger.warning("Google OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
@@ -240,10 +249,10 @@ async def google_callback(
             return _redirect_with_error("Google account email is not verified")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _signin_redirect(user, org)
+        return await _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("Google OAuth callback failed")
         return _redirect_with_error("Google sign-in failed. Please try again.")
@@ -257,7 +266,7 @@ async def github_login() -> RedirectResponse:
     if not client_id:
         raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
 
-    state = _new_state("github")
+    state = await _new_state("github")
     callback_url = f"{_base_url()}/api/auth/oauth/github/callback"
     params = {
         "client_id": client_id,
@@ -265,18 +274,19 @@ async def github_login() -> RedirectResponse:
         "scope": "user:email",
         "state": state,
     }
-    return RedirectResponse(url=_GITHUB_AUTH_URL + "?" + urllib.parse.urlencode(params))
+    return _redirect_to_provider(_GITHUB_AUTH_URL + "?" + urllib.parse.urlencode(params), state)
 
 
 @oauth_router.get("/github/callback", include_in_schema=False)
 async def github_callback(
+    request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
 ) -> RedirectResponse:
     if error or not code:
         return _redirect_with_error(error or "GitHub sign-in was cancelled")
-    if not state or not _consume_state(state, "github"):
+    if not _state_is_ours(request, state) or not await oauth_state_pop(state, "github"):
         logger.warning("GitHub OAuth callback: invalid or missing CSRF state")
         return _redirect_with_error("OAuth state mismatch — please try signing in again")
 
@@ -326,10 +336,10 @@ async def github_callback(
             return _redirect_with_error("GitHub did not return a verified email address")
 
         user, org = await _upsert_oauth_user(email=email)
-        return _signin_redirect(user, org)
+        return await _signin_redirect(user, org)
     except HTTPException as exc:
         return _redirect_with_error(str(exc.detail))
-    except Exception as exc:
+    except Exception:
         # SEC: Do not expose internal exception details in redirect URL
         logger.exception("GitHub OAuth callback failed")
         return _redirect_with_error("GitHub sign-in failed. Please try again.")

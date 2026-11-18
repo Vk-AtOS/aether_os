@@ -34,6 +34,7 @@ in `ingress.yaml` to match your actual domain.
 ## 2. Apply Manifests (in order)
 
 ```bash
+# Prefer: deploy/kubernetes/apply.sh <your-filled-copy>  (refuses unmodified templates)
 kubectl apply -f deploy/kubernetes/namespace.yaml
 kubectl apply -f deploy/kubernetes/secret.yaml
 kubectl apply -f deploy/kubernetes/configmap.yaml

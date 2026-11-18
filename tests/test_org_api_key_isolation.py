@@ -19,7 +19,8 @@ import aether_os.core.db as db
 import aether_os.core.model_router as router_mod
 from aether_os.core import api_key_store
 from aether_os.core.errors import LLMUnavailable
-from aether_os.core.llm import client as llm_client
+from aether_os.core.llm import client as llm_client, controls
+from aether_os.core.models import Organisation
 from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm
 
@@ -77,6 +78,11 @@ async def keys(tmp_path, monkeypatch):
     engine = db.get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(db.Base.metadata.create_all)
+    async with db.get_session_factory()() as _s:   # the spend guard refuses calls for orgs that do not exist
+        for _oid in (ORG_A, ORG_B):
+            _s.add(Organisation(id=_oid, name=_oid, slug=_oid, plan="enterprise"))
+        await _s.commit()
+    monkeypatch.setattr(controls, "_orgs", {})
 
     monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeAnthropic)
     monkeypatch.setattr("httpx.AsyncClient", FakeHttpx)
@@ -179,6 +185,9 @@ async def test_context_org_is_used_when_the_caller_passes_no_org_id(keys):
 async def test_openrouter_key_is_per_org_too(keys, monkeypatch):
     monkeypatch.setenv("PRIMARY_LLM", "openrouter")
     monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "test/model:free")
+    # a :free model is a community pool: it only runs when the operator opts in (this test used to pass only because
+    # an org's stored key re-injected the pool after the data policy had removed it)
+    monkeypatch.setenv("ALLOW_COMMUNITY_LLM", "1")
     await api_key_store.save_api_key("openrouter", ORG_A, "or-org-a-key")
 
     assert (await _call(ORG_A))[1] == "openrouter"

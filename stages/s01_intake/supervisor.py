@@ -100,36 +100,37 @@ class IntakeStageSupervisor(PhaseBase):
         # directly (p01 does `phase_input.input_data["entities"] = ...`).
         issues: List[str] = []
 
-        # ── Steps 1-3: parallel sub-phases ───────────────────────────────────
-        # These phases enrich the context independently:
+        # ── Steps 1-3 ─────────────────────────────────────────────────────────
         #   p00_research         → design_brief, build_profile
         #   p00b_data_archaeology → similar_past_runs (or migration scripts)
         #   p00c_architecture_planner → service_map (microservices only)
-        parallel_phases = [
-            "p00_research",
-            "p00b_data_archaeology",
-            "p00c_architecture_planner",
-        ]
-        parallel_results = await asyncio.gather(
+        # p00c reads build_profile, which p00 produces: it must start after p00 has been
+        # merged into the context (it used to run in parallel and always saw an empty profile).
+        parallel_phases = ["p00_research", "p00b_data_archaeology"]
+        ordered_phases = parallel_phases + ["p00c_architecture_planner"]
+        parallel_results = list(await asyncio.gather(
             *[
                 self._run_sub_phase(phase, phase_input, memory_ctx, pm, critical=False)
                 for phase in parallel_phases
             ],
             return_exceptions=True,
-        )
+        ))
         for result in parallel_results:
             if isinstance(result, PipelineBlockedError):
                 raise result  # gather(return_exceptions=True) would swallow a gate denial
-        for phase_name, result in zip(parallel_phases, parallel_results):
+        for result in parallel_results:
+            if isinstance(result, TaskResult) and result.metadata:
+                _merge_metadata_into_context(phase_input.input_data, result.metadata)
+        parallel_results.append(
+            await self._run_sub_phase("p00c_architecture_planner", phase_input, memory_ctx, pm, critical=False)
+        )
+        for phase_name, result in zip(ordered_phases, parallel_results):
             if isinstance(result, Exception):
                 logger.warning(
                     "s01 sub-phase %s failed (non-critical): %s", phase_name, result
                 )
                 issues.append(f"{phase_name} failed: {result}")
-            elif isinstance(result, TaskResult) and result.metadata:
-                # Merge metadata keys that map to well-known context keys.
-                # Each phase writes its own JSON file; here we bubble up
-                # keys that downstream stages read from accumulated_context.
+            elif isinstance(result, TaskResult) and result.metadata and phase_name == "p00c_architecture_planner":
                 _merge_metadata_into_context(phase_input.input_data, result.metadata)
 
         # ── Step 4: requirements extraction (CRITICAL) ────────────────────────

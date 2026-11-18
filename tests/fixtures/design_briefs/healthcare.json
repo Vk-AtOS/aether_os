@@ -1,0 +1,3 @@
+{"primary_hex": "#0f766e", "secondary_hex": "#f59e0b", "background_hex": "#042f2e", "surface_hex": "#134e4a",
+ "font_pairing": "Nunito / Lora", "border_radius": "2xl", "density": "spacious",
+ "widget_description": "A ward board for Patient records: bed occupancy ring, next appointments list and a triage alert badge."}

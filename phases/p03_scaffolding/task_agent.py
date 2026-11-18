@@ -7,9 +7,10 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.security.git_remote import check_https_remote_pinned
 from aether_os.phases.p03_scaffolding.validation import safe_project_name, validate_clone_url
 from aether_os.core.llm.client import get_llm_client
 from aether_os.core.context_helpers import record_decision
@@ -340,7 +341,9 @@ async def health():
     _example_key = _sec.token_hex(32)
     (project_dir / ".env.example").write_text(
         "DATABASE_URL=postgresql://localhost/db\n"
-        f"SECRET_KEY={_example_key}\n")
+        f"SECRET_KEY={_example_key}\n"
+        "# Required by docker-compose.yml (it refuses to start without it). Choose your own value.\n"
+        "POSTGRES_PASSWORD=\n")
 
     # Separate dev and prod env files
     _dev_key = _sec.token_hex(32)
@@ -387,9 +390,9 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://appuser:apppass@db:5432/{project_name.lower()}
+      DATABASE_URL: postgresql+asyncpg://appuser:${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}@db:5432/{project_name.lower()}
       SECRET_KEY: ${{SECRET_KEY}}
       CORS_ORIGINS: http://localhost:3000
     depends_on:
@@ -401,7 +404,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppass
+      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       POSTGRES_DB: {project_name.lower()}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -440,7 +443,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if github_url:
         try:
             validate_clone_url(github_url)
-        except ValueError as exc:
+            # the host allow-list alone is not enough (a listed host is not a promise about its DNS, and the list
+            # is configurable): the shared public-address check, as the intake router does (KAN-69)
+            remote = await asyncio.to_thread(check_https_remote_pinned, github_url)
+        except ValueError as exc:      # UnsafeURL is a ValueError
             logger.warning("p03: github_url refused: %s", exc)
             return TaskResult(output_path=str(output_dir), confidence=0.0, success=False,
                               issues=[f"github_url refused: {exc}"])
@@ -449,7 +455,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["git", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+                ["git", *remote.git_args(), "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
                  "clone", "--depth=1", "--", github_url, str(clone_dir)],
                 capture_output=True, text=True, timeout=60,
             )

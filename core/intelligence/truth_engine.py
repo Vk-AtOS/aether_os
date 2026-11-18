@@ -1,13 +1,25 @@
 """Truth Engine — validates that implementation matches requirements."""
 from __future__ import annotations
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from aether_os.core.run_app import safe_fs
 
 logger = logging.getLogger(__name__)
 
 _instance: Optional["TruthEngine"] = None
+
+
+def _coverage_percent(result: Dict[str, Any]) -> float:
+    """The model's number when it is one; else computed from the per-requirement list; else 0. A missing figure was
+    reported as 80%, which made 'the model said nothing' look like 'mostly covered' (fail closed)."""
+    raw = result.get("coverage_percent")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and 0 <= raw <= 100:
+        return float(raw)
+    items = [c for c in (result.get("coverage") or []) if isinstance(c, dict)]
+    if items:
+        return round(100.0 * sum(1 for c in items if c.get("addressed") is True) / len(items), 1)
+    return 0.0
 
 
 class TruthEngine:
@@ -38,7 +50,7 @@ class TruthEngine:
             result = await llm.call_json(prompt, task_type="code_generation")
             return {
                 "coverage": result.get("coverage", []),
-                "coverage_percent": result.get("coverage_percent", 80),
+                "coverage_percent": _coverage_percent(result),
                 "unaddressed": result.get("unaddressed", []),
                 "engine": "truth_engine",
             }
@@ -56,7 +68,6 @@ class TruthEngine:
         try:
             from aether_os.core.db import get_session_factory
             from aether_os.core.models import Run
-            from sqlalchemy import select
             async with get_session_factory()() as sess:
                 run = await sess.get(Run, run_id)
                 if not run:

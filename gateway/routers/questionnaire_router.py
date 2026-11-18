@@ -13,10 +13,12 @@ Authenticated endpoints (agency / internal use):
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -27,6 +29,7 @@ from aether_os.core.models import QuestionnaireSession, Run
 from aether_os.core.questionnaire.renderer import STAGE_LABELS, render_questionnaire_page
 from aether_os.core.questionnaire.stage_questions import get_stage_questions
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 from aether_os.gateway.routers.questionnaire_helpers import (
     _send_email_via_sendgrid,
     _signal_pipeline_resume,
@@ -45,10 +48,22 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _token_hash(token: str) -> str:
+    """Only the sha256 of a share token is stored (KAN-69 F18): a database or backup reader cannot open a link."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _by_token(token: str):
+    """WHERE clause for a presented token. Rows written before F18 hold the plain token (43 chars); a 64-char
+    presented value is never matched against the plain column, or a leaked hash would open the link."""
+    stored = [_token_hash(token)] + ([token] if len(token) != 64 else [])
+    return QuestionnaireSession.access_token.in_(stored)
+
+
 async def _get_session_by_token(token: str, db) -> QuestionnaireSession:
     """Look up a QuestionnaireSession by access_token. Raises 404 if missing."""
     qs = (await db.execute(
-        select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+        select(QuestionnaireSession).where(_by_token(token))
     )).scalar_one_or_none()
     if not qs:
         raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -69,6 +84,12 @@ async def _verify_run_ownership(run_id: str, user: Dict[str, Any], db) -> Run:
     return run
 
 
+async def _own_run_or_deny(run_id: str, user: Dict[str, Any]) -> None:
+    """Tenant check first: validation errors must not answer differently for another org's run."""
+    async with get_session_factory()() as db:
+        await _verify_run_ownership(run_id, user, db)
+
+
 def _is_expired(qs: QuestionnaireSession) -> bool:
     expires = qs.token_expires_at
     if expires.tzinfo is None:
@@ -77,8 +98,11 @@ def _is_expired(qs: QuestionnaireSession) -> bool:
 
 
 def _build_share_url(token: str, request: Request | None = None) -> str:
-    if request:
+    # Behind nginx request.base_url is the internal address, so the configured public origin comes first.
+    base = os.environ.get("APP_BASE_URL", "").rstrip("/")
+    if not base and request:
         base = str(request.base_url).rstrip("/")
+    if base:
         return f"{base}/api/questionnaire/{token}"
     return f"/api/questionnaire/{token}"
 
@@ -92,7 +116,7 @@ async def get_questionnaire(token: str, request: Request):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs or _is_expired(qs):
             accept = request.headers.get("Accept", "")
@@ -141,7 +165,7 @@ async def submit_questionnaire(token: str, body: Dict[str, Any]):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs:
             raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -179,7 +203,7 @@ async def questionnaire_status(token: str):
     sf = get_session_factory()
     async with sf() as db:
         qs = (await db.execute(
-            select(QuestionnaireSession).where(QuestionnaireSession.access_token == token)
+            select(QuestionnaireSession).where(_by_token(token))
         )).scalar_one_or_none()
         if not qs:
             raise HTTPException(status_code=404, detail="Link not found or expired")
@@ -197,6 +221,15 @@ async def questionnaire_status(token: str):
 
 
 # ── Authenticated endpoints ───────────────────────────────────────────────────
+# Members and above only: the list carries the respondents' access links, and send/fill email people and
+# resume the run. A viewer reads the run, never the links.
+
+@router.get("/questionnaire-stages")
+async def questionnaire_stages(user: Dict[str, Any] = Depends(get_current_user)):
+    """The stages and their questions, so a client can build the fill-on-behalf form."""
+    await enforce("questionnaire.manage", user)
+    return [{"id": sid, "label": label, "questions": get_stage_questions(sid)} for sid, label in STAGE_LABELS.items()]
+
 
 @router.get("/runs/{run_id}/questionnaires")
 async def list_questionnaires(
@@ -204,6 +237,7 @@ async def list_questionnaires(
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """List all questionnaire sessions for a run, newest first."""
+    await enforce("questionnaire.manage", user)
     sf = get_session_factory()
     async with sf() as db:
         await _verify_run_ownership(run_id, user, db)
@@ -222,7 +256,6 @@ async def list_questionnaires(
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
                 "expires_at": r.token_expires_at.isoformat() if r.token_expires_at else None,
-                "share_url": f"/api/questionnaire/{r.access_token}",
             }
             for r in rows
         ]
@@ -244,6 +277,8 @@ async def send_questionnaire(
       agency_name:      str | None
       agency_logo_url:  str | None
     """
+    await enforce("questionnaire.manage", user)
+    await _own_run_or_deny(run_id, user)
     stage_id = body.get("stage_id", "")
     respondent_email = body.get("respondent_email", "")
     respondent_name = body.get("respondent_name", "")
@@ -252,8 +287,10 @@ async def send_questionnaire(
 
     if not stage_id:
         raise HTTPException(status_code=422, detail="stage_id is required")
-    if not respondent_email:
-        raise HTTPException(status_code=422, detail="respondent_email is required")
+    if stage_id not in STAGE_LABELS:
+        raise HTTPException(status_code=422, detail="unknown stage_id")
+    if not respondent_email or "@" not in respondent_email or len(respondent_email) > 320:
+        raise HTTPException(status_code=422, detail="respondent_email must be an email address")
 
     questions = get_stage_questions(stage_id)
     token = secrets.token_urlsafe(32)
@@ -266,7 +303,7 @@ async def send_questionnaire(
             run_id=run_id,
             stage_id=stage_id,
             status="sent",
-            access_token=token,
+            access_token=_token_hash(token),
             token_expires_at=expires_at,
             respondent_email=respondent_email,
             respondent_name=respondent_name,
@@ -278,7 +315,7 @@ async def send_questionnaire(
         await db.commit()
 
     share_url = _build_share_url(token, request)
-    logger.info("[questionnaire] share link: /questionnaire/%s (stage=%s, run=%s)", token, stage_id, run_id)
+    logger.info("[questionnaire] share link created (stage=%s, run=%s)", stage_id, run_id)
 
     stage_label = STAGE_LABELS.get(stage_id, stage_id)
     email_sent = await _send_email_via_sendgrid(
@@ -290,10 +327,7 @@ async def send_questionnaire(
         expires_at=expires_at,
     )
     if not email_sent:
-        logger.info(
-            "[questionnaire] Email not sent (SENDGRID_API_KEY not configured). Share URL: %s",
-            share_url,
-        )
+        logger.info("[questionnaire] Email not sent (SENDGRID_API_KEY not configured); the link is in the response only")
 
     return {
         "session_id": qs.id,
@@ -315,10 +349,14 @@ async def fill_questionnaire(
       stage_id: str
       answers:  dict
     """
+    await enforce("questionnaire.manage", user)
+    await _own_run_or_deny(run_id, user)
     stage_id = body.get("stage_id", "")
     answers = body.get("answers") or {}
     if not stage_id:
         raise HTTPException(status_code=422, detail="stage_id is required")
+    if stage_id not in STAGE_LABELS:
+        raise HTTPException(status_code=422, detail="unknown stage_id")
 
     questions = get_stage_questions(stage_id)
     errors = validate_required_answers(questions, answers)
@@ -336,7 +374,7 @@ async def fill_questionnaire(
             run_id=run_id,
             stage_id=stage_id,
             status="completed",
-            access_token=token,
+            access_token=_token_hash(token),
             token_expires_at=expires_at,
             questions=questions,
             answers=answers,

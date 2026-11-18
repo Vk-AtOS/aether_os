@@ -14,13 +14,14 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
-import subprocess
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,23 @@ def _sha256_path(path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _libpq_target() -> tuple[str, dict]:
+    """(connection string without the password, environment carrying PGPASSWORD) for pg_dump/pg_restore.
+
+    A password in argv is visible to every local user in `ps` and to process-accounting logs, so it travels in
+    PGPASSWORD. SQLAlchemy's "+asyncpg" driver suffix is not libpq syntax (every snapshot failed on it); the query
+    string (?sslmode=require ...) is kept because libpq reads it from the URI.
+    """
+    parts = urlsplit(re.sub(r"^(postgres(?:ql)?)\+\w+://", r"\1://", os.environ.get("DATABASE_URL", "")))
+    env = dict(os.environ)
+    if parts.password:
+        env["PGPASSWORD"] = unquote(parts.password)
+    user = quote(unquote(parts.username), safe="") + "@" if parts.username else ""
+    host = f"[{parts.hostname}]" if parts.hostname and ":" in parts.hostname else (parts.hostname or "")
+    netloc = user + host + (f":{parts.port}" if parts.port else "")
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, "")), env
 
 
 def _detect_db_backend() -> str:
@@ -61,13 +79,12 @@ def _sqlite_db_path() -> Optional[Path]:
 
 async def _pg_dump(dest: Path) -> bool:
     """Run pg_dump and write to dest. Returns True on success."""
-    db_url = os.environ.get("DATABASE_URL", "")
-    loop = asyncio.get_running_loop()
+    db_url, env = _libpq_target()
     try:
         proc = await asyncio.create_subprocess_exec(
             "pg_dump", "--no-password", "--format=custom", f"--file={dest}", db_url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, env=env,
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         if proc.returncode != 0:
@@ -83,7 +100,7 @@ async def _pg_dump(dest: Path) -> bool:
             proc = await asyncio.create_subprocess_exec(
                 "pg_dump", "--no-password", f"--file={dest}", db_url,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE, env=env,
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             return proc.returncode == 0
@@ -292,13 +309,13 @@ class SnapshotManager:
         return success
 
     async def _pg_restore(self, src: Path) -> bool:
-        db_url = os.environ.get("DATABASE_URL", "")
+        db_url, env = _libpq_target()
         try:
             proc = await asyncio.create_subprocess_exec(
                 "pg_restore", "--no-password", "--clean", "--if-exists",
                 "--dbname", db_url, str(src),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE, env=env,
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
             if proc.returncode not in (0, 1):  # pg_restore exits 1 with warnings

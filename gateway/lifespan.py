@@ -11,7 +11,6 @@ import asyncio
 import logging
 import os
 import sys
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Set
@@ -274,6 +273,16 @@ def create_lifespan(background_tasks: Set):
                 logger.info("Guardian watchdog started")
         except Exception as _gw_exc:
             logger.warning("Guardian watchdog failed to start: %s", _gw_exc)
+
+        # ── Webhook outbox sweeper: deliveries survive a restart and are retried with backoff ──
+        try:
+            if _monitors_on:
+                from aether_os.core.webhooks.outbox import run_sweeper
+                _wh_task = asyncio.create_task(run_sweeper())
+                background_tasks.add(_wh_task)
+                _wh_task.add_done_callback(background_tasks.discard)
+        except Exception as _wh_exc:
+            logger.warning("Webhook outbox sweeper failed to start: %s", _wh_exc)
 
         yield  # ── Application runs here ──────────────────────────────────
 

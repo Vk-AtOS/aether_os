@@ -20,33 +20,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm import client as _llm_client
-from aether_os.phases.p05_frontend.prompts import DOMAIN_COMPONENT_DESC, DOMAIN_FALLBACK_WIDGETS
+from aether_os.phases.p05_frontend.design_brief import entity_widget_brief
+from aether_os.phases.p05_frontend.prompts import get_domain_color_hint
+from aether_os.phases.p05_frontend.sse_hook import _generate_sse_hook  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
-
-# Domain-appropriate colour palette hints so the LLM picks scheme-consistent colours
-DOMAIN_COLOR_HINTS: Dict[str, str] = {
-    "healthcare":   "teal palette: bg-teal-50/100, text-teal-800/900, borders teal-200, accents teal-600",
-    "fintech":      "dark navy-gold: bg-slate-900, text-yellow-300, cards bg-slate-800, accents yellow-400",
-    "ecommerce":    "rose-pink: bg-rose-50, text-rose-900, cards bg-white border-rose-100, accents rose-600",
-    "marketplace":  "violet: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "education":    "sky-cyan: bg-sky-50, text-sky-900, cards bg-white border-sky-100, accents sky-600",
-    "gym_fitness":  "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "fitness":      "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "real_estate":  "emerald: bg-emerald-50, text-emerald-900, cards bg-white border-emerald-100, accents emerald-600",
-    "hospitality":  "amber-warm: bg-amber-50, text-amber-900, cards bg-white border-amber-100, accents amber-600",
-    "restaurant":   "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "food":         "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "logistics":    "slate-blue: bg-slate-50, text-slate-900, cards bg-white border-slate-200, accents slate-600",
-    "iot":          "slate-blue: bg-slate-900, text-cyan-300, cards bg-slate-800, accents cyan-400",
-    "hrm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "crm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "analytics":    "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "saas":         "violet-purple: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "security":     "slate-red: bg-slate-900, text-red-300, cards bg-slate-800 border-slate-700, accents red-500",
-    "sports":       "green-energy: bg-green-50, text-green-900, cards bg-white border-green-100, accents green-600",
-    "library":      "stone: bg-stone-50, text-stone-900, cards bg-white border-stone-200, accents amber-700",
-}
 
 
 def _write_with_guard(path: Path, content: str) -> None:
@@ -117,9 +95,9 @@ async def _generate_domain_component(
     """Generate a domain-specific React component via one LLM call with hardcoded fallback."""
 
     # Check fallback first to ensure we have one
-    fallback = DOMAIN_FALLBACK_WIDGETS.get(domain, "export default function DomainWidget() { return <div>Domain Overview</div> }")
 
-    component_desc = DOMAIN_COMPONENT_DESC.get(domain, DOMAIN_COMPONENT_DESC.get("saas", "a SaaS dashboard widget"))
+    # the model's design brief when there is one, else a description built from this app's own entities
+    component_desc = (accumulated_context or {}).get("widget_description") or entity_widget_brief(domain, entities)
     entity_names = [e.get("name", "") or e.get("table", "") for e in entities[:5]] if entities else []
 
     # Inject KG/RAG architecture context from knowledge graph
@@ -129,7 +107,10 @@ async def _generate_domain_component(
     golden_hint = ""
     try:
         from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p05
-        _examples = await get_golden_examples(domain, limit=2)
+        # Tenant data: only this org's (and platform-owned) builds may reach the prompt.
+        _examples = await get_golden_examples(
+            domain, limit=2, org_id=(accumulated_context or {}).get("org_id") or None,
+        )
         golden_hint = format_golden_hint_p05(_examples)
     except Exception as exc:
         logger.debug("p05: golden retriever unavailable: %s", exc)
@@ -150,7 +131,7 @@ async def _generate_domain_component(
         )
     else:
         # Fall back to domain-based color hints
-        _color_hint = DOMAIN_COLOR_HINTS.get(domain, "white/gray neutral: bg-white, text-gray-900, cards bg-white border-gray-100")
+        _color_hint = get_domain_color_hint(domain)
 
     _rag_section = (
         f"## Architecture Context (from knowledge graph)\n{rag_context}\n\n"
@@ -534,66 +515,3 @@ def write_ui_components(src_dir: "Path") -> None:  # type: ignore[name-defined]
 
 
 # ── SSE / Realtime Hook Generation ───────────────────────────────────────────
-
-def _generate_sse_hook(features: List[Any], project_name: str) -> str:
-    """Generate src/hooks/useRealtimeStream.ts — EventSource hook for SSE realtime features.
-
-    Generated when realtime_features is non-empty in accumulated_context.
-    Consumers: import {{ useRealtimeStream }} from '../hooks/useRealtimeStream'
-    """
-    _display_name = project_name or "AetherOS App"
-    _feature_names = [
-        (f if isinstance(f, str) else f.get("name", str(f)))
-        for f in (features or [])
-    ]
-    _feature_comment = ", ".join(_feature_names) if _feature_names else "realtime updates"
-
-    return f"""\
-// useRealtimeStream.ts — generated by AetherOS for {_display_name}
-// Realtime features wired: {_feature_comment}
-//
-// Usage:
-//   import {{ useRealtimeStream }} from '../hooks/useRealtimeStream'
-//   useRealtimeStream((data) => {{ console.log('event', data) }})
-//
-// The hook opens an SSE connection to /api/realtime/stream with the JWT token
-// as a query param (standard for EventSource which cannot set headers).
-// On unmount or error the connection is cleanly closed.
-
-import {{ useEffect, useRef }} from 'react'
-import {{ getToken }} from '../lib/auth'
-
-export function useRealtimeStream(onEvent: (data: unknown) => void): void {{
-  // Keep a stable ref to the latest callback so the effect closure never goes stale.
-  const callbackRef = useRef<(data: unknown) => void>(onEvent)
-  useEffect(() => {{
-    callbackRef.current = onEvent
-  }})
-
-  useEffect(() => {{
-    const token = getToken() ?? ''
-    const url = `/api/realtime/stream${{token ? `?token=${{encodeURIComponent(token)}}` : ''}}`
-    const es = new EventSource(url)
-
-    es.onmessage = (e: MessageEvent) => {{
-      try {{
-        callbackRef.current(JSON.parse(e.data as string))
-      }} catch (parseErr) {{
-        // Non-JSON frames (e.g. keepalives) are intentionally ignored.
-        // Cast to unknown to surface in debug logs if needed.
-        void parseErr
-      }}
-    }}
-
-    es.onerror = () => {{
-      // EventSource will attempt to reconnect automatically; close to prevent
-      // runaway reconnect loops if the server signals a permanent failure.
-      es.close()
-    }}
-
-    return () => {{
-      es.close()
-    }}
-  }}, []) // stable — callback ref pattern means no deps needed
-}}
-"""

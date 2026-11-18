@@ -75,23 +75,28 @@ systemctl is-active aetheros && echo "Service is ACTIVE" || echo "WARN: Service 
 
 echo ""
 echo "==> Verifying Bedrock connectivity..."
-ACCESS_TOKEN=$(curl -s -X POST http://localhost:8001/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@aetheros.ai","password":"demo1234"}' \
+# Secrets travel in the request body read from stdin (-d @-), never as a curl argument: arguments are visible
+# to every user in `ps`. json.dumps also escapes quotes in a password (KAN-69 SC-07).
+: "${AETHER_ADMIN_EMAIL:?set AETHER_ADMIN_EMAIL}" "${AETHER_ADMIN_PASS:?set AETHER_ADMIN_PASS}"
+export AETHER_ADMIN_EMAIL AETHER_ADMIN_PASS
+ACCESS_TOKEN=$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["AETHER_ADMIN_EMAIL"], "password": os.environ["AETHER_ADMIN_PASS"]}))' \
+  | curl -s -X POST http://localhost:8001/api/auth/login \
+  -H 'Content-Type: application/json' -d @- \
   | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token','FAILED'))" 2>/dev/null)
 
 if [[ "$ACCESS_TOKEN" == "FAILED" || -z "$ACCESS_TOKEN" ]]; then
   echo "WARN: Could not get access token — check service logs"
 else
-  BEDROCK_TEST=$(curl -s -X POST http://localhost:8001/api/settings/bedrock/test \
+  export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION
+  BEDROCK_TEST=$(python3 -c 'import json,os; print(json.dumps({k.lower(): os.environ[k] for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION")}))' \
+    | curl -s -X POST http://localhost:8001/api/settings/bedrock/test \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d "{\"aws_access_key_id\":\"$AWS_ACCESS_KEY_ID\",\"aws_secret_access_key\":\"$AWS_SECRET_ACCESS_KEY\",\"aws_region\":\"$AWS_REGION\"}")
+    -H 'Content-Type: application/json' -d @-)
   echo "Bedrock test result: $BEDROCK_TEST"
 fi
 
 echo ""
 echo "Done. Next steps:"
-echo "  1. Visit http://139.59.87.218/ and start a new pipeline run"
+echo "  1. Visit your server URL and start a new pipeline run"
 echo "  2. Marketplace templates are at /api/marketplace/profiles"
-echo "  3. Load test: pip install locust && locust -f tests/load/locustfile.py --host=http://139.59.87.218"
+echo "  3. Load test: pip install locust && locust -f tests/load/locustfile.py --host=<your server URL>"

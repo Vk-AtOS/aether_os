@@ -1,5 +1,7 @@
 # AetherOS Operational Runbook
 
+This file was checked against the code at commit `e5c23fd`. Commands that depend on how your host is set up (service names of PostgreSQL and Redis, paths under `/home`) are marked "host-specific": they could not be checked against the repository. The repository does not run any production host, so no command here was run against one.
+
 ## Table of Contents
 0. [Database Migrations](#0-database-migrations)
 1. [Database Failure](#1-database-failure)
@@ -10,40 +12,28 @@
 6. [SSL Certificate Renewal](#6-ssl-certificate-renewal)
 7. [Rollback Procedure](#7-rollback-procedure)
 8. [Backup & Restore](#8-backup--restore)
-9. [SQLite → PostgreSQL Migration](#9-sqlite--postgresql-migration)
-10. [High Availability Architecture](#10-high-availability-architecture)
-11. [Staging Environment](#11-staging-environment)
+9. [SQLite to PostgreSQL](#9-sqlite-to-postgresql)
+10. [High Availability (reference design)](#10-high-availability-reference-design)
+11. [Velaris public app](#11-velaris-public-app-careers-scheduling-interview-participant-e-sign---kan-128)
 
 ---
 
 ## 0. Database Migrations
 
-AetherOS has two Alembic migration tracks:
+The Alembic history has a single head: `add_org_dpa_acceptance` (`python3.11 -m alembic heads` prints `add_org_dpa_acceptance (head)`). It sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
 
-1. **Main chain** (leaf: `add_pipeline_run_checkpoint`) — run always:
-   ```bash
-   alembic upgrade add_pipeline_run_checkpoint
-   ```
+Use the one migration command the project uses everywhere (`scripts/db_migrate.py`, called by `deploy/deploy.sh:52`, compose service `migrate`):
 
-2. **Field encryption branch** (`encrypt_sensitive_columns`) — run only when `AETHER_FIELD_KEY` is set:
-   ```bash
-   # Only if AETHER_FIELD_KEY is configured:
-   alembic upgrade encrypt_sensitive_columns
-   ```
-
-**Do NOT run `alembic upgrade head`** — it will fail with "Multiple heads are present."
-
-The `deploy/deploy.sh` script handles this automatically. For manual deployments, run the commands above in order.
-
-### Current migration chain (main track, newest → oldest)
+```bash
+# from the directory that contains the aether_os checkout, with DATABASE_URL set
+PYTHONPATH=$(pwd) python3.11 aether_os/scripts/db_migrate.py
 ```
-add_pipeline_run_checkpoint  ← current leaf
-add_audit_log_prev_hash
-add_codebase_profiles
-add_stripe_customer_id
-revision_merge_guardian_heads
-...
-```
+
+- On an existing database it runs `alembic upgrade head`.
+- On an empty database it creates the schema from the models and stamps `head`. It does not replay the history, because the history cannot be replayed from nothing (`scripts/db_migrate.py:1-12`).
+- Exit code 0 means the database is at head.
+
+Field encryption: the encrypted column type needs `AETHER_FIELD_KEY` (`core/encryption.py:28`). Without it a per-process key is used, which makes stored values unreadable after a restart (`core/encryption.py:8`; production refuses to start without it, line 35). Set it before the first migration on a real database.
 
 ---
 
@@ -51,22 +41,20 @@ revision_merge_guardian_heads
 
 ### Detection
 ```bash
-systemctl status postgresql
-tail -50 /var/log/postgresql/postgresql-*.log
-curl -s http://localhost:8000/health | python3 -m json.tool
+curl -s http://localhost:8000/readyz        # 503 with "degraded" listing the component when Postgres is down
+curl -s http://localhost:8000/healthz       # liveness only: does not touch the database
+systemctl status postgresql                 # host-specific unit name
 ```
+`/readyz` is not ready when Postgres is down (`core/resilience/health.py:3-4`). `/health` always returns `{"status": "ok", ...}` and does not check the database (`gateway/routers/health_router.py:34-42`).
 
-### Recovery Steps
-1. Check if Postgres process is running: `ps aux | grep postgres`
-2. Attempt restart: `systemctl restart postgresql`
-3. Check for disk full: `df -h /var/lib/postgresql`
-4. Check for corrupt data: `sudo -u postgres pg_dumpall --check`
-5. If unrecoverable, restore from backup (see Section 8)
+### Recovery steps (host-specific)
+1. Check that the Postgres process runs: `ps aux | grep postgres`.
+2. Restart it: `systemctl restart postgresql`.
+3. Check for a full disk: `df -h`.
+4. If the data is lost, restore from backup (Section 8).
 
-### Impact While Down
-- All API endpoints returning 500
-- Pipeline runs cannot start or update state
-- SSE streams will error
+### Impact while down
+Authenticated requests read the user row from the database on every call (`gateway/dependencies.py:60-70`), so they fail. The exact status code per route was not measured.
 
 ---
 
@@ -74,434 +62,224 @@ curl -s http://localhost:8000/health | python3 -m json.tool
 
 ### Detection
 ```bash
-redis-cli -a "$REDIS_PASSWORD" ping
-systemctl status redis
+curl -s http://localhost:8000/readyz
+redis-cli -a "$REDIS_PASSWORD" ping         # host-specific; in compose: docker compose exec redis redis-cli ...
 ```
 
-### Recovery Steps
-1. Restart Redis: `systemctl restart redis`
-2. Verify: `redis-cli -a "$REDIS_PASSWORD" ping` → should return `PONG`
-3. Check memory: `redis-cli -a "$REDIS_PASSWORD" info memory`
+### Recovery steps
+1. Restart Redis (host-specific unit name, or `docker compose restart redis`).
+2. Verify `PONG` and the `/readyz` result.
 
-### Impact While Down
-- SSE live log events buffered locally (no live updates in UI)
-- Pipeline pause/cancel commands queued locally
-- Rate limiting falls back to in-process counters
-- No data loss — pipeline continues running, events replayed on reconnect
+### What the code does while Redis is down
+- `/readyz` returns 503 when `REQUIRE_REDIS=true` or `ENVIRONMENT=production` (`core/resilience/health.py:68`); otherwise Redis is only shown as degraded.
+- Token revocation checks fail closed with 503 (`gateway/auth_refresh.py`, `assert_access_token_live`). SSE tokens cannot be issued or spent (`sse_token_set`, `sse_token_pop` raise 503).
+- Per-user and per-org API rate limits: in production the request is refused with 503; in development a per-process counter is used (`core/api_rate_limit.py:1-9`).
+- Login and registration limits: in production without Redis they deny the request (`core/rate_limiter.py`, `check_login_attempts`).
+- Pause and cancel commands are written to a process-local dict even when Redis is down (`core/pipeline_state.py:145-148`). With several workers a command may not reach the worker that runs the pipeline. Not measured.
+- The runbook previously said "no data loss, events replayed on reconnect". The code has no such replay that was found: not verified.
 
 ---
 
 ## 3. LLM Unavailability
 
 ### Detection
-```bash
-curl -H "Authorization: Bearer $ANTHROPIC_API_KEY" \
-  https://api.anthropic.com/v1/models
-```
+- Admin view of providers: `GET /system/components` (admin only, `gateway/routers/ops_status_router.py:33`).
+- `/readyz` lists degraded components but model providers never make the API unready (`core/resilience/health.py:3-5`).
 
-### Per-Provider Degradation
-| Provider Down | Affected Features |
-|---|---|
-| Anthropic | All LLM code generation, council review, spec generation |
-| Ollama | SLM self-healing repair (falls back to Anthropic) |
-| OpenAI | Any GPT-based model routing |
+### How the router behaves
+`core/model_router_providers.py:76-157` builds the chain from `PRIMARY_LLM` (default `bedrock`), then Anthropic and Gemini if configured, OpenRouter models if configured, then Ollama. A provider that fails hard is marked dead for a while and skipped. `OFFLINE_MODE=true` restricts the chain to Ollama.
 
-### Recovery Steps
-1. Check Anthropic status: https://status.anthropic.com
-2. If quota exceeded: check billing at console.anthropic.com
-3. Switch model in admin settings: `POST /admin/settings` with `default_model`
-4. For temporary outage: pipeline runs will fail at LLM phases with clear error messages
+### Recovery steps
+1. Check the provider status page and your billing or quota.
+2. Change the order: set `PRIMARY_LLM` (and the model variables in the chain description above) in `.env` and restart the service.
+3. Per organisation: `PUT /settings/llm-config` (organisation LLM settings) or `POST /settings/llm/kill-switch`. There is no `POST /admin/settings` route.
+4. While all providers are down, pipeline phases that call the LLM fail. The error text is whatever the provider returned.
 
 ---
 
 ## 4. Stuck Pipeline Run
 
+The code has no stall monitor: `orchestrator/pipeline.py:126` says it was removed. Nothing logs a CRITICAL line for runs older than 30 minutes, and `/var/log/aetheros/app.log` is not written by the code. Service logs go to the journal (`SyslogIdentifier=aetheros` in `deploy/aetheros.service`).
+
 ### Detection
 ```bash
-# Runs stuck for >30 min are logged as CRITICAL
-grep "STALL\|stuck" /var/log/aetheros/app.log | tail -20
-
-# Check active runs in DB
-psql $DATABASE_URL -c "SELECT id, status, started_at, current_phase FROM pipeline_runs WHERE status='running' AND started_at < NOW() - INTERVAL '30 minutes';"
+journalctl -u aetheros --since "1 hour ago" | tail -50      # host-specific unit name from deploy/aetheros.service
+```
+The table is `runs`, not `pipeline_runs`. `started_at` is a Unix timestamp (float) (`core/models.py:87-94`):
+```bash
+psql $DATABASE_URL -c "SELECT id, status, started_at, current_phase FROM runs WHERE status='running' AND started_at < EXTRACT(EPOCH FROM NOW() - INTERVAL '30 minutes');"
 ```
 
-### Recovery Steps
-1. Get the stuck run_id from the query above
-2. Kill the run via API:
+### Recovery steps
+1. Take the `id` from the query.
+2. Cancel through the API (`gateway/routers/run_decisions_router.py:84`). The cancel URL is under `/factory/runs`:
    ```bash
-   curl -X POST http://localhost:8000/runs/{run_id}/cancel \
-     -H "Authorization: Bearer $ADMIN_TOKEN"
+   curl -X POST http://localhost:8000/factory/runs/{run_id}/cancel \
+     -H "Authorization: Bearer $TOKEN"
    ```
-3. If API unresponsive, kill directly in DB:
+   An owner or admin can use the hard stop `POST /factory/runs/{run_id}/kill` (`run_decisions_router.py:103`).
+3. If the API does not answer, set the status in the database:
    ```bash
-   psql $DATABASE_URL -c "UPDATE pipeline_runs SET status='cancelled', completed_at=NOW() WHERE id='{run_id}';"
+   psql $DATABASE_URL -c "UPDATE runs SET status='cancelled', finished_at=EXTRACT(EPOCH FROM NOW()) WHERE id='{run_id}';"
    ```
-4. Clean up any leftover processes:
-   ```bash
-   # Find orphaned uvicorn processes for generated apps
-   ps aux | grep "uvicorn\|run_app" | grep -v grep
-   kill -9 <PID>
-   ```
+   This only changes the row. It does not stop a worker that is still running the pipeline.
+4. Look for leftover generated-app processes: `ps aux | grep "uvicorn\|run_app" | grep -v grep`, then stop them with `kill <PID>`.
+5. A failed or cancelled run can be restarted from its checkpoint: `POST /factory/runs/{run_id}/restart` (409 for any other status).
 
 ---
 
 ## 5. OOM (Out of Memory)
 
-### Detection
+Host-specific commands (not checked against the repository):
 ```bash
 dmesg | grep -i "oom\|killed" | tail -10
 free -h
-cat /proc/meminfo | grep -E "MemTotal|MemAvailable|Cached"
+ps aux --sort=-%mem | head -20
+systemctl restart aetheros
 ```
-
-### Recovery Steps
-1. Identify memory hog: `ps aux --sort=-%mem | head -20`
-2. Restart AetherOS: `systemctl restart aetheros`
-3. If recurring, increase swap:
-   ```bash
-   fallocate -l 4G /swapfile
-   chmod 600 /swapfile
-   mkswap /swapfile
-   swapon /swapfile
-   echo '/swapfile none swap sw 0 0' >> /etc/fstab
-   ```
-4. For persistent OOM, reduce worker count in aetheros.service:
-   Change `--workers 4` to `--workers 2`
+If it keeps happening, lower `--workers 4` in `deploy/aetheros.service` (and the same value in `Dockerfile:51` for the container) and run `systemctl daemon-reload && systemctl restart aetheros`. Adding swap is an OS decision and is not covered here.
 
 ---
 
 ## 6. SSL Certificate Renewal
 
-### Manual Renewal
+Host-specific. nginx config comes from `deploy/nginx.conf`; `deploy/deploy.sh --domain` fills the domain placeholders.
 ```bash
 certbot renew --nginx --non-interactive
 systemctl reload nginx
-```
-
-### Verify Certificate
-```bash
-openssl s_client -connect yourdomain.com:443 -servername yourdomain.com 2>/dev/null | openssl x509 -noout -dates
-```
-
-### Auto-renewal (should already be set up by certbot)
-```bash
 systemctl status certbot.timer
-# Should show active (running)
+openssl s_client -connect <your-domain>:443 -servername <your-domain> 2>/dev/null | openssl x509 -noout -dates
 ```
 
 ---
 
 ## 7. Rollback Procedure
 
-### Quick Rollback (last deploy)
+### Code
+`deploy/deploy.sh` updates with `git pull --ff-only` (`deploy/deploy.sh:33`), so a rollback is a checkout of an earlier commit followed by a restart:
 ```bash
-# On VPS
-cd /home/aether_os
-git log --oneline -10  # Find the previous good commit
-git stash  # Save any local changes
-git checkout <previous-commit-hash>
+cd <install-dir>                  # for example the path in WorkingDirectory of deploy/aetheros.service
+git log --oneline -10
+git checkout <previous-commit>    # commit or stash local changes first
 systemctl restart aetheros
 ```
 
-### Rollback Database Migration
+### Database migration
 ```bash
-cd /home/aether_os
-# List applied migrations
 alembic history --verbose | head -20
-# Roll back one revision
 alembic downgrade -1
-# Or roll back to specific revision
-alembic downgrade <revision_id>
 ```
+Whether every revision has a working `downgrade()` was not verified. `merge_r3_heads` itself is an empty merge.
 
-### Smoke Test After Rollback
+### Check after rollback
 ```bash
-curl -s http://localhost:8000/health | python3 -m json.tool
-curl -s http://localhost:8000/api/v1/status
+curl -s http://localhost:8000/readyz
+./scripts/smoke_test.sh http://localhost:8000      # needs AETHER_ADMIN_PASS or the password as the third argument
 ```
 
 ---
 
 ## 8. Backup & Restore
 
-### Automated Backup (cron)
+### Scripts in the repository
+`scripts/backup_db.sh`, `scripts/db_backup.sh`, `scripts/restore_drill.py`, `deploy/aetheros-backup.service`, `deploy/aetheros-backup.timer`, `deploy/crontab.example`, `scripts/setup_backup_cron.sh`.
 
-The canonical backup script is `scripts/backup_db.sh`. It:
-- Runs `pg_dump | gzip` → `/var/backups/aetheros/aetheros_YYYYMMDD_HHMMSS.sql.gz`
-- Prunes files older than `RETAIN_DAYS` (default: 7 days)
-- Reads `DATABASE_URL` from `.env` automatically
+### `scripts/backup_db.sh`
+- Needs `DATABASE_URL` (from the environment or `.env`). It refuses a SQLite URL (`scripts/backup_db.sh:27-36`).
+- Writes `aetheros_<timestamp>.sql.gz` to `BACKUP_DIR` (default `/var/backups/aetheros`) and deletes older files after `RETAIN_DAYS` (default 7) (`scripts/backup_db.sh:8-11`).
+- `deploy/crontab.example` runs it daily at 03:00 and logs to `/var/log/aetheros_backup.log`.
 
-**Install the cron job** (copy from `deploy/crontab.example`):
-```bash
-crontab -e
-# Paste the contents of deploy/crontab.example, adjusting /home/aether_os to your install path
-```
-
-**Override retention period** (e.g. keep 14 days):
 ```bash
 RETAIN_DAYS=14 ./scripts/backup_db.sh
+ls -lht /var/backups/aetheros/ | head
 ```
 
-### Manual On-Demand Backup
-```bash
-# Run directly from the repo root
-./scripts/backup_db.sh
-
-# Backups stored in /var/backups/aetheros/
-ls -lht /var/backups/aetheros/ | head -10
-```
-
-### Restore from Backup
+### Restore (host-specific; the database and role names below are the compose defaults)
 ```bash
 BACKUP_FILE=/var/backups/aetheros/aetheros_YYYYMMDD_HHMMSS.sql.gz
-
-# Stop the app
 systemctl stop aetheros
-
-# Drop and recreate DB
 psql -U postgres -c "DROP DATABASE IF EXISTS aether_os;"
 psql -U postgres -c "CREATE DATABASE aether_os OWNER aether_user;"
-
-# Decompress and restore
 gunzip -c "$BACKUP_FILE" | psql -U postgres -d aether_os
-
-# Restart
 systemctl start aetheros
 ```
+`scripts/restore_drill.py` exists for practising a restore; it was not read as part of this check.
 
 ---
 
-## 9. SQLite → PostgreSQL Migration
+## 9. SQLite to PostgreSQL
 
-> **Note:** The production VPS already runs PostgreSQL. This section is for migrating a development SQLite instance.
-
-### Steps
-1. Export from SQLite:
-   ```bash
-   python3 -c "
-   import sqlite3, json
-   conn = sqlite3.connect('aether_os.db')
-   conn.row_factory = sqlite3.Row
-   data = {}
-   for table in conn.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall():
-       rows = conn.execute(f'SELECT * FROM {table[0]}').fetchall()
-       data[table[0]] = [dict(r) for r in rows]
-   json.dump(data, open('sqlite_export.json', 'w'))
-   "
-   ```
-2. Run Alembic migrations on PostgreSQL (see [Section 0](#0-database-migrations) — do NOT use `alembic upgrade head`):
-3. Import data using a script (available in `scripts/sqlite_to_pg.py` if present)
-4. Verify row counts match
-5. Update `DATABASE_URL` in `.env` to point to PostgreSQL
-6. Zero-downtime: use a maintenance window of ~5 minutes, run migrations first, then switch `DATABASE_URL`, then restart the service
+There is no script for this. `scripts/sqlite_to_pg.py` does not exist. `scripts/db_migrate.py` creates the schema on an empty PostgreSQL database but does not copy data. To move data from a development SQLite file you would have to write the copy yourself. The code has no tested path for it.
 
 ---
 
-## 10. High Availability Architecture
+## 10. High Availability (reference design)
 
-This section describes the reference HA topology for running AetherOS in a production environment where the 99.9% SLA (see SECURITY.md) must be met.
+This section is a design sketch. The repository does not deploy or test a multi-node setup, and it contains no uptime target (`SECURITY.md` says the 99.9% claim was removed because nothing measures it). Treat the lists below as options to evaluate.
 
-### 10.1 PostgreSQL: Primary + Streaming Replica
+### 10.1 PostgreSQL
+- `deploy/pgbouncer.ini` is a pgbouncer config in the repository: transaction pooling, listens on `127.0.0.1:6432`, `default_pool_size = 20`, `max_client_conn = 1000`, database `aetheros`.
+- The SQLAlchemy engine uses `pool_pre_ping=True` (`core/db.py:83`).
+- Replication and automatic failover (Patroni, repmgr) are not configured by anything in the repository.
+- Check whether a node is a replica: `psql $DATABASE_URL -c "SELECT pg_is_in_recovery();"`.
 
-**Topology**
-- One primary PostgreSQL node (writes + reads)
-- One or more hot-standby streaming replicas (read-only; automatic failover via Patroni or repmgr)
-- pgBouncer runs on every app server as a local connection pooler (transaction-mode, pool_size=20 per AetherOS worker)
+### 10.2 Redis
+The code reads one `REDIS_URL`. A grep for "sentinel" finds nothing in `core/`, `gateway/` or `orchestrator/`, so Redis Sentinel and Cluster URLs are not supported by the code. Use a single Redis (or a managed one behind one address).
 
-**Key configuration snippets**
-```ini
-# postgresql.conf (primary)
-wal_level = replica
-max_wal_senders = 5
-wal_keep_size = 1GB
-synchronous_commit = on   # or 'remote_apply' for zero-data-loss
-
-# pgbouncer.ini (on each app server)
-[databases]
-aether_os = host=127.0.0.1 port=5432 dbname=aether_os
-[pgbouncer]
-pool_mode = transaction
-max_client_conn = 200
-default_pool_size = 20
-server_idle_timeout = 60
-```
-
-**Failover**
-1. Patroni (or repmgr) detects primary failure (heartbeat timeout, default 30 s)
-2. Replica is promoted: `patronictl failover aether_os --master <old-primary> --candidate <replica>`
-3. pgBouncer reconnects automatically; in-flight transactions are retried by SQLAlchemy (pool_pre_ping=True)
-4. Update `DATABASE_URL` in `.env` if the IP changes, then reload AetherOS without restart: `kill -HUP <uvicorn-pid>`
-
-**Health check**
-```bash
-psql $DATABASE_URL -c "SELECT pg_is_in_recovery(), now();"
-# Primary returns f | <timestamp>; replica returns t | <timestamp>
-```
-
----
-
-### 10.2 Redis: Sentinel or Cluster
-
-AetherOS uses Redis for SSE event fan-out, pipeline pause/cancel signals, and sliding-window rate limiting.
-
-**Redis Sentinel (recommended for 1-3 node setups)**
-```
-Sentinel 1 ─┐
-Sentinel 2 ─┼─ monitors ──► Redis Primary ──► Redis Replica
-Sentinel 3 ─┘
-```
-
-- Minimum quorum: 2 of 3 sentinels must agree before failover
-- AetherOS connects via sentinel URL: `redis+sentinel://sentinel1:26379,sentinel2:26379/mymaster/0`
-- Set `REDIS_URL` in `.env` to the sentinel URL; the `redis-py` client handles discovery automatically
-
-**Redis Cluster (for horizontal scale)**
-- 6 nodes minimum: 3 primary shards + 3 replicas
-- AetherOS's pub/sub keys are prefixed by `org_id`; cluster hash-tags ensure related keys land on the same shard: `{org:<org_id>}:sse:<run_id>`
-
-**Failover timeline**
-- Sentinel detects primary failure after `down-after-milliseconds` (default 5 000 ms)
-- Promotion completes within ~10 s; SSE clients reconnect automatically (EventSource retry)
-- Rate-limit counters reset to zero on failover — this is acceptable (brief over-allowance)
-
----
-
-### 10.3 AetherOS API Servers Behind nginx Upstream
-
-Run two or more AetherOS processes (separate VMs or containers) behind an nginx upstream.
+### 10.3 Several API nodes behind nginx
+The API holds the JWT state in Redis and the run data in PostgreSQL, so more than one node is possible in principle. Things that are per process: the pause and cancel dict (`core/pipeline_state.py:35`) and the model-router dead-provider table. How well several nodes work together was not measured.
 
 ```nginx
 upstream aetheros {
     least_conn;
-    server 10.0.0.1:8000 max_fails=3 fail_timeout=10s;
-    server 10.0.0.2:8000 max_fails=3 fail_timeout=10s;
+    server node1:8000 max_fails=3 fail_timeout=10s;
+    server node2:8000 max_fails=3 fail_timeout=10s;
     keepalive 64;
 }
-
 server {
     listen 443 ssl http2;
-    server_name aetheros.ai;
-
+    server_name <your-domain>;
     location / {
         proxy_pass         http://aetheros;
         proxy_http_version 1.1;
-        proxy_set_header   Upgrade $http_upgrade;
-        proxy_set_header   Connection "upgrade";
         proxy_set_header   Host $host;
         proxy_read_timeout 3600s;   # keep SSE connections alive
     }
-
-    location /health {
-        proxy_pass http://aetheros/health;
-        access_log off;             # suppress noisy health-check logs
-    }
 }
 ```
+The real nginx config of the project is `deploy/nginx.conf`.
 
-**Session affinity** — AetherOS is stateless (JWT auth, no server-side sessions); `least_conn` load balancing is sufficient. SSE streams are handled by the server that accepted the initial HTTP connection; nginx upstream keepalive ensures the same backend is reused for the stream lifetime.
+### 10.4 Load balancer health check
+Poll `GET /readyz`. It returns 200 when the instance can serve traffic and 503 when it cannot (`gateway/routers/health_router.py:53-59`). `GET /healthz` is liveness only. `GET /health` always returns `{"status": "ok", "timestamp", "service", "version"}` and checks nothing.
 
----
-
-### 10.4 Load Balancer Health Check
-
-The nginx (or any external load balancer / cloud health check) should poll:
-
-```
-GET /health
-```
-
-**Expected response (HTTP 200)**
-```json
-{
-  "status": "ok",
-  "db": "ok",
-  "redis": "ok",
-  "version": "0.1.x"
-}
-```
-
-- If `db` or `redis` is `"error"`, nginx `max_fails` will remove the node from the upstream pool.
-- If the HTTP status is non-200, the node is immediately marked down.
-
-Configure the load-balancer interval to **10 s**, failure threshold **3**, success threshold **2**.
-
----
-
-### 10.5 Zero-Downtime Rolling Deployment
-
-Use this procedure whenever deploying a new AetherOS build to a multi-node cluster.
-
-**Prerequisites**
-- All pending Alembic migrations are backward-compatible (additive only — no column drops or renames that would break the old code)
-- New build artifact is available on all nodes (e.g. `git pull` or pre-pulled Docker image)
-
-**Step-by-step**
-
-1. **Run database migrations once** (from any node, before touching the app; see [Section 0](#0-database-migrations)):
+### 10.5 Rolling deploy
+1. Run the migration once: `scripts/db_migrate.py` (Section 0). Only additive migrations are safe while old nodes still run.
+2. Restart one node at a time and wait until `/readyz` returns 200:
    ```bash
-   cd /home/aether_os
-   alembic upgrade revision_merge_guardian_heads
-   # Only if AETHER_FIELD_KEY is set:
-   alembic upgrade encrypt_sensitive_columns
-   ```
-
-2. **Rolling restart — one node at a time:**
-   ```bash
-   # On node 1:
    systemctl restart aetheros
-   # Wait for health check to pass (nginx re-adds node):
-   until curl -sf http://node1:8000/health | grep -q '"status":"ok"'; do sleep 2; done
-   echo "Node 1 healthy"
-
-   # Repeat for node 2, 3, …
+   until curl -sf http://node1:8000/readyz > /dev/null; do sleep 2; done
    ```
-
-3. **Verify all nodes are healthy:**
-   ```bash
-   for node in node1 node2; do
-     curl -sf http://${node}:8000/health | python3 -m json.tool
-   done
-   ```
-
-4. **Rollback** (if a node fails to come up): follow Section 7. Alembic migrations that have not yet been applied to other nodes can be reversed with `alembic downgrade -1` before restarting the old binary.
+3. Repeat for the next node. To roll back, see Section 7.
 
 ---
 
-### 10.6 Reference Architecture (Text Description)
+## 11. Velaris public app (careers, scheduling, interview participant, e-sign) - KAN-128
 
-```
-Internet
-    │
-    ▼
-[Cloudflare / CDN]  ← TLS termination, DDoS mitigation
-    │
-    ▼
-[nginx (2 VMs, active-active)]
-    │  least_conn, health-check /health
-    ├──► AetherOS API Server 1  (uvicorn, 4 workers)
-    └──► AetherOS API Server 2  (uvicorn, 4 workers)
-              │                           │
-              └──────────┬────────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │   pgBouncer (local) │  (on each app server)
-              └──────────┬──────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  PostgreSQL Primary │ ──streaming replication──► PostgreSQL Replica
-              └─────────────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  Redis Primary      │ ──replication──► Redis Replica
-              │  (Sentinel cluster) │
-              └─────────────────────┘
-```
+Own process, own host name, never on the dashboard host. Files: `deploy/nginx_velaris_public.conf`,
+`deploy/velaris_public_proxy.conf`, `deploy/velaris-public.service`, compose service `velaris_public`
+(profile `velaris`, loopback 8731 only), `scripts/velaris_public_smoke.sh`.
 
-**Component sizing for 99.9% uptime target**
+Owner steps (needs DNS + a certificate, nothing here does that for you):
+1. DNS A/AAAA for the public host (for example `careers.<your-domain>`), then `certbot certonly --nginx -d <host>`.
+2. Put the Velaris environment in `/etc/velaris/public.env` (mode 0600): `VELARIS_DATA`, `VELARIS_PUBLIC_CORS_ORIGINS`
+   (the careers site origins), plus the Velaris secrets. The unit sets `VELARIS_PUBLIC_TRUST_PROXY=1` (exactly one proxy).
+3. `bash deploy/velaris_public_setup.sh <host>` (installs site + unit, runs `nginx -t`, reloads).
+4. `bash scripts/velaris_public_smoke.sh https://<host>`: the four prefixes reach the app, `/agents`, `/flows`, `/chat`,
+   `/mail`, `/control`, `/hr`, `/metrics`, `/docs` and `/` answer 404.
 
-| Component | Minimum for HA | Recommended |
-|---|---|---|
-| AetherOS API servers | 2 | 3 |
-| PostgreSQL nodes | 2 (1 primary + 1 replica) | 3 (Patroni) |
-| Redis nodes | 3 (Sentinel quorum) | 6 (Cluster) |
-| nginx load balancers | 2 (active-active) | 2 + Keepalived VIP |
+What the proxy guarantees: path allowlist `/careers/ /schedule/ /interview/ /sign/`; Cookie, Authorization, X-Api-Key,
+X-Org-Id and X-Velaris-* dropped; `X-Forwarded-For` replaced by the connection address (so per-IP limits see the real
+client); 256 KiB body cap; per-IP rate and connection limits; `Referrer-Policy: no-referrer`; the access log keeps only
+the first path segment (`/sign/***`) and never the query or Referer, so a link token is never logged. The nginx error log
+is set to `crit`; a critical error line can still name the request, so do not ship that file to a third party.
+Rollback: `systemctl disable --now velaris-public && rm /etc/nginx/sites-enabled/velaris-public && systemctl reload nginx`.

@@ -19,45 +19,76 @@ import time
 import uuid
 from typing import Dict, Optional, Tuple
 
+from aether_os.core.llm.plans import PLAN_LIMITS
+from aether_os.core.telemetry.metrics import BUDGET_ALERTS, observe_cost
+
 logger = logging.getLogger(__name__)
 
-# Monthly token budgets per plan
-_PLAN_BUDGETS: Dict[str, int] = {
-    "trial":      500_000,
-    "starter":    5_000_000,
-    "growth":    25_000_000,
-    "enterprise": 999_999_999,  # effectively unlimited
-}
+# Monthly token budgets per plan (derived from core.llm.plans, the one table of plan limits).
+_PLAN_BUDGETS: Dict[str, int] = {name: lim.tokens for name, lim in PLAN_LIMITS.items()}
 
 _DOWNGRADE_THRESHOLD = 0.85   # switch to Haiku when >85% of budget used
-_ALERT_THRESHOLD     = 0.80   # log an alert once per org/month at 80%
+_ALERT_THRESHOLD     = 0.80   # alert once per org/month at 80%
 _BLOCK_THRESHOLD     = 1.00   # hard stop at 100% for every plan (D6)
 _alerted: set = set()
 
 
-def kill_switch_on() -> bool:
-    """Global LLM kill switch: LLM_KILL_SWITCH=1 stops every model call at once."""
-    return os.environ.get("LLM_KILL_SWITCH", "").strip().lower() in ("1", "true", "yes", "on")
+def _today() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
 
 
-async def resolve_plan(org_id: str, plan: Optional[str]) -> str:
-    """The plan must be known for every call; look it up when the caller did not pass it."""
-    from aether_os.core.errors import LLMUnavailable
-    if plan:
-        return plan
+def daily_cap_usd(monthly_cap: float) -> float:
+    """One organisation may spend at most LLM_DAILY_SHARE (default 0.25) of its monthly USD cap in one UTC day, but never
+    less than min(cap, $2): a looping agent cannot burn the month in a day, a normal first run is not blocked.
+    LLM_DAILY_SHARE=1 switches the daily limit off. The share is a default for the owner to review."""
+    share = max(0.0, min(1.0, float(os.environ.get("LLM_DAILY_SHARE", "0.25"))))
+    return max(monthly_cap * share, min(monthly_cap, 2.0))
+
+
+async def _daily_spent(session, org_id: str, day: str) -> float:
+    from aether_os.core.models_ops import LlmDailyUsage
+    from sqlalchemy import select
+    return (await session.execute(select(LlmDailyUsage.cost_usd).where(
+        LlmDailyUsage.org_id == org_id, LlmDailyUsage.day == day))).scalar() or 0.0
+
+
+async def _add_daily(session, org_id: str, day: str, cost: float) -> None:
+    from aether_os.core.models_ops import LlmDailyUsage as D
+    from sqlalchemy import update
+    if session.bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    await session.execute(insert(D).values(id=str(uuid.uuid4()), org_id=org_id, day=day, cost_usd=0.0)
+                          .on_conflict_do_nothing(index_elements=["org_id", "day"]))
+    await session.execute(update(D).where(D.org_id == org_id, D.day == day).values(cost_usd=D.cost_usd + cost))
+
+
+async def _alert_80(org_id: str, month: str, pct: float, plan: str) -> None:
+    """Tell the org (an org-wide in-app notification, once per month) that it is near its cap."""
+    if (org_id, month) in _alerted:
+        return
+    _alerted.add((org_id, month))
+    BUDGET_ALERTS.inc()
+    logger.warning("LLM budget ALERT: org %s used %.0f%% of its %s monthly allowance", org_id, pct * 100, plan)
     try:
         from aether_os.core.db import get_session_factory
-        from aether_os.core.models import Organisation
+        from aether_os.core.models import Notification
         from sqlalchemy import select
+        kind = f"llm_budget_80:{month}"
         async with get_session_factory()() as session:
-            found = (await session.execute(
-                select(Organisation.plan).where(Organisation.id == org_id)
-            )).scalar_one_or_none()
+            seen = (await session.execute(
+                select(Notification.id).where(Notification.org_id == org_id, Notification.type == kind).limit(1)
+            )).first()
+            if not seen:
+                session.add(Notification(
+                    org_id=org_id, user_id=None, type=kind, title="AI usage at 80% of this month's limit",
+                    message=f"Your organisation has used {pct:.0%} of its monthly AI allowance ({plan} plan). "
+                            "Calls stop at 100% until next month or until the limit is raised.",
+                ))
+                await session.commit()
     except Exception as exc:
-        raise LLMUnavailable(f"Cannot determine plan for org {org_id}: {exc}") from exc
-    if not found:
-        raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
-    return found
+        logger.warning("Could not store the 80%% budget notification for %s: %s", org_id, exc)
 
 # Input/output cost per token (USD).
 # Anthropic claude-sonnet-4-6: $3/M input, $15/M output
@@ -131,16 +162,32 @@ class TokenBudgetManager:
         return {"input_tokens": 0, "output_tokens": 0, "cache_hits": 0,
                 "cache_misses": 0, "runs": 0, "estimated_cost_usd": 0.0, "total_tokens": 0}
 
-    async def check_budget(self, org_id: str, plan: str) -> Tuple[bool, str, str]:
+    async def check_budget(self, org_id: str, plan: str, projected_cost_usd: float = 0.0,
+                           cap_usd: Optional[float] = None) -> Tuple[bool, str, str]:
+        """(allowed, reason, model hint). Both the token and the USD allowance are hard stops; the
+        USD side counts this call's worst case (`projected_cost_usd`) so the cap is not overshot
+        by a large request. An unknown plan is refused, not given the trial allowance."""
+        limit = PLAN_LIMITS.get(plan)
+        if limit is None:
+            return False, f"Unknown plan {plan!r}: no AI allowance defined", "none"
         month = time.strftime("%Y-%m")
         usage = await self.get_usage(org_id, month, strict=True)
-        budget = _PLAN_BUDGETS.get(plan, _PLAN_BUDGETS["trial"])
-        fraction = usage["total_tokens"] / max(budget, 1)
+        cap = limit.usd if cap_usd is None else cap_usd
+        spent = usage["estimated_cost_usd"] or 0.0
+        usd_fraction = (spent + projected_cost_usd) / cap if cap > 0 else 1.0
+        fraction = max(usage["total_tokens"] / max(limit.tokens, 1), usd_fraction)
         if fraction >= _BLOCK_THRESHOLD:
-            return False, f"Monthly budget exhausted ({usage['total_tokens']:,}/{budget:,} tokens)", "none"
-        if fraction >= _ALERT_THRESHOLD and (org_id, month) not in _alerted:
-            _alerted.add((org_id, month))
-            logger.warning("LLM budget ALERT: org %s used %.0f%% of its %s monthly budget", org_id, fraction * 100, plan)
+            return False, (f"Monthly AI allowance exhausted (${spent:,.2f} of ${cap:,.2f}, "
+                           f"{usage['total_tokens']:,}/{limit.tokens:,} tokens)"), "none"
+        daily_cap = daily_cap_usd(cap)
+        from aether_os.core.db import get_session_factory
+        async with get_session_factory()() as session:      # unreadable usage raises: the cap fails closed
+            today = await _daily_spent(session, org_id, _today())
+        if daily_cap > 0 and today + projected_cost_usd >= daily_cap and daily_cap < cap:
+            return False, (f"Daily AI allowance reached (${today:,.2f} of ${daily_cap:,.2f} today). "
+                           "It resets at 00:00 UTC, or ask an admin to raise the plan limit."), "none"
+        if fraction >= _ALERT_THRESHOLD:
+            await _alert_80(org_id, month, fraction, plan)
         if fraction >= _DOWNGRADE_THRESHOLD:
             return True, f"Budget {fraction:.0%} used — downgrading to Haiku", "haiku"
         return True, "ok", "sonnet"
@@ -159,6 +206,7 @@ class TokenBudgetManager:
             input_tokens  * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"]) +
             output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"])
         )
+        observe_cost(model, input_tokens, output_tokens, cost)
         try:
             from aether_os.core.db import get_session_factory
             sf = get_session_factory()
@@ -179,6 +227,7 @@ class TokenBudgetManager:
                         updated_at=time.time(),
                     )
                 )
+                await _add_daily(session, org_id, _today(), cost)
                 await session.commit()
         except Exception as exc:
             logger.warning("Budget record_usage failed (spend not recorded): %s", exc)

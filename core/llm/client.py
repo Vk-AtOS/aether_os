@@ -160,6 +160,8 @@ class LLMClient:
                     stmt = select(Organisation).where(Organisation.id == org_id)
                     result = await session.execute(stmt)
                     org = result.scalar_one_or_none()
+                    if org and not plan:
+                        plan = org.plan  # the plan travels with every call; this row is already loaded
                     if org and getattr(org, "data_region", None) == "local-only":
                         enforce_local = True
                         context = context or {}
@@ -385,7 +387,7 @@ class LLMClient:
             if attempt < 3:
                 await asyncio.sleep(attempt * 2)
 
-        raise LLMCallError(f"LLM call_json failed to return valid JSON after 3 attempts")
+        raise LLMCallError("LLM call_json failed to return valid JSON after 3 attempts")
 
     async def call_vision(
         self,

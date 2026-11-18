@@ -1,0 +1,40 @@
+# Reviewed 15 Nov 2026 (KAN-203). Every entry below is a verified FALSE POSITIVE
+# (test fixture, placeholder, or an env var NAME). Never add a live secret here:
+# rotate it and purge history instead (docs/security/ROTATION_RUNBOOK.md).
+title = "aether_os gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: fake keys/tokens/passwords used as inputs to redaction, auth and provider tests"
+targetRules = ["generic-api-key", "jwt"]
+paths = [
+  '''tests/conftest\.py''',
+  '''tests/gateway_env\.py''',
+  '''tests/test_billing_webhook\.py''',
+  '''tests/test_model_router\.py''',
+  '''tests/test_plugin_security\.py''',
+  '''tests/test_prime_detail\.py''',
+  '''tests/test_prime_executors\.py''',
+  '''tests/test_run_message_redaction\.py''',
+  '''tests/test_security_fixes\.py''',
+  '''tests/test_velaris_proxies\.py''',
+]
+
+[[allowlists]]
+description = "Generated-app templates: literal 'replace...' / sk_test_placeholder stubs, not credentials"
+targetRules = ["generic-api-key", "stripe-access-token"]
+paths = [
+  '''phases/p11_deployment/(writers|task_agent)\.py''',
+  '''phases/p04b_business_logic/logic_generators\.py''',
+]
+
+[[allowlists]]
+description = "Env var names / secretKeyRef names / prose, no value present"
+targetRules = ["generic-api-key", "stripe-access-token"]
+paths = [
+  '''prime/approvals\.py''',
+  '''deploy/kubernetes/api\.yaml''',
+  '''docs/codebase_map/.*\.md''',
+]

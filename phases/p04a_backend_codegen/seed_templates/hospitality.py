@@ -2,8 +2,7 @@
 Seed template for hospitality domain.
 """
 import random
-from sqlalchemy import select, func
-from models import User, Room, Guest, Booking, Housekeeping
+from models import Room, Guest, Booking, Housekeeping
 
 async def seed_hospitality(db_session):
     # 1. Rooms (Minimum 20)

@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from aether_os.core.run_app import safe_fs
 
@@ -36,7 +35,6 @@ def init_memory(
     run_id: str,
 ) -> Dict[str, Any]:
     """Create initial project_memory.json. Safe to call multiple times."""
-    mem_file = _memory_path(project_dir)
     safe_fs.safe_makedirs(project_dir, _MEMORY_DIR)   # the sandboxed app writes here: no links
 
     text = _text(project_dir)
@@ -66,7 +64,6 @@ def init_memory(
 
 def update_memory(project_dir: Path, updates: Dict[str, Any]) -> None:
     """Merge updates into the existing project memory."""
-    mem_file = _memory_path(project_dir)
     text = _text(project_dir)
     if text is None:
         return
@@ -85,7 +82,6 @@ def add_architectural_decision(
     decision: str,
     rationale: str,
 ) -> None:
-    mem_file = _memory_path(project_dir)
     text = _text(project_dir)
     if text is None:
         return
@@ -107,7 +103,6 @@ def add_changelog_entry(
     entry: str,
     author: str = "system",
 ) -> None:
-    mem_file = _memory_path(project_dir)
     text = _text(project_dir)
     if text is None:
         return

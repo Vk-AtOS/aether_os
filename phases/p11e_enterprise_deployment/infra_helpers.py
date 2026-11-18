@@ -101,7 +101,7 @@ def write_github_actions(
 
     # Language-specific test step
     test_step = _test_step(backend_lang)
-    build_args = f"--build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    build_args = "--build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     multi_service_matrix = ""
     if is_microservices:
@@ -438,53 +438,53 @@ resource "aws_security_group" "redis" {{
 }}
 """)
 
-    (eks_dir / "variables.tf").write_text(f"""\
-variable "aws_region" {{
+    (eks_dir / "variables.tf").write_text("""\
+variable "aws_region" {
   description = "AWS region"
   default     = "us-east-1"
-}}
+}
 
-variable "environment" {{
+variable "environment" {
   description = "Deployment environment (staging | production)"
   default     = "staging"
-}}
+}
 
-variable "node_instance_type" {{
+variable "node_instance_type" {
   description = "EKS worker node EC2 instance type"
   default     = "t3.medium"
-}}
+}
 
-variable "db_instance_class" {{
+variable "db_instance_class" {
   description = "RDS instance class"
   default     = "db.t3.medium"
-}}
+}
 
-variable "redis_node_type" {{
+variable "redis_node_type" {
   description = "ElastiCache node type"
   default     = "cache.t3.micro"
-}}
+}
 
-variable "admin_role_arn" {{
+variable "admin_role_arn" {
   description = "ARN of the IAM role granted cluster admin access"
-}}
+}
 """)
 
-    (eks_dir / "outputs.tf").write_text(f"""\
-output "cluster_endpoint" {{
+    (eks_dir / "outputs.tf").write_text("""\
+output "cluster_endpoint" {
   value = module.eks.cluster_endpoint
-}}
+}
 
-output "rds_endpoint" {{
+output "rds_endpoint" {
   value = module.rds.db_instance_endpoint
-}}
+}
 
-output "redis_endpoint" {{
+output "redis_endpoint" {
   value = aws_elasticache_replication_group.redis.primary_endpoint_address
-}}
+}
 
-output "vpc_id" {{
+output "vpc_id" {
   value = module.vpc.vpc_id
-}}
+}
 """)
 
     (eks_dir / "README.md").write_text(f"""\

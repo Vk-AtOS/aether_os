@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => ({
     tailwindcss(),
   ],
   base: '/dashboard/',
+  // vitest runs src/__tests__; the Playwright specs in e2e/ are run by `npm run test:e2e`.
+  test: { include: ['src/**/*.test.{js,jsx}'] },
   server: {
     proxy: {
       '/api': {

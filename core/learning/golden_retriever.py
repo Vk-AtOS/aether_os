@@ -5,10 +5,8 @@ and retrieves few-shot context for LLM prompts.
 """
 from __future__ import annotations
 
-import json
 import logging
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -31,19 +29,30 @@ async def record_feedback(
     """Persist a BuildFeedback row and trigger golden promotion check."""
     from aether_os.core.models import BuildFeedback, Run, GoldenBuild
     from sqlalchemy import select, func
+    from sqlalchemy.exc import IntegrityError
 
     rating = max(1, min(5, int(rating)))
 
-    fb = BuildFeedback(
-        id=str(uuid.uuid4()),
-        run_id=run_id,
-        org_id=org_id,
-        user_id=user_id,
-        rating=rating,
-        tags=tags or [],
-        comment=comment,
-    )
-    session.add(fb)
+    # One rating per user per run (uq_build_feedback_run_user): a second submit replaces the first
+    # instead of counting twice or failing.
+    fb = None
+    if user_id:
+        fb = (await session.execute(
+            select(BuildFeedback).where(BuildFeedback.run_id == run_id, BuildFeedback.user_id == user_id)
+        )).scalar_one_or_none()
+    if fb is not None:
+        fb.rating, fb.tags, fb.comment = rating, tags or [], comment
+    else:
+        fb = BuildFeedback(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            org_id=org_id,
+            user_id=user_id,
+            rating=rating,
+            tags=tags or [],
+            comment=comment,
+        )
+        session.add(fb)
     await session.flush()
 
     # Compute average rating for this run
@@ -63,8 +72,12 @@ async def record_feedback(
             if run:
                 golden = await _build_golden_record(run, avg_rating, session)
                 if golden:
-                    session.add(golden)
-                    logger.info("golden_retriever: promoted run %s (avg_rating=%.1f) to golden", run_id, avg_rating)
+                    try:
+                        async with session.begin_nested():  # savepoint: a lost race must not undo the feedback row
+                            session.add(golden)
+                        logger.info("golden_retriever: promoted run %s (avg_rating=%.1f) to golden", run_id, avg_rating)
+                    except IntegrityError:
+                        logger.info("golden_retriever: run %s was promoted concurrently", run_id)
 
     await session.commit()
     return {"id": fb.id, "rating": rating, "avg_rating": avg_rating}

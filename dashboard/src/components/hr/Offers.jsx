@@ -26,6 +26,7 @@ const Offer = ({ id, done }) => {
   const [ack, setAck] = useState(false);
   const [note, setNote] = useState('');
   const [show, setShow] = useState(false);
+  const [evidence, setEvidence] = useState('');
   const doit = (method, args, title, message) => act.run(async () => { const out = await hr('OFFER_LETTERS', method, { offer_id: id, ...args }); done(); q.reload(); return out; }, { title, message });
   return (
     <Card title={`Offer ${id.slice(0, 10)}`}>
@@ -46,6 +47,10 @@ const Offer = ({ id, done }) => {
                   <button className={btn()} disabled={act.busy || (review && !ack)} onClick={() => doit('approve', { note, acknowledge_review: ack }, 'Approve this offer?', 'Only the named approver for the current step can approve. It is recorded under your name.')}>Approve</button>
                   <button className={btn('danger')} disabled={act.busy || !note} onClick={() => doit('reject', { note }, 'Reject this offer?', 'A note is required. The drafter will see it.')}>Reject</button></>}
                 {o.status === 'approved' && <button className={btn()} disabled={act.busy} onClick={() => doit('send_offer', { delivered_manually: true }, 'Mark the offer as sent?', 'Records that the approved letter was delivered to the candidate by you.')}>Mark sent</button>}
+                {o.status === 'sent' && <>
+                  <input className={`${inputClass} max-w-[14rem]`} placeholder="E-sign request id (optional)" aria-label="E-sign request id" value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+                  <button className={btn()} disabled={act.busy} onClick={() => doit('record_response', { response: 'accept', evidence_ref: evidence, note }, 'Record that the candidate accepted?', 'Records the acceptance under your name. With an e-sign request id Velaris checks it is sealed and made for this offer; without one it is recorded as entered by HR.')}>Candidate accepted</button>
+                  <button className={btn('danger')} disabled={act.busy} onClick={() => doit('record_response', { response: 'decline', evidence_ref: evidence, note }, 'Record that the candidate declined?', 'Records the decline under your name. It cannot be undone.')}>Candidate declined</button></>}
                 {['approved', 'sent'].includes(o.status) && <button className={btn('danger')} disabled={act.busy || !note} onClick={() => doit('withdraw_offer', { reason: note }, 'Withdraw this offer?', 'A reason (the note) is required.')}>Withdraw</button>}
                 <button className={btn('ghost')} onClick={() => setShow(!show)}>{show ? 'Hide letter' : 'Render letter'}</button>
               </div>
@@ -64,6 +69,8 @@ const Offers = () => {
   const [open, setOpen] = useState(null);
   const q = useHr('OFFER_LETTERS', 'list_offers', tab === 'inbox' ? { status: 'pending_approval' } : {});
   const act = useAct();
+  const templates = useHr('OFFER_LETTERS', 'list_templates');     // the picker (KAN-139): built-in and this organisation's own
+  const templateIds = (templates.data?.templates || []).map((t) => (typeof t === 'string' ? t : t.id || t.name)).filter(Boolean);
   const create = (v) => act.run(async () => { const out = await hr('OFFER_LETTERS', 'create_offer', v); q.reload(); return out; },
     { title: 'Draft this offer?', message: `A draft for ${v.candidate_name} is created. It needs two different approvers and you cannot approve it yourself.` });
   return (
@@ -80,7 +87,8 @@ const Offers = () => {
           { name: 'role_title', label: 'Role title', type: 'text', required: true }, { name: 'department', label: 'Department', type: 'text', required: true }, { name: 'location', label: 'Location', type: 'text', required: true },
           { name: 'join_date', label: 'Join date', type: 'date', required: true }, { name: 'annual_ctc', label: 'Annual CTC', type: 'number', required: true },
           { name: 'hiring_manager_id', label: 'Hiring manager (user id)', type: 'text', required: true }, { name: 'hr_approver_id', label: 'HR approver (user id)', type: 'text', required: true },
-          { name: 'application_id', label: 'Application id', type: 'text' }]} />
+          { name: 'application_id', label: 'Application id', type: 'text' },
+          ...(templateIds.length ? [{ name: 'template_id', label: 'Template', type: 'select', options: templateIds }] : [])]} />
         {act.view}
       </Card>
     </div>

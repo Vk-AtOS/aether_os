@@ -1,7 +1,6 @@
 """Child lists have a hard maximum page size (KAN-136)."""
 import asyncio
 
-from sqlalchemy import select
 from sqlalchemy.dialects import sqlite
 
 import aether_os.core.services.run_service as rs

@@ -91,7 +91,7 @@ redis:
 """)
 
     # values.prod.yaml
-    (helm_dir / "values.prod.yaml").write_text(f"""\
+    (helm_dir / "values.prod.yaml").write_text("""\
 # Production overrides — set these before deploying to production
 replicaCount: 5
 
@@ -393,19 +393,19 @@ resource "azurerm_redis_cache" "main" {{
 }}
 """)
 
-    (tf_dir / "outputs.tf").write_text(f"""\
-output "aks_kube_config" {{
+    (tf_dir / "outputs.tf").write_text("""\
+output "aks_kube_config" {
   value     = azurerm_kubernetes_cluster.main.kube_config_raw
   sensitive = true
-}}
+}
 
-output "db_fqdn" {{
+output "db_fqdn" {
   value = azurerm_postgresql_flexible_server.main.fqdn
-}}
+}
 
-output "redis_hostname" {{
+output "redis_hostname" {
   value = azurerm_redis_cache.main.hostname
-}}
+}
 """)
 
     logger.info("p11e: Azure Terraform written to %s", tf_dir)

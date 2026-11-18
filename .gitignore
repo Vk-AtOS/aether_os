@@ -79,7 +79,8 @@ log/
 
 # AetherOS runtime data
 ~/.aether_os/
-data/
+# Anchored to the repo root: a bare `data/` also hid deploy/terraform/aws/modules/data, which was never committed.
+/data/
 
 # Outputs (generated projects)
 outputs/
@@ -96,6 +97,8 @@ Thumbs.db
 # Node (Aether-one had node_modules committed — prevent this)
 node_modules/
 package-lock.json
+# The dashboard lockfile is required: Dockerfile, deploy.sh and setup_vps.sh run `npm ci`, and CI too.
+!dashboard/package-lock.json
 yarn.lock
 bun.lockb
 
@@ -127,3 +130,20 @@ token.txt
 auth_res.json
 *.db.bak
 .local/
+
+# terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log
+
+# Playwright output
+dashboard/test-results/
+dashboard/playwright-report/
+
+# Generated/personal files that must never be tracked (KAN-192, KAN-194)
+snapshots/
+*_snapshot.md
+tests/playwright_audit_report.md
+uv.lock

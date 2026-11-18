@@ -75,7 +75,6 @@ def _fallback_seed(
     safe_entities = entities[:8] if entities else []
     for ent in safe_entities:
         name = ent.get("name", "Item")
-        table = ent.get("table", name.lower() + "s")
         fields = ent.get("fields", []) or []
 
         # Identify unique fields so we can enforce uniqueness in seed rows
@@ -127,7 +126,7 @@ def _fallback_seed(
 
     entity_seed_code = "\n".join(entity_blocks) if entity_blocks else "        pass  # no entity seed data"
 
-    return textwrap.dedent(f"""\
+    return textwrap.dedent("""\
         from __future__ import annotations
         import os, logging
         from sqlalchemy import select, func

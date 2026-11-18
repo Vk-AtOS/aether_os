@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useHr } from '../velaris/velarisApi';
 import { inputClass } from '../prime/parts';
@@ -11,7 +12,7 @@ export const Masked = ({ value }) => {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : JSON.stringify(value);
   return (
     <span className="font-mono">
-      {show ? text : `${'•'.repeat(6)}${text.length > 4 ? text.slice(-2) : ''}`}
+      {show ? text : '•'.repeat(6)}
       <button type="button" className="ml-2 text-muted align-middle" aria-label={show ? 'Hide value' : 'Show value'} onClick={() => setShow(!show)}>
         {show ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
       </button>
@@ -57,3 +58,9 @@ export const ReqSelect = ({ value, onChange, label = 'Requisition' }) => {
     </select>
   );
 };
+
+// Points a tab at the admin screen that holds the actions this tab does not (KAN-144, KAN-145): one place per task,
+// reachable from where the person already is.
+export const ScreenLink = ({ to, children }) => (
+  <p className="text-xs text-muted">{children} <Link className="text-accent hover:underline" to={`/work/${to}`}>Open the screen</Link></p>
+);

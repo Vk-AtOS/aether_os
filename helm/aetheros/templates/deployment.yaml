@@ -25,6 +25,8 @@ spec:
     metadata:
       labels:
         {{- include "aetheros.selectorLabels" . | nindent 8 }}
+        # Velaris's NetworkPolicy admits only pods with this component label (KAN-112)
+        app.kubernetes.io/component: gateway
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

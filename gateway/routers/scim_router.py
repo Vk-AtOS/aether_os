@@ -4,8 +4,9 @@ GET    /scim/v2/Users
 GET    /scim/v2/Users/{user_id}
 POST   /scim/v2/Users
 PUT    /scim/v2/Users/{user_id}
+PATCH  /scim/v2/Users/{user_id}   (Okta/Entra deactivate with active=false)
 DELETE /scim/v2/Users/{user_id}
-GET    /scim/v2/Groups
+Groups, ServiceProviderConfig, ResourceTypes and Schemas: gateway/routers/scim_groups_router.py
 Auth: dedicated SCIM Bearer token only. A user session JWT is never accepted:
 provisioning creates and deactivates accounts, so it must not be reachable with
 a credential every signed-in user holds.
@@ -19,8 +20,10 @@ IdP setup (Okta / Azure AD / Google):
 """
 from __future__ import annotations
 import asyncio
+import hashlib
 import logging
 import os
+import re
 import secrets
 import uuid
 from typing import Any, Dict, Optional
@@ -28,14 +31,20 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation
-from aether_os.core.models import Organisation as _Org
+from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter
 from aether_os.core.models import User as _User
 from aether_os.gateway.auth import get_password_hash
+from aether_os.gateway.auth_refresh import revoke_user_sessions
+from aether_os.gateway.policy_guard import enforce_seat
+from aether_os.gateway.scim_patch import as_bool, attribute_changes, operations, scim_error
 from datetime import datetime as _dt
 from sqlalchemy import func, select
 import bcrypt as _bcrypt
 import secrets as _sec
+_FILTER_USERNAME = re.compile(r'^\s*userName\s+eq\s+"([^"]*)"\s*$', re.IGNORECASE)
+_FILTER_ANY = re.compile(r'^\s*(externalId)\s+eq\s+"[^"]*"\s*$', re.IGNORECASE)
 logger = logging.getLogger(__name__)
+LEGACY_PER_MINUTE = 30     # bcrypt compares of legacy (no sha256 lookup) tokens per client address per minute
 router = APIRouter(tags=["scim"])
 def _match_org_token(token: str, orgs) -> Optional[str]:
     """Blocking (bcrypt): run in a thread. Returns the org id whose SCIM token matches."""
@@ -86,20 +95,31 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
             )
         return {"org_id": scim_org_id, "role": "admin", "sub": "scim-provisioner"}
     # 2. Per-org DB token (rotatable via /settings/scim)
-    # DB-H1: scim_token_hash stores a bcrypt hash — never compare plaintext stored value
     try:
         sf = get_session_factory()
         async with sf() as session:
-            # Prefer hashed tokens; fall back to legacy plaintext scim_token for migration
+            # Hot path: one indexed lookup on the token's sha256 (the token is 256 random bits). No bcrypt.
+            found = (await session.execute(
+                select(Organisation.id).where(
+                    Organisation.scim_token_lookup == hashlib.sha256(token.encode()).hexdigest())
+            )).scalar_one_or_none()
+            if found:
+                return {"org_id": found, "role": "admin", "sub": "scim-provisioner"}
+            # Legacy: tokens issued before scim_token_lookup existed are checked until the org rotates.
             orgs = (await session.execute(
                 select(Organisation).where(
-                    Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None)
-                )
+                    Organisation.scim_token_lookup.is_(None),
+                    Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None))
             )).scalars().all()
-        # bcrypt is ~250 ms of CPU per compare: off the event loop, or one IdP sync stalls the worker.
+        # bcrypt is ~250 ms of CPU per compare per legacy org: bounded per client address, or a wrong token is a
+        # CPU-exhaustion tool (KAN-69 F20); and off the event loop, or one IdP sync stalls the worker.
+        if orgs and not await get_rate_limiter().allow(f"scim_legacy:{get_client_ip(request)}", LEGACY_PER_MINUTE, 60):
+            raise HTTPException(status_code=429, detail="SCIM: too many attempts", headers={"Retry-After": "60"})
         org_id = await asyncio.to_thread(_match_org_token, token, [(o.id, o.scim_token_hash, o.scim_token) for o in orgs])
         if org_id:
             return {"org_id": org_id, "role": "admin", "sub": "scim-provisioner"}
+    except HTTPException:
+        raise
     except Exception as exc:
         # Lookup failure is a denial, never a reason to try another credential type.
         logger.warning("SCIM per-org token lookup failed: %s", exc)
@@ -125,6 +145,7 @@ def _scim_user(u) -> dict:
 async def scim_list_users(
     startIndex: int = 1,
     count: int = 50,
+    filter: Optional[str] = None,
     user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
     if user.get("role") not in ["owner", "admin"]:
@@ -132,6 +153,15 @@ async def scim_list_users(
     sf = get_session_factory()
     async with sf() as session:
         scope = (_User.org_id == user["org_id"], _User.deleted_at == None)
+        if filter:
+            # IdPs look a user up by userName before creating it; ignoring the filter made every user "exist".
+            m = _FILTER_USERNAME.match(filter)
+            if m:
+                scope += (func.lower(_User.email) == m.group(1).lower(),)
+            elif _FILTER_ANY.match(filter):
+                scope += (_User.id == "",)  # externalId and other attributes: we store none, so nothing matches
+            else:
+                raise scim_error(400, "Unsupported filter; supported: userName eq \"value\"", "invalidFilter")
         total = (await session.execute(select(func.count()).select_from(_User).where(*scope))).scalar_one()
         rows = (await session.execute(
             select(_User).where(*scope).order_by(_User.id)
@@ -168,10 +198,11 @@ async def scim_create_user(
     email = req.get("userName") or (req.get("emails") or [{}])[0].get("value")
     if not email:
         raise HTTPException(status_code=400, detail="userName or emails[0].value required")
+    await enforce_seat(user["org_id"], "scim")  # 402 quota_seats: the IdP cannot exceed the plan's seats
     sf = get_session_factory()
     async with sf() as session:
         if (await session.execute(select(_User).where(_User.email == email))).scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="User already exists")
+            raise scim_error(409, "User already exists", "uniqueness")
         new_user = _User(
             id=str(uuid.uuid4()),
             org_id=user["org_id"],
@@ -197,10 +228,10 @@ async def scim_update_user(
         u = await session.get(_User, user_id)
         if not u or u.org_id != user["org_id"] or u.deleted_at:
             raise HTTPException(status_code=404)
+        # displayName has no column: it used to be written into user_preferences, destroying the
+        # user's saved preferences. It is accepted and ignored.
         if "active" in req:
-            u.is_active = bool(req["active"])
-        if "displayName" in req:
-            u.user_preferences = req["displayName"]
+            await _set_active(u, as_bool(req["active"]))
         await session.commit()
         await session.refresh(u)
     return _scim_user(u)
@@ -219,26 +250,44 @@ async def scim_delete_user(
         u.deleted_at = _dt.utcnow()
         u.is_active = False
         await session.commit()
-@router.get("/scim/v2/Groups")
-async def scim_list_groups(
+    await revoke_user_sessions(user_id)  # the account stops working now, not when its token expires
+
+
+async def _set_active(u, active: bool) -> None:
+    """Flip a user's active flag. Reactivation needs a free seat; deactivation ends every session."""
+    if active and not u.is_active:
+        await enforce_seat(u.org_id, "scim")
+    u.is_active = active
+    if not active:
+        await revoke_user_sessions(u.id)
+
+
+@router.patch("/scim/v2/Users/{user_id}")
+async def scim_patch_user(
+    user_id: str,
+    req: Dict[str, Any],
     user: Dict[str, Any] = Depends(_verify_scim_auth),
 ):
-    if user.get("role") not in ["owner", "admin"]:
-        raise HTTPException(status_code=403)
+    """RFC 7644 3.5.2. Supports active and userName; other attributes are accepted and ignored
+    (they have no column) so an IdP's full-profile patches do not fail."""
+    changes = list(attribute_changes(operations(req)))
     sf = get_session_factory()
     async with sf() as session:
-        org = await session.get(_Org, user["org_id"])
-    if not org:
-        raise HTTPException(status_code=404)
-    return {
-        "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-        "totalResults": 1,
-        "startIndex": 1,
-        "itemsPerPage": 1,
-        "Resources": [{
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
-            "id": org.id,
-            "displayName": org.name,
-            "meta": {"resourceType": "Group", "created": str(org.created_at)},
-        }],
-    }
+        u = await session.get(_User, user_id)
+        if not u or u.org_id != user["org_id"] or u.deleted_at:
+            raise scim_error(404, "User not found")
+        for op, attr, value in changes:
+            if attr == "active" and op != "remove":
+                await _set_active(u, as_bool(value))
+            elif attr in ("username", "emails[type eq \"work\"].value") and op != "remove":
+                email = str(value or "").strip()
+                if not email:
+                    raise scim_error(400, "userName must not be empty", "invalidValue")
+                if email != u.email:
+                    taken = (await session.execute(select(_User.id).where(_User.email == email))).first()
+                    if taken:
+                        raise scim_error(409, "userName already in use", "uniqueness")
+                    u.email = email
+        await session.commit()
+        await session.refresh(u)
+    return _scim_user(u)

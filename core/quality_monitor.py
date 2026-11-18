@@ -12,7 +12,7 @@ Usage::
     monitor = QualityMonitor(
         base_url="http://127.0.0.1:8765",
         admin_email="admin@example.com",
-        admin_password="Admin1234!",
+        admin_password=os.environ["ADMIN_PASSWORD"],
         entities=["Product", "Order"],
     )
     results = await monitor.run_full_check()
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -48,8 +48,8 @@ class QualityMonitor:
     def __init__(
         self,
         base_url: str,
-        admin_email: str = "admin@example.com",
-        admin_password: str = "Admin1234!",
+        admin_email: str,
+        admin_password: str,  # no default: a baked-in password is how every app got the same one
         entities: Optional[List[str]] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")

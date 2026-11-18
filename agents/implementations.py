@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from aether_os.core.policy.enforce import authorize
 
@@ -111,12 +110,19 @@ class SnapshotAgent(Agent):
             return _err(self.name, "run_id required in ctx.metadata")
         try:
             from aether_os.core.db import get_session_factory
-            from aether_os.core.models import Snapshot
-            import json
+            from aether_os.core.models import Run, Snapshot
+            from sqlalchemy import select
             sf = get_session_factory()
             snap_data = {k: v for k, v in ctx.metadata.items()
                          if isinstance(v, (str, int, float, bool, type(None)))}
             async with sf() as session:
+                # The run must belong to the caller's org: ctx.metadata comes from the request body,
+                # and a snapshot row written for another org's run would pollute its audit/replay data.
+                org_id = ctx.metadata.get("org_id")
+                owned = org_id and (await session.execute(
+                    select(Run.id).where(Run.id == run_id, Run.org_id == org_id))).first()
+                if not owned:
+                    return _err(self.name, "run not found")
                 snap = Snapshot(
                     run_id=run_id,
                     phase=ctx.metadata.get("phase", "unknown"),

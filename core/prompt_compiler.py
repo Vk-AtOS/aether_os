@@ -296,6 +296,7 @@ export default function ProductsPage() {
         return """\
 ## GOOD EXAMPLE — correct seed pattern (unique values per record):
 ```python
+import os
 from database import AsyncSessionLocal
 from auth import get_password_hash
 from models import User, Product
@@ -304,8 +305,8 @@ async def seed_database():
         if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0:
             return
         db.add_all([
-            User(email="user1@example.com", password_hash=get_password_hash("Admin1234!"), role="admin"),
-            User(email="user2@example.com", password_hash=get_password_hash("User1234!"),  role="user"),
+            User(email="user1@example.com", password_hash=get_password_hash(os.environ["ADMIN_PASSWORD"]), role="admin"),
+            User(email="user2@example.com", password_hash=get_password_hash(os.environ["DEMO_USER_PASSWORD"]), role="user"),
         ])
         db.add_all([
             Product(name="Widget Alpha", slug="product-1", file_path="/files/product-001.pdf"),

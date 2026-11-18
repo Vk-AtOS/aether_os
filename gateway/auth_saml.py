@@ -28,6 +28,7 @@ import os
 import urllib.parse
 import uuid
 import secrets
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -37,7 +38,9 @@ from sqlalchemy import select
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Organisation, User
 from aether_os.gateway.auth import get_password_hash
-from aether_os.gateway.auth_refresh import issue_token_pair
+from aether_os.gateway.auth_oauth import _signin_redirect
+from aether_os.gateway.auth_refresh import _redis as token_store
+from aether_os.gateway.policy_guard import enforce_seat
 
 logger = logging.getLogger(__name__)
 saml_router = APIRouter(prefix="/auth/saml", tags=["saml"])
@@ -158,8 +161,9 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
                 raise HTTPException(status_code=403, detail="SAML identity does not belong to this organisation")
             if not user.is_active or user.deleted_at or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Account is deactivated")
-            if not user.email_verified:
-                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts.
+            if not user.email_verified and not idp_org_id:
+                # See auth_oauth._upsert_oauth_user: no auto-link of unverified accounts. A per-org IdP may
+                # sign in its own org's members, which it provisioned unverified (below).
                 raise HTTPException(status_code=403, detail="Verify your email address before signing in with SSO")
             return user, org
         if idp_org_id:
@@ -167,16 +171,22 @@ async def _resolve_saml_user(email: str, idp_org_id: Optional[str]):
             org = await session.get(Organisation, idp_org_id)
             if not org or org.is_deleted:
                 raise HTTPException(status_code=403, detail="Organisation not found")
+            await enforce_seat(org.id, "saml")  # JIT provisioning must not exceed the plan's seats
             role = "member"
+            # The address is only asserted by that org's own IdP, which its admins control: it must not count
+            # as verified, or a later Google/GitHub sign-in of the real owner of that address would be linked
+            # into the attacker's org (KAN-69 F5).
+            verified = False
         else:
             slug = email.split("@")[0].lower().replace(".", "-") + "-" + secrets.token_hex(3)
             org = Organisation(id=str(uuid.uuid4()), name=email, slug=slug, plan="trial")
             session.add(org)
             role = "owner"
+            verified = True
         user = User(
             id=str(uuid.uuid4()), org_id=org.id, email=email,
             password_hash=get_password_hash(secrets.token_urlsafe(32)),
-            role=role, email_verified=True,
+            role=role, email_verified=verified,
         )
         session.add(user)
         await session.commit()
@@ -244,11 +254,11 @@ async def saml_metadata() -> Response:
         metadata = settings.get_sp_metadata()
         return Response(content=metadata, media_type="application/xml")
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
     except Exception as exc:
         # SEC-051: Do not expose internal SAML error details in HTTP response
         logger.error("SAML metadata generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="SAML metadata generation failed")
+        raise HTTPException(status_code=500, detail="SAML metadata generation failed") from exc
 
 
 @saml_router.get("/login")
@@ -272,11 +282,32 @@ async def saml_login(
         sso_url = auth.login(return_to=_relay_state_for(org))
         return RedirectResponse(url=sso_url)
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
     except Exception as exc:
         # SEC-051: Do not expose internal SAML error details in HTTP response
         logger.exception("SAML login initiation failed")
-        raise HTTPException(status_code=500, detail="SAML login initiation failed")
+        raise HTTPException(status_code=500, detail="SAML login initiation failed") from exc
+
+
+_ASSERTION_MIN_TTL_S, _ASSERTION_MAX_TTL_S = 300, 86400
+
+
+async def _claim_assertion(auth: Any) -> bool:
+    """Spend a SAML assertion id: True the first time, False on a replay (KAN-69 F16). A captured, still valid
+    response could otherwise be posted again and again. SET NX in the shared token store, kept until the
+    assertion itself expires; no id or an unreachable store is a denial, never "not used"."""
+    assertion_id = auth.get_last_assertion_id()
+    if not assertion_id:
+        return False
+    not_after = auth.get_last_assertion_not_on_or_after()
+    ttl = int(not_after - time.time()) + 60 if not_after else _ASSERTION_MAX_TTL_S
+    ttl = min(max(ttl, _ASSERTION_MIN_TTL_S), _ASSERTION_MAX_TTL_S)
+    try:
+        r = await token_store()
+        return bool(await r.set(f"saml_used:{assertion_id}", "1", nx=True, ex=ttl))
+    except Exception as exc:
+        logger.warning("SAML replay check failed (Redis unavailable) - denying: %s", exc)
+        return False
 
 
 @saml_router.post("/callback")
@@ -288,7 +319,7 @@ async def saml_callback(request: Request) -> RedirectResponse:
     try:
         from onelogin.saml2.auth import OneLogin_Saml2_Auth  # type: ignore
     except ImportError:
-        raise HTTPException(status_code=503, detail="python3-saml not installed")
+        raise HTTPException(status_code=503, detail="python3-saml not installed") from None
 
     form_data = await request.form()
     relay_state = form_data.get("RelayState", "")
@@ -326,6 +357,13 @@ async def saml_callback(request: Request) -> RedirectResponse:
             status_code=302,
         )
 
+    if not await _claim_assertion(auth):
+        logger.warning("SAML assertion replayed or not checkable: refused")
+        return RedirectResponse(
+            url=f"{_frontend_url()}/login?error={urllib.parse.quote('SAML authentication failed')}",
+            status_code=302,
+        )
+
     attrs = auth.get_attributes()
     name_id = auth.get_nameid()
     email = (
@@ -342,22 +380,5 @@ async def saml_callback(request: Request) -> RedirectResponse:
             status_code=302,
         )
 
-    if user.mfa_enabled:
-        from aether_os.gateway.auth_oauth import _signin_redirect
-        return _signin_redirect(user, org)
-
-    _saml_claims = {
-        "sub": user.email, "user_id": user.id,
-        "org_id": org.id, "org_slug": org.slug,
-        "role": user.role, "plan": org.plan,
-    }
-    token, refresh = issue_token_pair(_saml_claims)
-    frontend = _frontend_url()
-    return RedirectResponse(
-        url=(
-            f"{frontend}/auth/callback"
-            f"?token={urllib.parse.quote(token)}"
-            f"&refresh_token={urllib.parse.quote(refresh)}"
-        ),
-        status_code=302,
-    )
+    # a one-time code, never a token in the URL (logs, history, Referer); same exchange as OAuth (KAN-69 F8)
+    return await _signin_redirect(user, org)

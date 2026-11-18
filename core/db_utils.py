@@ -8,23 +8,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import uuid
 from typing import Any, Dict, List, Optional
-from sqlalchemy import select, text, update, delete, func
+from sqlalchemy import select, func
 from .db import get_session_factory
 from .db import get_session_factory as _gsf
 from .models import Notification, User
 from .models import PhaseCompletion
 from .models import PhaseConfig
 from .models import Run
-from .models import Run, PhaseCompletion, RunMetadata
-from .models import Run, RunMetadata
+from .models import RunMetadata
+from . import notification_prefs
 from .notifications.email import get_email_notifier
-from sqlalchemy import select as _sel
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import selectinload
 import os
-import time as _t
 logger = logging.getLogger(__name__)
 # Strong reference set so background notification tasks are not garbage collected
 _background_notify_tasks: set = set()
@@ -182,6 +179,7 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
         "requirement":  run.requirement,
         "message":      run.message,
         "self_test_report": run.self_test_report,
+        "council_delivery": run.council_delivery,
     }
 async def set_run_priority(run_id: str, org_id: str, priority: str) -> bool:
     """Upsert priority for a run. Returns False if run not found or org mismatch."""
@@ -270,7 +268,7 @@ def _emit_run_notification(run, status: str) -> None:
                 sess.add(notif)
                 await sess.commit()
                 # Get user email for email notification
-                if run.user_id:
+                if run.user_id and await notification_prefs.allows(run.org_id, run.user_id, f"run_{status}", "email"):
                     db_user = await sess.get(User, run.user_id)
                     if db_user and db_user.email and not db_user.email.endswith("@deleted.invalid"):
                         notifier = get_email_notifier()
@@ -287,7 +285,7 @@ def _emit_run_notification(run, status: str) -> None:
         except Exception as exc:
             logger.debug("Run status email notification failed (non-fatal): %s", exc)
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()  # raises RuntimeError outside an event loop (handled below)
         _t = asyncio.create_task(_create())
         _background_notify_tasks.add(_t)
         _t.add_done_callback(_background_notify_tasks.discard)

@@ -179,7 +179,8 @@ _AUTH_ROUTER_PY = '''\
 # string annotations up in the wrapper's module, where LoginRequest does not exist (import fails).
 import os
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
@@ -192,6 +193,7 @@ from auth import (
     create_refresh_token,
     get_current_user,
     ALGORITHM,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     _PUBLIC_KEY,
 )
 
@@ -214,6 +216,18 @@ import jwt; JWTError = jwt.exceptions.PyJWTError
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# The refresh token lives in an HttpOnly cookie the browser sends to /api/auth only: script (an XSS) cannot read it.
+# The body still carries it for API clients. Secure is on unless ENVIRONMENT says this is a local run.
+_COOKIE_NAME = "refresh_token"
+_COOKIE_PATH = "/api/auth"
+_COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() not in ("0", "false", "no") and \
+    os.environ.get("ENVIRONMENT", "").lower() not in ("test", "dev", "development", "local")
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(_COOKIE_NAME, token, max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400, httponly=True,
+                        samesite="strict", secure=_COOKIE_SECURE, path=_COOKIE_PATH)
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -233,12 +247,12 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None      # absent: the HttpOnly cookie is used
 
 
 @router.post("/login", response_model=TokenResponse)
 @_limit("10/minute", key_func=_ip_key)
-async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(request: Request, response: Response, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     result = await db.execute(select(User).where(func.lower(User.email) == data.email.strip().lower()))
@@ -248,15 +262,17 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return tokens
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 @_limit("5/minute", key_func=_ip_key)
-async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(request: Request, response: Response, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     # Sign-up is on by default; set ALLOW_SIGNUP=false for invite-only apps (the seeded admin creates users).
@@ -282,20 +298,26 @@ async def register(request: Request, data: RegisterRequest, db: AsyncSession = D
     )
     db.add(user)
     await db.flush()
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)
 @_limit("20/minute", key_func=_ip_key)
-async def refresh_token(request: Request, data: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh_token(request: Request, response: Response, data: Optional[RefreshRequest] = None,
+                        db: AsyncSession = Depends(get_db)):
     if User is None:
         raise HTTPException(status_code=503, detail="User model not available")
     exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     try:
-        payload = jwt.decode(data.refresh_token, _PUBLIC_KEY, algorithms=[ALGORITHM])
+        presented = (data.refresh_token if data else None) or request.cookies.get(_COOKIE_NAME)
+        if not presented:
+            raise exc
+        payload = jwt.decode(presented, _PUBLIC_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
             raise exc
         user_id = payload.get("sub")
@@ -307,10 +329,20 @@ async def refresh_token(request: Request, data: RefreshRequest, db: AsyncSession
     user = result.scalar_one_or_none()
     if not user or not getattr(user, "is_active", True):
         raise exc
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(user.id, user.email, getattr(user, "role", "user"), org_id=str(getattr(user, "org_id", "") or "")),
         refresh_token=create_refresh_token(user.id),
     )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return tokens
+
+
+@router.post("/logout", status_code=204)
+async def logout(response: Response):
+    """Forget the refresh cookie (the browser cannot delete an HttpOnly cookie itself)."""
+    response.delete_cookie(_COOKIE_NAME, path=_COOKIE_PATH)
+    response.status_code = 204
+    return response
 
 
 @router.get("/me")

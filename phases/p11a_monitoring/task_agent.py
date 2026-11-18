@@ -205,7 +205,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
 
     # ── Docker Compose (monitoring stack) ─────────────────────────────────────
-    dc_yml = textwrap.dedent(f"""\
+    dc_yml = textwrap.dedent("""\
         version: '3.8'
 
         services:
@@ -226,7 +226,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
           grafana:
             image: grafana/grafana:latest
             environment:
-              - GF_SECURITY_ADMIN_PASSWORD=${{GRAFANA_PASSWORD:-admin}}
+              - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
               - GF_USERS_ALLOW_SIGN_UP=false
             volumes:
               - grafana_data:/var/lib/grafana
@@ -296,6 +296,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
         def instrument_app(app: FastAPI) -> FastAPI:
             \"\"\"Wire up Prometheus FastAPI instrumentator.  Call after app = FastAPI(...).\"\"\"
+            if any(getattr(r, "path", "") == "/metrics" for r in app.routes):
+                return app  # already exposed: a second Instrumentator counts every request twice
             try:
                 from prometheus_fastapi_instrumentator import Instrumentator
                 Instrumentator(
@@ -312,7 +314,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (monitoring_dir / "app_instrumentation.py").write_text(app_instrumentation)
 
     # ── Integration guide ─────────────────────────────────────────────────────
-    guide = textwrap.dedent(f"""\
+    guide = textwrap.dedent("""\
         # Monitoring Setup
 
         ## Quick Start
@@ -350,7 +352,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if _main_py_path.exists():
         try:
             content = _main_py_path.read_text()
-            if "Instrumentator" not in content and "app = FastAPI(" in content:
+            if "Instrumentator" not in content and "/metrics" not in content and "app = FastAPI(" in content:
                 _metrics_snippet = (
                     "\ntry:\n"
                     "    from prometheus_fastapi_instrumentator import Instrumentator as _Instr\n"

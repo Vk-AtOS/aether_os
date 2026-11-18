@@ -2,7 +2,7 @@
 Mail attachments travel inside draft JSON (Velaris has no raw upload route), so they share the 64 KiB cap."""
 from __future__ import annotations
 
-from aether_os.gateway.velaris_proxy import Route as R, build_router
+from aether_os.gateway.velaris_proxy import CALL_TIMEOUT_S as SLOW, Route as R, build_router
 
 MB = "/mailboxes/{mb}"
 ROUTES = (
@@ -37,10 +37,29 @@ ROUTES = (
     R("POST", MB + "/assistant/triage", "mail.assistant.triage"),
     R("POST", MB + "/assistant/draft-reply", "mail.assistant.draft_reply"),
     R("GET", "/domains", "mail.domains"),
-    R("POST", "/domains", "mail.domain.claim", log=("domain",)),
-    R("POST", "/domains/verify", "mail.domain.verify", log=("domain",)),
+    R("POST", "/domains", "mail.domain.claim", log=("domain",), admin=True, needs="mail_admin"),
+    R("POST", "/domains/verify", "mail.domain.verify", log=("domain",), admin=True, needs="mail_admin"),
     R("GET", "/settings", "mail.settings"),
-    R("GET", "/settings/dkim", "mail.dkim"),
-    R("GET", MB + "/export", "mail.export", ledger=True),
+    R("GET", "/settings/dkim", "mail.dkim", needs="mail_admin"),
+    R("GET", MB + "/export", "mail.export", kind="export", timeout=SLOW),
+    # KAN-130 provisioning (organisation-wide: owner/admin; delegation is the mailbox OWNER's, Velaris checks that). Addresses and names go to Velaris, never the ledger.
+    R("POST", "/mailboxes", "mail.mailbox.create", admin=True, needs="mail_admin"),
+    R("PUT", MB + "/aliases", "mail.mailbox.aliases", admin=True, needs="mail_admin"),
+    R("GET", MB + "/delegates", "mail.delegates"),
+    R("PUT", MB + "/delegates", "mail.delegate.add"),
+    R("DELETE", MB + "/delegates", "mail.delegate.remove"),
+    R("PUT", MB + "/quota", "mail.mailbox.quota", admin=True, needs="mail_admin"),
+    R("PUT", "/settings", "mail.settings.set", admin=True, needs="mail_admin"),
+    # KAN-132 compliance: a hold blocks erase and retention inside Velaris; erase needs the typed word
+    R("PUT", MB + "/legal-hold", "mail.legal_hold", log=("on",), admin=True, needs="mail_admin"),
+    R("POST", "/retention/run", "mail.retention.run", admin=True, needs="mail_admin", timeout=SLOW),
+    # Velaris wants ?confirm=erase on the query, so the typed word here is checked and then that query is sent
+    R("DELETE", MB, "mail.mailbox.erase", admin=True, confirm="ERASE", query="confirm=erase", timeout=SLOW),
+    R("POST", "/outbox/process", "mail.outbox.process", admin=True, needs="mail_admin", timeout=SLOW),
+    # KAN-133 external accounts: the body (host, user, secret) is forwarded and NEVER copied to the ledger
+    R("GET", MB + "/accounts", "mail.accounts"),
+    R("POST", MB + "/accounts", "mail.account.create", admin=True, needs="mail_admin"),   # Velaris: mail_admin only
+    R("DELETE", MB + "/accounts/{aid}", "mail.account.delete"),
+    R("POST", MB + "/sync", "mail.sync", timeout=SLOW),
 )
 router = build_router("/mail", "/mail", ROUTES, "velaris-mail")

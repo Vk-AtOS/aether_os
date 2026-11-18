@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
 import pytest
 
@@ -138,7 +137,7 @@ def test_p06_security_report_written(tmp_path):
 
     with patch("aether_os.core.llm.client.get_llm_client", return_value=mock_llm):
         out_dir = tmp_path / "security_out"
-        result = asyncio.run(
+        asyncio.run(
             task_agent.run(PhaseInput(), [], out_dir)
         )
 
@@ -279,7 +278,7 @@ async def test_p08_cicd_generates_ci_yml(tmp_path):
         input_data = {"project_name": "Todo REST API", "project_dir": str(tmp_path)}
 
     agent = CICDAgent()
-    result = await agent.run(PhaseInput())
+    await agent.run(PhaseInput())
 
     ci_file = tmp_path / "p08_cicd_deployment" / "cicd" / "ci.yml"
     assert ci_file.exists(), "ci.yml not written"
@@ -422,3 +421,19 @@ async def test_p10_docs_run_writes_readme(tmp_path):
     content = readme.read_text()
     assert len(content.split()) >= 500, f"README too short: {len(content.split())} words"
     assert result.success is True
+
+
+def test_p08_ci_smoke_test_probes_the_port_the_dockerfile_serves(tmp_path):
+    """KAN-100: the CI smoke test published and probed 8080 while every generated image serves 8000,
+    so the 'health check' could never pass (or, with --network host, probed some other service)."""
+    import asyncio
+    from aether_os.phases.p08_cicd.task_agent import CICDAgent
+
+    class PhaseInput:
+        output_dir = str(tmp_path / "cicd_out")
+        input_data = {"project_name": "MyApp", "project_dir": str(tmp_path)}
+
+    asyncio.run(CICDAgent().run(PhaseInput()))
+    content = (tmp_path / "p08_cicd_deployment" / "cicd" / "ci.yml").read_text()
+    assert "localhost:8000/health" in content and "8080" not in content
+    assert 'EXPOSE 8000' in (tmp_path / "Dockerfile").read_text()

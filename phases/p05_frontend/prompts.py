@@ -5,15 +5,14 @@ used by the frontend code-generation phase agent.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from aether_os.phases.p05_frontend.design_system import get_design_tokens
 
 
 def get_domain_color_hint(domain: str) -> str:
     """Convert the structured token dict for *domain* into the color-hint string
-    format used in LLM prompts.  Existing callers in helpers.py can call this
-    instead of reading DOMAIN_COLOR_HINTS directly.
+    format used in LLM prompts.
     """
     t = get_design_tokens(domain)
     accent = t["accent"]
@@ -26,92 +25,7 @@ def get_domain_color_hint(domain: str) -> str:
         f"cards bg-{bg_card} border-{border}, accents {accent}"
     )
 
-# ── Domain-specific stat-card labels ─────────────────────────────────────────
-DOMAIN_STAT_LABELS: Dict[str, List[str]] = {
-    "security":           ["Cameras Online", "Active Alerts", "Zones Monitored", "Incidents Today"],
-    "iot":                ["Devices Online", "Active Sensors", "Alerts Today", "Avg Uptime %"],
-    "healthcare":         ["Patients Today", "Appointments", "Avg Wait Time", "Staff On Duty"],
-    "crm":                ["New Leads", "Open Deals", "Revenue This Month", "Conversion Rate"],
-    "ecommerce":          ["Orders Today", "Revenue", "Items in Stock", "Cart Abandonment"],
-    "library":            ["Books in Catalog", "Active Members", "Active Checkouts", "Overdue Items"],
-    "hrm":                ["Headcount", "On Leave Today", "Open Positions", "Avg Tenure (yrs)"],
-    "finance":            ["Invoices Due", "Revenue MTD", "Overdue Payments", "Burn Rate"],
-    "project_management": ["Open Tasks", "Sprints Active", "PRs Merged", "Bugs Open"],
-    "restaurant":         ["Tables Occupied", "Orders in Queue", "Avg Order Value", "Covers Today"],
-    "education":          ["Enrolled Students", "Courses Active", "Avg Grade", "Attendance %"],
-    "saas":               ["Active Users", "MRR", "Churn Rate", "NPS Score"],
-    "gym_fitness":        ["Active Members", "Classes Today", "Check-ins Today", "Revenue MTD"],
-    "sports":             ["Active Players", "Matches Today", "Teams Registered", "Tournaments"],
-    "hospitality":        ["Rooms Occupied", "Check-ins Today", "Check-outs Today", "Revenue Today"],
-    "real_estate":        ["Active Listings", "Vacant Units", "Leases Expiring", "Revenue MTD"],
-}
 
-# ── LLM-powered domain component generation ──────────────────────────────────
-DOMAIN_COMPONENT_DESC: Dict[str, str] = {
-    "security": (
-        "a CameraGrid showing a 2×3 grid of camera feed placeholders, each with a camera name, "
-        "zone badge (e.g. 'Zone A', 'Entrance'), status dot (Online=green, Offline=red, Alert=amber), "
-        "and a mock timestamp. Include a top bar showing total cameras online (e.g. 94/100) and "
-        "active alerts count with a red badge."
-    ),
-    "iot": (
-        "a DeviceStatusPanel showing a list of 5 mock IoT devices with name, type badge "
-        "(Sensor/Gateway/Actuator), last-seen timestamp, and a status pill (Online/Offline/Warning). "
-        "Include a summary row at top with total online count and a blinking active indicator."
-    ),
-    "healthcare": (
-        "a PatientVitals card showing mock vitals (Heart Rate: 72 bpm, BP: 120/80, SpO2: 98%) "
-        "with coloured status badges and a compact appointment list for today"
-    ),
-    "crm": (
-        "a DealPipeline kanban-style row with 4 columns (New, Contacted, Proposal, Closed) "
-        "showing deal count and total value badges per column"
-    ),
-    "ecommerce": (
-        "a ProductGrid showing 4 product cards with image placeholder, name, price, "
-        "stock badge (In Stock / Low Stock / Out), and an Add-to-Cart button"
-    ),
-    "hrm": (
-        "an AttendanceTracker showing a 5-day weekly grid for 5 mock employees "
-        "with colour-coded cells (Present=green, Absent=red, Leave=yellow)"
-    ),
-    "finance": (
-        "an InvoiceStatus panel showing a row of 3 summary tiles "
-        "(Paid, Pending, Overdue) with amounts and a small recent-invoices list"
-    ),
-    "project_management": (
-        "a KanbanBoard with 3 columns (Todo, In Progress, Done) "
-        "each containing 2-3 task cards with priority badges and assignee avatars"
-    ),
-    "restaurant": (
-        "a TableMap showing a 3×4 grid of table circles colour-coded by status "
-        "(Free=green, Occupied=red, Reserved=yellow) with table numbers"
-    ),
-    "education": (
-        "a GradeDistribution component showing a horizontal bar chart of grade bands "
-        "(A/B/C/D/F) with student counts and a pass-rate summary"
-    ),
-    "saas": (
-        "a MetricsDashboard showing 4 KPI tiles (Active Users, MRR, Churn Rate, NPS) "
-        "each with a trend arrow (up/down) and a sparkline-style indicator row"
-    ),
-    "gym_fitness": (
-        "a GymDashboard showing today's class schedule (4 classes with time, name, trainer, "
-        "and slots-remaining badge), a member check-in counter, and a 7-day attendance sparkline"
-    ),
-    "sports": (
-        "a MatchDayPanel showing today's fixtures (3 matches with home/away team, time, venue) "
-        "and a standings mini-table with position, played, won, lost, points columns"
-    ),
-    "hospitality": (
-        "a RoomStatusGrid showing 12 room cards in a 4×3 grid colour-coded by status "
-        "(Available=green, Occupied=blue, Cleaning=yellow, Maintenance=red) with room number and type"
-    ),
-    "real_estate": (
-        "a PropertyMap showing 6 listing cards with address, type badge (Apartment/House/Commercial), "
-        "price, status pill (Available/Under Offer/Leased), and a thumbnail placeholder"
-    ),
-}
 
 # ── Domain fallback widgets ───────────────────────────────────────────────────
 DOMAIN_FALLBACK_WIDGETS: Dict[str, str] = {
@@ -182,29 +96,6 @@ export default function DomainWidget() {
     "sports": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Latest Scores</h3><div className='mt-2 text-sm'>Team A 2 - 1 Team B</div></div> }",
 }
 
-# ── Domain-appropriate colour palette hints ────────────────────────────────────
-DOMAIN_COLOR_HINTS: Dict[str, str] = {
-    "healthcare":   "teal palette: bg-teal-50/100, text-teal-800/900, borders teal-200, accents teal-600",
-    "fintech":      "dark navy-gold: bg-slate-900, text-yellow-300, cards bg-slate-800, accents yellow-400",
-    "ecommerce":    "rose-pink: bg-rose-50, text-rose-900, cards bg-white border-rose-100, accents rose-600",
-    "marketplace":  "violet: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "education":    "sky-cyan: bg-sky-50, text-sky-900, cards bg-white border-sky-100, accents sky-600",
-    "gym_fitness":  "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "fitness":      "red-energy: bg-red-50, text-red-900, cards bg-white border-red-100, accents red-600",
-    "real_estate":  "emerald: bg-emerald-50, text-emerald-900, cards bg-white border-emerald-100, accents emerald-600",
-    "hospitality":  "amber-warm: bg-amber-50, text-amber-900, cards bg-white border-amber-100, accents amber-600",
-    "restaurant":   "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "food":         "orange-warm: bg-orange-50, text-orange-900, cards bg-white border-orange-100, accents orange-600",
-    "logistics":    "slate-blue: bg-slate-50, text-slate-900, cards bg-white border-slate-200, accents slate-600",
-    "iot":          "slate-blue: bg-slate-900, text-cyan-300, cards bg-slate-800, accents cyan-400",
-    "hrm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "crm":          "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "analytics":    "indigo: bg-indigo-50, text-indigo-900, cards bg-white border-indigo-100, accents indigo-600",
-    "saas":         "violet-purple: bg-violet-50, text-violet-900, cards bg-white border-violet-100, accents violet-600",
-    "security":     "slate-red: bg-slate-900, text-red-300, cards bg-slate-800 border-slate-700, accents red-500",
-    "sports":       "green-energy: bg-green-50, text-green-900, cards bg-white border-green-100, accents green-600",
-    "library":      "stone: bg-stone-50, text-stone-900, cards bg-white border-stone-200, accents amber-700",
-}
 
 # ── Icon mapping ───────────────────────────────────────────────────────────────
 LUCIDE_ICON_MAP: Dict[str, str] = {

@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["run-files"])
@@ -122,7 +123,7 @@ def _safe_file_path(root_dir: pathlib.Path, path: str) -> pathlib.Path:
     try:
         file_path.relative_to(root_dir)
     except ValueError:
-        raise HTTPException(status_code=403, detail="Path traversal detected")
+        raise HTTPException(status_code=403, detail="Path traversal detected") from None
     return file_path
 
 
@@ -178,7 +179,7 @@ async def patch_file_content(
         except Exception as e:
             logger.warning("Guardian: failed to update baseline after file write: %s", e)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error writing file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error writing file: {e}") from e
 
     return {"run_id": run_id, "path": body.path, "size": file_path.stat().st_size}
 
@@ -259,7 +260,7 @@ async def patch_envvars(
             os.unlink(tmp_name)
             raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error writing .env: {e}")
+        raise HTTPException(status_code=500, detail=f"Error writing .env: {e}") from e
 
     return {"run_id": run_id, "written": len(body.vars)}
 
@@ -332,7 +333,8 @@ async def add_changelog(
     req: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Add entry to project changelog."""
+    """Add entry to project changelog (member or above)."""
+    await enforce("run.annotate", user)
     from aether_os.core.memory.memory_manager import MemoryManager
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import Run
@@ -346,7 +348,11 @@ async def add_changelog(
         run = (await session.execute(stmt)).scalar_one_or_none()
         if not run:
             raise HTTPException(status_code=404)
+        # Validated after the tenant check, so another org's run id always answers 404.
+        entry = req.get("entry")
+        if not isinstance(entry, str) or not entry.strip() or len(entry) > 2000:
+            raise HTTPException(status_code=422, detail="entry must be 1-2000 characters")
 
         project_dir = Path.home() / ".aether_os" / "projects" / run_id
-        MemoryManager.add_changelog_entry(project_dir, req["entry"], user["sub"])
+        MemoryManager.add_changelog_entry(project_dir, entry, user["sub"])
         return {"status": "ok"}

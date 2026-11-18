@@ -1,5 +1,4 @@
 """KAN-109: the self-healer must never pick (and then overwrite) a file outside the project."""
-from pathlib import Path
 
 from aether_os.phases.p07b_self_healing.task_agent import _identify_failing_file
 

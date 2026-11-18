@@ -57,13 +57,13 @@ Every LLM call records input tokens, output tokens, and estimated cost in USD ba
 
 ### How is generated code executed safely?
 
-The sandbox guard (`core/sandbox/guard.py`) applies several controls before executing any generated code:
+Generated code runs in a Docker container through `core/sandbox/runner.py` and `docker_backend.py`:
 
-- **Import stripping**: dangerous imports (`os.system`, `subprocess`, `socket`, etc.) are removed or replaced with no-ops
-- **Filesystem restriction**: generated code can only write to its project directory (`/var/aetheros/runs/<run_id>/project/`)
-- **Process isolation**: the generated app runs as a separate subprocess with a non-root user
-- **Resource limits**: CPU and memory limits are applied via `resource.setrlimit`
-- **Network restriction**: outbound network calls from the generated app are blocked by default (configurable)
+- **Isolation**: non-root user, dropped capabilities, `no-new-privileges`, read-only root filesystem
+- **Filesystem**: only the run's project directory is mounted writable
+- **Resource limits**: memory, CPU, pid and file limits
+- **Network**: none for builds and tests; a firewalled egress network for package installs
+- **No sandbox, no run**: if no sandbox is available the run fails closed (`SandboxUnavailable`)
 
 ### Can generated code access the AetherOS database or secrets?
 

@@ -21,6 +21,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         '''import logging
 import os
 
+try:
+    import posthog as _ph
+except ImportError:  # optional: events are only logged without it
+    _ph = None
+
 logger = logging.getLogger(__name__)
 
 _POSTHOG_KEY = os.getenv("POSTHOG_API_KEY", "")
@@ -33,12 +38,12 @@ def _get_posthog():
     if _posthog is not None:
         return _posthog
     if _POSTHOG_KEY:
-        try:
+        if _ph is None:
+            logger.warning("posthog package not installed — events logged only")
+        else:
             _ph.api_key = _POSTHOG_KEY
             _ph.host = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
             _posthog = _ph
-        except ImportError:
-            logger.warning("posthog package not installed — events logged only")
     return _posthog
 
 
@@ -131,7 +136,9 @@ async def analytics_middleware(request: Request, call_next):
 const API = window.location.origin;
 async function load() {
   try {
-    const r = await fetch(API + "/analytics/events?limit=50");
+    const token = localStorage.getItem("access_token") || "";
+    const r = await fetch(API + "/api/analytics/events?limit=50", {headers: {Authorization: "Bearer " + token}});
+    if (r.status === 401 || r.status === 403) throw new Error("sign in as an admin to see analytics");
     if (!r.ok) throw new Error(r.statusText);
     const data = await r.json();
     const events = data.events || data || [];
@@ -173,41 +180,54 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+try:
+    import posthog as _ph
+except ImportError:  # optional: events are only stored without it
+    _ph = None
+# The generated backend's own modules. main.py puts src/ on sys.path and imports them by their plain
+# names, so those are tried first: importing "src.database" as well would build a second engine.
+try:  # the session factory (get_db is a FastAPI dependency, not a context manager)
+    from database import AsyncSessionLocal
+except ImportError:
+    from src.database import AsyncSessionLocal
+try:
+    from auth import get_current_user, require_admin
+except ImportError:
+    from src.auth import get_current_user, require_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
-
-
-async def _get_db():
-    """Yield an async DB session (import from your project\'s database module)."""
-    from src.database import get_db  # type: ignore
-    async with get_db() as db:
-        yield db
+_MAX_DATA_BYTES = 8192
 
 
 @router.post("/track")
-async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
-    """Ingest a single analytics event."""
-    event = body.get("event", "")
-    user_id = body.get("user_id")
-    data = body.get("data", {})
+async def track_event(body: Dict[str, Any], user: dict = Depends(get_current_user)) -> Dict[str, str]:
+    """Ingest a single analytics event for the signed-in user."""
+    event = str(body.get("event") or "")[:100]
+    # Who sent it comes from the token: a user_id in the body would let anyone write events as someone else.
+    user_id = str(user.get("id") or "")
+    org_id = str(user.get("org_id") or "")
+    data = body.get("data") or {}
     if not event:
         return {"status": "ignored", "reason": "no event name"}
+    if not isinstance(data, dict) or len(__import__("json").dumps(data)) > _MAX_DATA_BYTES:
+        raise HTTPException(status_code=413, detail="event data must be a JSON object of at most 8 KB")
     try:
         from sqlalchemy import text
-        from src.database import get_db  # type: ignore
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
             await db.execute(
-                text("INSERT INTO analytics_events (event, user_id, data) VALUES (:e, :u, :d::jsonb)"),
-                {"e": event, "u": user_id, "d": __import__("json").dumps(data)},
+                # CAST(...): the ":d::jsonb" form is not a bind parameter for SQLAlchemy, so no event was ever stored
+                text("INSERT INTO analytics_events (event, user_id, org_id, data) VALUES (:e, :u, :o, CAST(:d AS jsonb))"),
+                {"e": event, "u": user_id, "o": org_id, "d": __import__("json").dumps(data)},
             )
             await db.commit()
     except Exception as exc:
         logger.warning("Analytics DB write failed: %s", exc)
     # Also forward to PostHog if configured
     posthog_key = os.getenv("POSTHOG_API_KEY", "")
-    if posthog_key:
+    if posthog_key and _ph is not None:
         try:
             _ph.api_key = posthog_key
             _ph.capture(str(user_id or "anon"), event=event, properties=data)
@@ -220,16 +240,17 @@ async def track_event(body: Dict[str, Any]) -> Dict[str, str]:
 async def list_events(
     limit: int = Query(50, ge=1, le=500),
     event: Optional[str] = Query(None),
+    admin: dict = Depends(require_admin),
 ) -> Dict[str, Any]:
-    """Return recent analytics events with summary statistics."""
+    """Recent events and summary statistics of the admin's own organisation (admin only)."""
+    org_id = str(admin.get("org_id") or "")
     import json as _json
     try:
         from sqlalchemy import text
-        from src.database import get_db  # type: ignore
-        async with get_db() as db:
+        async with AsyncSessionLocal() as db:
             # Recent events
-            where = "WHERE event = :e" if event else ""
-            params: Dict[str, Any] = {"limit": limit}
+            where = "WHERE org_id = :o" + (" AND event = :e" if event else "")
+            params: Dict[str, Any] = {"limit": limit, "o": org_id}
             if event:
                 params["e"] = event
             rows = (await db.execute(
@@ -238,13 +259,13 @@ async def list_events(
             )).fetchall()
 
             # 24h summary
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)  # a datetime: asyncpg rejects an ISO string
             stats = (await db.execute(
                 text("SELECT COUNT(*) as total, COUNT(DISTINCT user_id) as users, "
                      "AVG((data->>'duration_ms')::float) as avg_ms, "
                      "SUM(CASE WHEN event = \'error\' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*),0) as err_rate "
-                     "FROM analytics_events WHERE created_at > :c"),
-                {"c": cutoff},
+                     "FROM analytics_events WHERE org_id = :o AND created_at > :c"),
+                {"c": cutoff, "o": org_id},
             )).fetchone()
 
         events_out = [
@@ -275,10 +296,14 @@ async def list_events(
         "CREATE TABLE IF NOT EXISTS analytics_events (\n"
         "  id SERIAL PRIMARY KEY,\n"
         "  event VARCHAR(100) NOT NULL,\n"
-        "  user_id INTEGER,\n"
+        "  user_id VARCHAR(64),\n"
+        "  org_id VARCHAR(64) NOT NULL DEFAULT '',\n"
         "  data JSONB,\n"
         "  created_at TIMESTAMPTZ DEFAULT NOW()\n"
         ");\n"
+        "ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS org_id VARCHAR(64) NOT NULL DEFAULT '';\n"
+        "ALTER TABLE analytics_events ALTER COLUMN user_id TYPE VARCHAR(64);\n"
+        "CREATE INDEX IF NOT EXISTS ix_analytics_events_org_created ON analytics_events (org_id, created_at DESC);\n"
     )
 
     # Inject request-timing middleware into main.py (best-effort, no relative import)

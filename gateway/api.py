@@ -21,21 +21,17 @@ _pkg_root = str(_pathlib.Path(__file__).resolve().parent.parent.parent)
 if _pkg_root not in _sys.path:
     _sys.path.insert(0, _pkg_root)
 
+import asyncio
 import logging
 import os
 import pathlib
-import time
-import asyncio
-import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, status, Request, APIRouter, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, Depends, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 # Pydantic models and middleware classes live in api_helpers.py to keep this
 # file under 600 lines. They are re-imported here for backwards compatibility
 # with any code that imports them from gateway.api directly.
@@ -63,10 +59,13 @@ except Exception as exc:
     logging.warning("Failed to load structured logging config, using basicConfig fallback: %s", exc)
 
 logger = logging.getLogger(__name__)
+_audit_tasks: set = set()  # strong refs to in-flight audit writes
 
 # Utility helpers live in api_utils.py to keep this file under 600 lines.
-from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe, _seed_golden_examples_if_empty  # noqa: E402
+from aether_os.gateway.api_utils import _init_sentry, _get_cors_origins, _json_safe  # noqa: E402,F401  (_get_cors_origins re-exported)
+from aether_os.core.db import DEPENDENCY_DOWN  # noqa: E402
 from aether_os.gateway.lifespan import create_lifespan  # noqa: E402
+from aether_os.core.telemetry.trace_context import TraceIdMiddleware, current_trace_id  # noqa: E402
 
 _init_sentry()
 
@@ -75,7 +74,6 @@ _background_tasks: set = set()
 
 # Auth dependency — defined in gateway/dependencies.py to avoid circular imports.
 # Re-exported here for any code that imports it from api directly.
-from aether_os.gateway.dependencies import security_scheme, get_current_user  # noqa: E402
 
 
 # NOTE: _get_cors_origins, Pydantic models, and middleware classes all live in
@@ -85,7 +83,7 @@ from aether_os.gateway.dependencies import security_scheme, get_current_user  # 
 # ── Generated-app process state — delegated to core.app_state (Redis-backed) ──
 # These module-level names are kept for backwards compatibility with any code that
 # still imports them directly; they delegate to the canonical storage in core.app_state.
-from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports, _CURRENT_RUN_MEMORY as _APP_CURRENT_RUN  # noqa: E402
+from aether_os.core.app_state import get_all_procs as _get_all_procs, get_all_ports as _get_all_ports  # noqa: E402
 
 _APP_PROCS: Dict[str, Any] = _get_all_procs()   # same dict object as core.app_state._PROCS
 _APP_PORTS: Dict[str, int] = _get_all_ports()   # same dict object as core.app_state._APP_PORTS
@@ -139,6 +137,8 @@ def create_app() -> FastAPI:
     )
     # GZip registered after CORS so it wraps the outer response (Starlette reverse order)
     app.add_middleware(GZipMiddleware, minimum_size=500)
+    # Outermost: every log line, Velaris call and ledger entry of a request carries its trace id (KAN-50).
+    app.add_middleware(TraceIdMiddleware)
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
         from aether_os.core.prometheus_patch import apply as _apply_prom_patch
@@ -161,31 +161,30 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def audit_log_middleware(request: Request, call_next):
         response = await call_next(request)
-        # Only log mutating requests to API paths (not health, docs, static, SSE)
+        # Only log mutating requests to API paths (not health, docs, static, SSE).
+        # Identity comes from get_current_user (request.state), so API-key callers are
+        # audited too and the org/user are the authenticated ones, never "unknown".
         method = request.method
         path = request.url.path
-        if (method in ("POST", "PUT", "PATCH", "DELETE")
+        who = getattr(request.state, "audit_identity", None)
+        if (who and method in ("POST", "PUT", "PATCH", "DELETE")
                 and not any(path.startswith(p) for p in ("/docs", "/redoc", "/openapi", "/health", "/metrics"))
                 and not path.endswith("/stream")):
             try:
-                # Extract user from Authorization header (best-effort — don't block request)
-                auth = request.headers.get("Authorization", "")
-                if auth.startswith("Bearer "):
-                    from aether_os.gateway.auth import decode_bearer_token
-                    claims = decode_bearer_token(auth[7:])
-                    if claims:
-                        from aether_os.core.audit.ledger import get_ledger
-                        import asyncio
-                        path_parts = path.split("/")
-                        asyncio.create_task(get_ledger().async_log_audit_event(
-                            org_id=claims.get("org_id", "unknown"),
-                            user_id=str(claims.get("user_id", "unknown")),
-                            action=f"{method} {path}",
-                            resource_type=path_parts[1] if len(path_parts) > 1 else "api",
-                            resource_id=path_parts[2] if len(path_parts) > 2 else "-",
-                            metadata={},
-                            ip_address=get_client_ip(request),
-                        ))
+                from aether_os.core.audit.ledger import get_ledger
+                path_parts = path.split("/")
+                # Keep a reference: the loop holds tasks weakly and may drop a pending audit write.
+                task = asyncio.create_task(get_ledger().async_log_audit_event(
+                    org_id=who["org_id"],
+                    user_id=who["user_id"],
+                    action=f"{method} {path}",
+                    resource_type=path_parts[1] if len(path_parts) > 1 else "api",
+                    resource_id=path_parts[2] if len(path_parts) > 2 else "-",
+                    metadata={"status": response.status_code, "trace_id": current_trace_id()},
+                    ip_address=get_client_ip(request),
+                ))
+                _audit_tasks.add(task)
+                task.add_done_callback(_audit_tasks.discard)
             except Exception as exc:
                 # ARCH-H2: WARNING so failures are visible in production (DEBUG is off by default).
                 # Audit log failures are a SOC-2/GDPR liability — "no events" must not be
@@ -205,6 +204,24 @@ def create_app() -> FastAPI:
             status_code=422,
             content={"detail": _json_safe(exc.errors()), "body": str(exc.body)[:200]},
         )
+
+    from aether_os.gateway.scim_patch import ScimError
+
+    @app.exception_handler(ScimError)
+    async def scim_error_handler(_req: _Request, exc: ScimError):
+        return _JSONResponse(status_code=exc.status, content=exc.body, media_type="application/scim+json")
+
+    async def dependency_down_handler(_req: _Request, exc: Exception):
+        # Postgres/pool unreachable: 503 + Retry-After (retried by clients and load balancers, counted as
+        # "dependency down" by the alerts), logged once without the stack, nothing about the cause sent out.
+        logger.error("Database unreachable on %s %s: %s", _req.method, _req.url.path, type(exc).__name__)
+        return _JSONResponse(
+            status_code=503, headers={"Retry-After": "5"},
+            content={"detail": "The service is temporarily unavailable. Please retry shortly."},
+        )
+
+    for _down in DEPENDENCY_DOWN:   # Starlette resolves a handler by exception class: one registration per class
+        app.add_exception_handler(_down, dependency_down_handler)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_req: _Request, exc: Exception):
@@ -234,15 +251,18 @@ def create_app() -> FastAPI:
         ("admin",             "aether_os.gateway.routers.admin_router",             "router",       {},                        True),
         ("admin_platform",    "aether_os.gateway.routers.admin_platform_router",    "router",       {},                        True),
         ("admin_quality",     "aether_os.gateway.routers.admin_quality_router",     "router",       {},                        True),
+        ("llm_controls",      "aether_os.gateway.routers.llm_controls_router",      "router",       {},                        True),
         ("factory_runs",           "aether_os.gateway.routers.factory_runs_router",            "router", {}, True),
         ("run_fork",               "aether_os.gateway.routers.run_fork_router",                "router", {}, True),
         ("clarifying",             "aether_os.gateway.routers.clarifying_router",              "router", {}, True),
         ("factory_run_files",      "aether_os.gateway.routers.factory_run_files_router",       "router", {}, True),
+        ("factory_run_rollback",   "aether_os.gateway.routers.factory_run_rollback_router",    "router", {}, True),
         ("factory_run_streaming",  "aether_os.gateway.routers.factory_run_streaming_router",   "router", {}, True),
         ("factory_run_compliance", "aether_os.gateway.routers.factory_run_compliance_router",  "router", {}, True),
         ("run_app",           "aether_os.gateway.routers.run_app_router",           "router",       {},                        True),
         ("run_decisions",     "aether_os.gateway.routers.run_decisions_router",     "router",       {},                        True),
         ("run_spec",          "aether_os.gateway.routers.run_spec_router",          "router",       {},                        True),
+        ("factory_decisions", "aether_os.gateway.routers.factory_decisions_router", "router",       {},                        True),
         ("run_deploy",        "aether_os.gateway.routers.run_deploy_router",        "router",       {},                        True),
         ("run_preview",       "aether_os.gateway.routers.run_preview_router",       "router",       {},                        True),
         ("factory_ops",       "aether_os.gateway.routers.factory_ops_router",       "router",       {},                        True),
@@ -260,6 +280,8 @@ def create_app() -> FastAPI:
         ("spa",           "aether_os.gateway.routers.spa_router",           "router",       {},                        False),
         ("legal",         "aether_os.gateway.routers.legal_router",         "router",       {},                        False),
         ("notifications", "aether_os.gateway.routers.notifications_router", "router",       {},                        False),
+        ("onboarding",    "aether_os.gateway.routers.onboarding_router",    "router",       {},                        False),
+        ("notification_prefs", "aether_os.gateway.routers.notification_prefs_router", "router", {},                    False),
         ("learning",      "aether_os.gateway.routers.learning_router",      "router",       {},                        False),
         ("memory",        "aether_os.gateway.routers.memory_router",        "router",       {},                        False),
         ("webhooks",      "aether_os.gateway.routers.webhooks_router",      "router",       {},                        False),
@@ -268,9 +290,11 @@ def create_app() -> FastAPI:
         ("billing_stripe","aether_os.gateway.routers.billing_stripe_router","router",       {},                        False),
         ("system",        "aether_os.gateway.routers.system_router",        "router",       {},                        False),
         ("system_info",   "aether_os.gateway.routers.system_info_router",   "router",       {},                        False),
+        ("ops_status",    "aether_os.gateway.routers.ops_status_router",    "router",       {},                        False),
         ("intelligence",  "aether_os.gateway.routers.intelligence_router",  "router",       {},                        False),
         ("compliance",    "aether_os.gateway.routers.compliance_router",    "router",       {},                        False),
         ("scim",          "aether_os.gateway.routers.scim_router",          "router",       {},                        False),
+        ("scim_groups",   "aether_os.gateway.routers.scim_groups_router",   "router",       {},                        False),
         ("agents",        "aether_os.gateway.routers.agents_router",        "router",       {},                        False),
         ("guardian",      "aether_os.gateway.routers.guardian_router",      "router",       {},                        False),
         ("guardian_snapshots", "aether_os.gateway.routers.guardian_snapshots_router", "router", {},                    False),
@@ -278,12 +302,14 @@ def create_app() -> FastAPI:
         ("preview_session", "aether_os.gateway.routers.preview_session_router", "router",   {},                        True),
         ("prime",         "aether_os.gateway.routers.prime_router",         "router",       {},                        False),
         ("prime_inbox",   "aether_os.gateway.routers.prime_inbox_router",   "router",       {},                        False),
+        ("prime_corrections", "aether_os.gateway.routers.prime_corrections_router", "router", {},               False),
         ("prime_ledger",  "aether_os.gateway.routers.prime_ledger_router",  "router",       {},                        False),
         ("prime_service", "aether_os.gateway.routers.prime_service_router", "router",      {},                        False),
         ("ledger_anchor", "aether_os.gateway.routers.ledger_anchor_router", "router",       {},                        False),
         ("ledger_ops",    "aether_os.gateway.routers.ledger_ops_router",    "router",       {},                        False),
         ("velaris",       "aether_os.gateway.routers.velaris_router",       "router",       {},                        False),
         ("velaris_chat", "aether_os.gateway.routers.velaris_chat_router", "router", {}, False),
+        ("velaris_providers", "aether_os.gateway.routers.velaris_providers_router", "router", {}, False),
         ("velaris_mail", "aether_os.gateway.routers.velaris_mail_router", "router", {}, False),
         ("velaris_control", "aether_os.gateway.routers.velaris_control_router", "router", {}, False),
         ("velaris_hr", "aether_os.gateway.routers.velaris_hr_router", "router", {}, False),

@@ -53,6 +53,8 @@ def add_prometheus_middleware(app) -> None:
     Uses an isolated CollectorRegistry so that multiple pipeline runs in the
     same process don't collide on metric names (ValueError: Duplicated timeseries).
     """
+    if any(getattr(r, "path", "") == "/metrics" for r in app.routes):
+        return  # the app already exposes /metrics: a second Instrumentator counts every request twice
     try:
         from prometheus_client import CollectorRegistry
         from prometheus_fastapi_instrumentator import Instrumentator
@@ -156,6 +158,45 @@ providers:
 '''
 
 
+_OTEL_SETUP_PY = '''\
+"""OpenTelemetry instrumentation for __PROJECT__."""
+from __future__ import annotations
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+
+def setup_opentelemetry(app) -> None:
+    """Instrument FastAPI app with OpenTelemetry tracing."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+        otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        provider = TracerProvider()
+        exporter = OTLPSpanExporter(endpoint=f"{otlp_endpoint}/v1/traces")
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+
+        FastAPIInstrumentor.instrument_app(app)
+        try:
+            SQLAlchemyInstrumentor().instrument()
+        except Exception as e:
+            logger.warning("p09_observability: SQLAlchemyInstrumentor failed (non-critical): %s", e)
+        logger.info("OpenTelemetry tracing enabled — exporting to %s", otlp_endpoint)
+    except ImportError:
+        logger.warning(
+            "OpenTelemetry not installed — tracing disabled. "
+            "Install with: pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi"
+        )
+'''
+
+
 def _find_backend_src(data: dict) -> Path | None:
     """Find the canonical backend src dir where p11 will build from.
 
@@ -249,6 +290,15 @@ def _patch_main_py(main_py: Path) -> None:
         source += "\nadd_prometheus_middleware(app)\n"
     if "timing_middleware" not in source:
         source += "\napp.middleware('http')(timing_middleware)\n"
+    if "setup_opentelemetry" not in source:
+        source += (
+            "\ntry:\n"
+            "    from otel_setup import setup_opentelemetry\n"
+            "    setup_opentelemetry(app)\n"
+            "except Exception as _otel_exc:  # tracing is optional: never stop the app\n"
+            "    import logging as _otel_logging\n"
+            "    _otel_logging.getLogger(__name__).warning('OpenTelemetry not enabled: %s', _otel_exc)\n"
+        )
 
     main_py.write_text(source)
 
@@ -267,6 +317,7 @@ async def run(phase_input: Any, memory_ctx: List[dict], output_dir: Path) -> Tas
         mon_path = backend_src_dir / "monitoring.py"
         mon_path.write_text(_MONITORING_PY.format(project_name=project_name))
         files_written.append(str(mon_path))
+        (backend_src_dir / "otel_setup.py").write_text(_OTEL_SETUP_PY.replace("__PROJECT__", project_name))
 
         main_py = backend_src_dir / "main.py"
         if main_py.exists():
@@ -381,43 +432,7 @@ groups:
     # Component 4: OpenTelemetry instrumentation
     _otel_py = output_dir / "monitoring" / "otel_setup.py"
     if not _otel_py.exists():
-        _otel_content = f"""\
-\"\"\"OpenTelemetry instrumentation for {project_name}.\"\"\"
-from __future__ import annotations
-import logging
-import os
-
-logger = logging.getLogger(__name__)
-
-
-def setup_opentelemetry(app) -> None:
-    \"\"\"Instrument FastAPI app with OpenTelemetry tracing.\"\"\"
-    try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-
-        otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-        provider = TracerProvider()
-        exporter = OTLPSpanExporter(endpoint=f"{{otlp_endpoint}}/v1/traces")
-        provider.add_span_processor(BatchSpanProcessor(exporter))
-        trace.set_tracer_provider(provider)
-
-        FastAPIInstrumentor.instrument_app(app)
-        try:
-            SQLAlchemyInstrumentor().instrument()
-        except Exception as e:
-            logger.warning("p09_observability: SQLAlchemyInstrumentor failed (non-critical): %s", e)
-        logger.info("OpenTelemetry tracing enabled — exporting to %s", otlp_endpoint)
-    except ImportError:
-        logger.warning(
-            "OpenTelemetry not installed — tracing disabled. "
-            "Install with: pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi"
-        )
-"""
+        _otel_content = _OTEL_SETUP_PY.replace("__PROJECT__", project_name)
         try:
             _otel_py.write_text(_otel_content)
             files_written.append(str(_otel_py))

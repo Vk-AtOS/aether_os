@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+from aether_os.core.security.safe_http import UnsafeURL, resolve_public, safe_request
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,6 @@ async def assert_public_urls(config: Dict[str, Any]) -> None:
     Every address the host resolves to must be public (core.security.safe_http).
     Raises ConnectorError.
     """
-    from aether_os.core.security.safe_http import UnsafeURL, resolve_public
     for key in _ORG_URL_KEYS:
         value = config.get(key)
         if value:
@@ -186,44 +187,37 @@ class GitLabConnector(BaseConnector):
 
     async def test(self) -> Dict[str, Any]:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{self._base()}/api/v4/user", headers=self._headers())
-                if r.status_code == 200:
-                    return {"ok": True, "message": f"Connected as {r.json().get('username')}"}
-                return {"ok": False, "message": f"HTTP {r.status_code}"}
+            r = await safe_request("GET", f"{self._base()}/api/v4/user", timeout=10, headers=self._headers())
+            if r.status_code == 200:
+                return {"ok": True, "message": f"Connected as {r.json().get('username')}"}
+            return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
             logger.warning("GitLabConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_list_projects(self, params: Dict[str, Any]) -> List[Dict]:
-        import httpx
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(
-                f"{self._base()}/api/v4/projects",
-                headers=self._headers(),
-                params={"membership": True, "per_page": 50},
-            )
-            r.raise_for_status()
-            return [{"id": x["id"], "name": x["name"], "url": x["web_url"]} for x in r.json()]
+        r = await safe_request(
+            "GET", f"{self._base()}/api/v4/projects", timeout=15,
+            headers=self._headers(), params={"membership": True, "per_page": 50},
+        )
+        r.raise_for_status()
+        return [{"id": x["id"], "name": x["name"], "url": x["web_url"]} for x in r.json()]
 
     async def action_create_mr(self, params: Dict[str, Any]) -> Dict:
-        import httpx
         pid = params["project_id"]
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(
-                f"{self._base()}/api/v4/projects/{pid}/merge_requests",
-                headers=self._headers(),
-                json={
-                    "source_branch": params["source_branch"],
-                    "target_branch": params.get("target_branch", "main"),
-                    "title": params["title"],
-                    "description": params.get("description", ""),
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            return {"iid": data["iid"], "url": data["web_url"], "state": data["state"]}
+        r = await safe_request(
+            "POST", f"{self._base()}/api/v4/projects/{pid}/merge_requests", timeout=15,
+            headers=self._headers(),
+            json={
+                "source_branch": params["source_branch"],
+                "target_branch": params.get("target_branch", "main"),
+                "title": params["title"],
+                "description": params.get("description", ""),
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+        return {"iid": data["iid"], "url": data["web_url"], "state": data["state"]}
 
 
 # ── Jira ──────────────────────────────────────────────────────────────────────
@@ -238,45 +232,39 @@ class JiraConnector(BaseConnector):
 
     async def test(self) -> Dict[str, Any]:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10, auth=self._auth()) as c:
-                r = await c.get(f"{self._base()}/rest/api/3/myself",
-                                headers={"Accept": "application/json"})
-                if r.status_code == 200:
-                    return {"ok": True, "message": f"Connected as {r.json().get('displayName')}"}
-                return {"ok": False, "message": f"HTTP {r.status_code}"}
+            r = await safe_request("GET", f"{self._base()}/rest/api/3/myself", timeout=10,
+                                   auth=self._auth(), headers={"Accept": "application/json"})
+            if r.status_code == 200:
+                return {"ok": True, "message": f"Connected as {r.json().get('displayName')}"}
+            return {"ok": False, "message": f"HTTP {r.status_code}"}
         except Exception as exc:
             logger.warning("JiraConnector.test failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     async def action_create_issue(self, params: Dict[str, Any]) -> Dict:
-        import httpx
-        async with httpx.AsyncClient(timeout=15, auth=self._auth()) as c:
-            r = await c.post(
-                f"{self._base()}/rest/api/3/issue",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "fields": {
-                        "project": {"key": params["project_key"]},
-                        "summary": params["summary"],
-                        "description": {"type": "doc", "version": 1,
-                                        "content": [{"type": "paragraph", "content":
-                                                     [{"type": "text", "text": params.get("description", "")}]}]},
-                        "issuetype": {"name": params.get("issue_type", "Task")},
-                    }
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            return {"key": data["key"], "url": f"{self._base()}/browse/{data['key']}"}
+        r = await safe_request(
+            "POST", f"{self._base()}/rest/api/3/issue", timeout=15, auth=self._auth(),
+            headers={"Content-Type": "application/json"},
+            json={
+                "fields": {
+                    "project": {"key": params["project_key"]},
+                    "summary": params["summary"],
+                    "description": {"type": "doc", "version": 1,
+                                    "content": [{"type": "paragraph", "content":
+                                                 [{"type": "text", "text": params.get("description", "")}]}]},
+                    "issuetype": {"name": params.get("issue_type", "Task")},
+                }
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+        return {"key": data["key"], "url": f"{self._base()}/browse/{data['key']}"}
 
     async def action_list_projects(self, params: Dict[str, Any]) -> List[Dict]:
-        import httpx
-        async with httpx.AsyncClient(timeout=15, auth=self._auth()) as c:
-            r = await c.get(f"{self._base()}/rest/api/3/project",
-                            headers={"Accept": "application/json"})
-            r.raise_for_status()
-            return [{"id": x["id"], "key": x["key"], "name": x["name"]} for x in r.json()]
+        r = await safe_request("GET", f"{self._base()}/rest/api/3/project", timeout=15,
+                               auth=self._auth(), headers={"Accept": "application/json"})
+        r.raise_for_status()
+        return [{"id": x["id"], "key": x["key"], "name": x["name"]} for x in r.json()]
 
 
 # ── Linear ────────────────────────────────────────────────────────────────────

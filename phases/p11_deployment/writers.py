@@ -10,7 +10,6 @@ import re
 import shutil
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ def write_docker_compose(project_dir: Path, app_dir: Path) -> Path:
             build: {build_ctx}
             environment:
               DATABASE_URL: ${{DATABASE_URL:-sqlite:///./data/app.db}}
-              SECRET_KEY: ${{SECRET_KEY:-changeme-in-production-set-64-char-hex}}
+              SECRET_KEY: ${{SECRET_KEY:?set SECRET_KEY (64 hex chars) in .env}}
               REDIS_URL: ${{REDIS_URL:-redis://redis:6379}}
             ports:
               - "8000:8000"
@@ -372,7 +371,7 @@ echo "Restore complete."
     os.chmod(project_dir / "restore.sh", 0o755)
 
     # 4. update.sh
-    update_sh = f"""#!/bin/bash
+    update_sh = """#!/bin/bash
 set -e
 git pull
 docker-compose build

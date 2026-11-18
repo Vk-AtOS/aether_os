@@ -22,8 +22,9 @@ Output layout (under output_dir/desktop/):
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ def _label(name: str) -> str:
 
 
 def generate_main_js(project_name: str, api_port: int = 8000) -> str:
-    slug = project_name.lower().replace(" ", "-")
     return f"""\
 const {{ app, BrowserWindow, ipcMain }} = require('electron');
 const path = require('path');
@@ -147,7 +147,7 @@ files:
   - preload.js
   - "!node_modules/**"
 extraResources:
-  - from: ../backend
+  - from: backend   # copied here by generate_desktop_project
     to: backend
     filter:
       - "**/*.py"
@@ -342,6 +342,7 @@ async def generate_desktop_project(
     project_name: str,
     output_dir: Path,
     api_port: int = 8000,
+    backend_src: Optional[Path] = None,
 ) -> Path:
     desktop_dir = output_dir / "desktop"
     src_dir = desktop_dir / "src"
@@ -362,6 +363,14 @@ async def generate_desktop_project(
         table = entity.get("table", "item")
         component_file = components_dir / f"{_pascal(table)}View.jsx"
         component_file.write_text(generate_entity_view_jsx(entity))
+
+    if backend_src is not None:
+        # The packaged app starts this folder as its API; electron-builder takes it from here.
+        shutil.copytree(
+            backend_src, desktop_dir / "backend", dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".env.*", "*.db", "*.sqlite*",
+                                          "*.pem", ".venv", "venv", "node_modules", "tests"),
+        )
 
     logger.info("p05c_desktop: generated Electron app at %s (%d entities)", desktop_dir, len(entities))
     return desktop_dir

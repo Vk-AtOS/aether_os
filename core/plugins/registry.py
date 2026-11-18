@@ -29,7 +29,6 @@ The registry is a process-level singleton that loads lazily on first access.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
@@ -415,10 +414,11 @@ async def _db_get_installed(org_id: str) -> List[InstalledPlugin]:
         return []
 
 
-async def _db_install(plugin_id: str, org_id: str, config: Dict[str, Any]) -> InstalledPlugin:
+async def _db_install(plugin_id: str, org_id: str, config: Dict[str, Any], _retried: bool = False) -> InstalledPlugin:
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import InstalledPluginRecord
     from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
     now = time.time()
     sf = get_session_factory()
     async with sf() as session:
@@ -437,7 +437,14 @@ async def _db_install(plugin_id: str, org_id: str, config: Dict[str, Any]) -> In
                 config_json=_pack_config(config), installed_at=now,
             )
             session.add(rec)
-            await session.flush()
+            try:
+                await session.flush()
+            except IntegrityError:
+                # A concurrent install of the same plugin won the unique key (uq_installed_plugin_org_plugin).
+                await session.rollback()
+                if _retried:
+                    raise
+                return await _db_install(plugin_id, org_id, config, _retried=True)
             install_id = rec.id
         await session.commit()
     return InstalledPlugin(install_id=install_id, plugin_id=plugin_id, org_id=org_id,

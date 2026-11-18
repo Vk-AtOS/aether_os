@@ -19,7 +19,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -107,7 +106,6 @@ def start(
         f"  API Docs:   http://localhost:{port}/docs\n"
         f"  MCP:        http://localhost:{port}/mcp/ (in-process)\n\n"
         f"  LLM Provider: {llm_label}\n"
-        f"  Tests:        639 passing\n"
     )
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
@@ -115,7 +113,7 @@ def start(
         import uvicorn
     except ImportError:
         console.print("[red]uvicorn not installed. Run: pip install uvicorn[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     uvicorn.run(
         "aether_os.gateway.api:app",
@@ -147,7 +145,7 @@ def demo(
         for w in warnings:
             console.print(f"[yellow]⚠ {w}[/yellow]")
 
-    console.print(f"\n[bold]Running demo pipeline[/bold]")
+    console.print("\n[bold]Running demo pipeline[/bold]")
     console.print(f"Requirement: [cyan]{requirement}[/cyan]\n")
 
     async def _run() -> None:

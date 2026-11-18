@@ -226,13 +226,17 @@ def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> No
             from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415
                 generate_kanban_component,
             )
-            # Generate a generic task/item Kanban — entity name "tasks" is the most
-            # common for project-management domains; falls back gracefully if absent.
-            kanban_code = generate_kanban_component("tasks", status_field="status")
-            _guard_write(pages_dir / "TasksKanbanPage.tsx", kanban_code)
-            extra_routes += [("tasksKanbanRoute", "/tasks/kanban", "TasksKanbanPage")]
-            extra_nav    += [("/tasks/kanban", "Kanban Board", "Layout")]
-            logger.info("domain_pages: wrote Kanban page (TasksKanbanPage)")
+            # The page imports `tasksApi` from lib/api.ts, which only exists when the product has a "tasks" entity. Without it the
+            # page made `vite build` fail ("tasksApi is not exported"), so it is written only when that client is really there.
+            api_ts = src_dir / "lib" / "api.ts"
+            if api_ts.is_file() and "export const tasksApi" in api_ts.read_text(encoding="utf-8", errors="replace"):
+                kanban_code = generate_kanban_component("tasks", status_field="status")
+                _guard_write(pages_dir / "TasksKanbanPage.tsx", kanban_code)
+                extra_routes += [("tasksKanbanRoute", "/tasks/kanban", "TasksKanbanPage")]
+                extra_nav    += [("/tasks/kanban", "Kanban Board", "Layout")]
+                logger.info("domain_pages: wrote Kanban page (TasksKanbanPage)")
+            else:
+                logger.info("domain_pages: no tasks entity in lib/api.ts; Kanban page skipped")
 
         if _has_calendar:
             from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415

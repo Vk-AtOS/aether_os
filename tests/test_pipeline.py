@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 import warnings
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -115,7 +115,7 @@ def test_state_machine_history_recorded():
 
 
 def test_state_machine_summary():
-    from aether_os.orchestrator.state_machine import PipelineStateMachine, PipelineState
+    from aether_os.orchestrator.state_machine import PipelineStateMachine
     sm = PipelineStateMachine(run_id="summary-test")
     summary = sm.summary()
     assert summary["run_id"] == "summary-test"

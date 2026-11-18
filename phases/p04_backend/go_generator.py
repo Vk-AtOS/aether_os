@@ -105,6 +105,63 @@ func MetricsHandler() gin.HandlerFunc {
 """
 
 
+def generate_auth_middleware() -> str:
+    """Returns middleware/auth.go: a JWT check every /api route and /metrics sit behind (deny by default, KAN-69 G3)."""
+    return """package middleware
+
+import (
+\t"errors"
+\t"log"
+\t"net/http"
+\t"os"
+\t"strings"
+
+\t"github.com/gin-gonic/gin"
+\t"github.com/golang-jwt/jwt/v5"
+)
+
+// Exactly one signing method is accepted: RS256 when JWT_PUBLIC_KEY is set, else HS256 with JWT_SECRET.
+// A missing or placeholder secret stops the server at start-up instead of leaving the API open.
+func loadKey() (interface{}, string, error) {
+\tif pem := os.Getenv("JWT_PUBLIC_KEY"); pem != "" {
+\t\tk, err := jwt.ParseRSAPublicKeyFromPEM([]byte(pem))
+\t\treturn k, "RS256", err
+\t}
+\ts := os.Getenv("JWT_SECRET")
+\tif len(s) < 32 || strings.HasPrefix(s, "change-me") {
+\t\treturn nil, "", errors.New("set JWT_SECRET (at least 32 characters) or JWT_PUBLIC_KEY")
+\t}
+\treturn []byte(s), "HS256", nil
+}
+
+// RequireAuth rejects every request without a valid, unexpired bearer token that has a subject.
+func RequireAuth() gin.HandlerFunc {
+\tkey, method, err := loadKey()
+\tif err != nil {
+\t\tlog.Fatalf("auth is not configured: %v", err)
+\t}
+\treturn func(c *gin.Context) {
+\t\traw, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
+\t\tif !ok || raw == "" {
+\t\t\tc.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+\t\t\treturn
+\t\t}
+\t\tclaims := jwt.MapClaims{}
+\t\ttok, err := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (interface{}, error) { return key, nil },
+\t\t\tjwt.WithValidMethods([]string{method}))
+\t\texp, _ := claims.GetExpirationTime()
+\t\tsub, _ := claims.GetSubject()
+\t\tif err != nil || !tok.Valid || exp == nil || sub == "" {
+\t\t\tc.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+\t\t\treturn
+\t\t}
+\t\tc.Set("user_id", sub)
+\t\tc.Next()
+\t}
+}
+"""
+
+
 def generate_zerolog_setup() -> str:
     """Returns logger/logger.go — zerolog structured logger initialisation."""
     return """package logger
@@ -333,9 +390,11 @@ func main() {{
 \tr.GET("/health", func(c *gin.Context) {{
 \t\tc.JSON(200, gin.H{{"status": "ok", "service": "{project_name}"}})
 \t}})
-\tr.GET("/metrics", middleware.MetricsHandler())
 
+\t// Everything else needs a valid JWT (deny by default)
+\tr.GET("/metrics", middleware.RequireAuth(), middleware.MetricsHandler())
 \tapi := r.Group("/api")
+\tapi.Use(middleware.RequireAuth())
 \t{route_regs}
 
 \tport := os.Getenv("PORT")
@@ -351,8 +410,7 @@ func main() {{
 
 
 def generate_go_dockerfile(project_name: str) -> str:
-    slug = project_name.lower().replace(" ", "-")
-    return f"""# Multi-stage Go build — final image is ~10MB scratch image
+    return """# Multi-stage Go build — final image is ~10MB scratch image
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -375,6 +433,7 @@ def generate_env_example(db_driver: str = "postgres") -> str:
         db_line = 'DATABASE_URL=postgres://user:password@localhost:5432/appdb?sslmode=disable'
     return f"""PORT=8000
 {db_line}
+# at least 32 random characters (the server refuses to start otherwise), or set JWT_PUBLIC_KEY for RS256
 JWT_SECRET=change-me-in-production
 """
 
@@ -402,6 +461,7 @@ async def generate_go_project(
     (backend_dir / "go.mod").write_text(generate_go_mod(module_name))
     (backend_dir / "db" / "database.go").write_text(generate_go_db(db_driver))
     (backend_dir / "middleware" / "metrics.go").write_text(generate_prometheus_middleware())
+    (backend_dir / "middleware" / "auth.go").write_text(generate_auth_middleware())
     (backend_dir / "logger" / "logger.go").write_text(generate_zerolog_setup())
     (backend_dir / ".env.example").write_text(generate_env_example(db_driver))
     (backend_dir / "Dockerfile").write_text(generate_go_dockerfile(project_name))

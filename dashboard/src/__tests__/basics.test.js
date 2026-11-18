@@ -11,6 +11,7 @@ const { api } = await import('../api');
 const { decode } = await import('../hooks/useRole');
 const { appPath } = await import('../appUrl');
 const { nextDelay } = await import('../hooks/useRunStream');
+const { parseCallback, fromExchange } = await import('../oauthCallback');
 
 const jwt = (payload) => `h.${btoa(JSON.stringify(payload)).replace(/=/g, '')}.s`;
 
@@ -62,5 +63,20 @@ describe('urls and reconnect', () => {
   it('reconnect backoff doubles and is capped', () => {
     expect([0, 1, 2].map(nextDelay)).toEqual([1000, 2000, 4000]);
     expect(nextDelay(20)).toBe(30000);
+  });
+});
+
+describe('oauth callback', () => {
+  const q = (s) => new URLSearchParams(s);
+  it('takes a one-time code from the URL and never a token', () => {
+    expect(parseCallback(q('code=abc'))).toEqual({ kind: 'code', code: 'abc' });
+    expect(parseCallback(q('token=t&refresh_token=r')).kind).toBe('error');   // a token in the URL is not accepted
+    expect(parseCallback(q('')).kind).toBe('error');
+    expect(parseCallback(q('error=bad%20thing')).message).toBe('bad thing');
+  });
+  it('turns the exchange answer into a session or an MFA challenge', () => {
+    expect(fromExchange({ kind: 'mfa', mfa_token: 'abc' })).toEqual({ kind: 'mfa', mfaToken: 'abc' });
+    expect(fromExchange({ kind: 'session', token: 't' })).toEqual({ kind: 'session', token: 't', refreshToken: null });
+    expect(fromExchange({}).kind).toBe('error');
   });
 });

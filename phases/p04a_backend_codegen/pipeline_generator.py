@@ -83,7 +83,7 @@ def _collect_services(pipelines: list) -> Dict[str, List[Tuple[str, str, str]]]:
 def _service_stub(service_name: str, methods: List[Tuple[str, str, str]]) -> str:
     """Render a service stub file for one service."""
     lines = [
-        f'"""',
+        '"""',
         f"{service_name} — generated service stub from AetherOS BusinessProcessPipeline.",
         "Replace stub implementations with real business logic.",
         '"""',
@@ -101,13 +101,13 @@ def _service_stub(service_name: str, methods: List[Tuple[str, str, str]]) -> str
     for method, description, keys_str in methods:
         lines += [
             f"    async def {method}(self, payload: Dict[str, Any]) -> Dict[str, Any]:",
-            f'        """',
+            '        """',
             f"        {_text(description)}",
             f"        Input keys: {keys_str}",
             '        Returns: {"success": bool, "result": any, "error": str | None}',
             '        """',
             f'        logger.info("{service_name}.{method} called with payload=%s", payload)',
-            f"        # Not implemented: a stub must never report success, or a pipeline looks completed when nothing ran.",
+            "        # Not implemented: a stub must never report success, or a pipeline looks completed when nothing ran.",
             f'        raise NotImplementedError("{service_name}.{method} is not implemented")',
             "",
         ]
@@ -179,7 +179,7 @@ def _orchestrator(pipeline: Any) -> str:
         "",
         "",
         f"class {name}Orchestrator:",
-        f'    """',
+        '    """',
         f"    Orchestrates the {name} business process.",
         "",
         "    Each step calls the appropriate service and routes to the next step",
@@ -191,7 +191,7 @@ def _orchestrator(pipeline: Any) -> str:
         *init_lines,
         "",
         "    async def run(self, trigger_payload: Dict[str, Any]) -> Dict[str, Any]:",
-        f'        """',
+        '        """',
         f"        Execute the full {name} pipeline.",
         '        Returns: {"completed": bool, "final_step": str, "error": str | None}',
         '        """',
@@ -225,7 +225,7 @@ def _pipeline_events_router(pipelines: list) -> str:
             "    payload: dict,",
             "    current_user: dict = Depends(require_role(\"admin\", \"member\")),",
             "):",
-            f'    """',
+            '    """',
             f"    Trigger {name} (roles: admin, member).",
             f"    Trigger condition: {_text(pipeline.trigger_condition)}",
             "    Runs the steps in order and answers with the outcome: 200 when every step succeeded, 501 when a step",
@@ -291,7 +291,7 @@ def _pipelines_md(pipelines: list, domain: str) -> str:
             "",
             "### To implement",
             "",
-            f"Replace stub implementations in `src/services/{{service}}.py` with real business logic.",
+            "Replace stub implementations in `src/services/{service}.py` with real business logic.",
             "",
         ]
     return "\n".join(lines)

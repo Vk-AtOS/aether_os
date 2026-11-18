@@ -16,10 +16,41 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
+from aether_os.core.run_app import safe_fs
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
+
+# Generated projects are written by sandboxed code, which can plant symlinks: every read and
+# walk below goes through safe_fs (never follows a link, never leaves the root).
+_SKIP_DIRS = ("__pycache__", "node_modules", ".venv", ".git")
+
+
+def _read(root: Path, path: Path) -> Optional[str]:
+    return safe_fs.read_text_or_none(root, path)
+
+
+def _files(root: Path, pattern: str, under: Optional[Path] = None) -> List[Path]:
+    """Absolute paths of the real files under root[/under] whose name matches the glob pattern.
+
+    root is always the run directory: every component below it is opened with O_NOFOLLOW,
+    so a link planted on the way (src_dir itself, or a parent of it) is never followed.
+    """
+    sub = _rel(root, under) if under is not None else ""
+    return [root / rel for rel in safe_fs.walk_files(root, sub, skip_dirs=_SKIP_DIRS)
+            if rel.match(pattern)]
+
+
+_rel = relative_to_root
+
+
+def _is_file(root: Path, path: Path) -> bool:
+    return safe_fs.stat_or_none(root, path) is not None
+
 
 # ── Route introspection ───────────────────────────────────────────────────────
 
@@ -137,23 +168,22 @@ class QualityScore:
 
 # ── Individual scorers ────────────────────────────────────────────────────────
 
-def _collect_all_routes(src_dir: Path) -> List[RouteInfo]:
-    """Read all .py files in src_dir and collect routes."""
+def _collect_all_routes(src_dir: Path, root: Path) -> List[RouteInfo]:
+    """Read all .py files in src_dir and collect routes. root: the run directory."""
+    root = require_project_root(root)
     routes: List[RouteInfo] = []
-    for py_file in src_dir.rglob("*.py"):
-        if "__pycache__" in str(py_file):
+    for py_file in _files(root, "*.py", under=src_dir):
+        code = _read(root, py_file)
+        if code is None:
+            logger.debug("_collect_all_routes: could not read %s", py_file)
             continue
-        try:
-            code = py_file.read_text(errors="ignore")
-            routes.extend(_extract_routes(code))
-        except Exception as exc:
-            logger.debug("_collect_all_routes: failed reading %s: %s", py_file, exc)
+        routes.extend(_extract_routes(code))
     return routes
 
 
-def _check_auth_coverage(src_dir: Path) -> float:
+def _check_auth_coverage(src_dir: Path, root: Path) -> float:
     """Fraction of non-health routes that have auth (Depends(...))."""
-    routes = _collect_all_routes(src_dir)
+    routes = _collect_all_routes(src_dir, root)
     checkable = [r for r in routes if r.path not in _HEALTH_PATHS]
     if not checkable:
         return 0.0
@@ -161,9 +191,9 @@ def _check_auth_coverage(src_dir: Path) -> float:
     return protected / len(checkable)
 
 
-def _check_input_validation(src_dir: Path) -> float:
+def _check_input_validation(src_dir: Path, root: Path) -> float:
     """Fraction of write-method routes that have Pydantic body params."""
-    routes = _collect_all_routes(src_dir)
+    routes = _collect_all_routes(src_dir, root)
     write_routes = [r for r in routes if r.method in ("POST", "PUT", "PATCH")]
     if not write_routes:
         return 0.5  # No write routes — give partial credit (no violations)
@@ -174,8 +204,8 @@ def _check_input_validation(src_dir: Path) -> float:
 def _check_test_coverage(project_dir: Path) -> int:
     """Score 0-60 based on test file presence; real results come from _check_test_score."""
     test_files = (
-        list(project_dir.rglob("test_*.py"))
-        + list(project_dir.rglob("*_test.py"))
+        _files(project_dir, "test_*.py")
+        + _files(project_dir, "*_test.py")
     )
     # Exclude the AetherOS platform's own tests
     test_files = [f for f in test_files if "aether_os/tests" not in str(f)]
@@ -191,9 +221,10 @@ def _check_test_score(project_dir: Path) -> float:
         project_dir / "p07_testing" / "unit_testing" / "summary.json",
         project_dir / "p07a_unit_testing" / "summary.json",
     ]:
-        if summary_path.exists():
+        text = _read(project_dir, summary_path)
+        if text is not None:
             try:
-                data = json.loads(summary_path.read_text())
+                data = json.loads(text)
                 passed = data.get("passed", 0)
                 failed = data.get("failed", 0)
                 if passed + failed == 0:
@@ -204,12 +235,11 @@ def _check_test_score(project_dir: Path) -> float:
     return 0.5
 
 
-def _check_seed_quality(src_dir: Path) -> float:
+def _check_seed_quality(src_dir: Path, root: Path) -> float:
     """Check if seed.py contains ORM object instantiation."""
-    seed_py = src_dir / "seed.py"
-    if not seed_py.exists():
+    code = _read(require_project_root(root), src_dir / "seed.py")
+    if code is None:
         return 0.0
-    code = seed_py.read_text(errors="ignore")
     seeds = re.findall(r"\b[A-Z]\w+\(", code)
     seeds = [s for s in seeds if s not in ("Print(", "Asyncio(", "From(", "Import(")]
     if len(seeds) >= 10:
@@ -219,76 +249,60 @@ def _check_seed_quality(src_dir: Path) -> float:
     return 0.3
 
 
-def _check_domain_specificity(src_dir: Path) -> float:
+def _check_domain_specificity(src_dir: Path, root: Path) -> float:
     score = 0.0
+    root = require_project_root(root)
     frontend_dir = src_dir.parent / "frontend"
 
-    widget_path = frontend_dir / "src" / "components" / "DomainWidget.jsx"
-    if widget_path.exists():
-        try:
-            if len(widget_path.read_text().strip().splitlines()) > 10:
-                score += 0.25
-        except Exception as exc:
-            logger.debug("_check_domain_specificity: widget read failed: %s", exc)
+    widget = _read(root, frontend_dir / "src" / "components" / "DomainWidget.jsx")
+    if widget is not None and len(widget.strip().splitlines()) > 10:
+        score += 0.25
 
-    seed_path = src_dir / "seed.py"
-    if seed_path.exists():
-        try:
-            if len(seed_path.read_text().strip().splitlines()) > 20:
-                score += 0.25
-        except Exception as exc:
-            logger.debug("_check_domain_specificity: seed read failed: %s", exc)
+    seed = _read(root, src_dir / "seed.py")
+    if seed is not None and len(seed.strip().splitlines()) > 20:
+        score += 0.25
 
-    dashboard_path = frontend_dir / "src" / "pages" / "Dashboard.tsx"
-    if dashboard_path.exists():
-        try:
-            content = dashboard_path.read_text(errors="ignore")
-            if "Item 1" not in content and "Test Record" not in content:
-                score += 0.25
-        except Exception as exc:
-            logger.debug("_check_domain_specificity: dashboard read failed: %s", exc)
+    dashboard = _read(root, frontend_dir / "src" / "pages" / "Dashboard.tsx")
+    if dashboard is not None and "Item 1" not in dashboard and "Test Record" not in dashboard:
+        score += 0.25
 
     pages_dir = frontend_dir / "src" / "pages"
-    if pages_dir.exists():
-        try:
-            non_generic = [
-                f for f in pages_dir.glob("*.tsx")
-                if f.name not in ("Dashboard.tsx", "Login.tsx", "Register.tsx",
-                                  "LoginPage.tsx", "NotFoundPage.tsx")
-            ]
-            if any(len(f.read_text(errors="ignore").splitlines()) > 30 for f in non_generic):
-                score += 0.25
-        except Exception as exc:
-            logger.debug("_check_domain_specificity: pages read failed: %s", exc)
+    generic = ("Dashboard.tsx", "Login.tsx", "Register.tsx", "LoginPage.tsx", "NotFoundPage.tsx")
+    for name, is_dir in safe_fs.list_dir(root, _rel(root, pages_dir)):
+        if is_dir or not name.endswith(".tsx") or name in generic:
+            continue
+        text = _read(root, pages_dir / name)
+        if text is not None and len(text.splitlines()) > 30:
+            score += 0.25
+            break
 
     return min(1.0, score)
 
 
 def _check_frontend_complete(project_dir: Path) -> float:
     frontend_dir = project_dir / "frontend"
-    if not frontend_dir.exists():
+    if not safe_fs.is_real_dir(project_dir, frontend_dir):
         p05_dir = project_dir / "p05_frontend" / "frontend"
-        if p05_dir.exists():
+        if safe_fs.is_real_dir(project_dir, p05_dir):
             frontend_dir = p05_dir
         else:
             return 0.0
 
-    if not (frontend_dir / "package.json").exists():
+    if not _is_file(project_dir, frontend_dir / "package.json"):
         return 0.3
 
-    main_tsx = frontend_dir / "src" / "main.tsx"
-    main_jsx = frontend_dir / "src" / "main.jsx"
-    if not main_tsx.exists() and not main_jsx.exists():
+    if not (_is_file(project_dir, frontend_dir / "src" / "main.tsx")
+            or _is_file(project_dir, frontend_dir / "src" / "main.jsx")):
         return 0.5
 
-    dist_dir = frontend_dir / "dist"
-    if dist_dir.exists() and (dist_dir / "index.html").exists():
+    if _is_file(project_dir, frontend_dir / "dist" / "index.html"):
         return 1.0
 
     build_status_file = project_dir / "build_status.json"
-    if build_status_file.exists():
+    status_text = _read(project_dir, build_status_file)
+    if status_text is not None:
         try:
-            status_data = json.loads(build_status_file.read_text())
+            status_data = json.loads(status_text)
             if status_data.get("status") == "done":
                 return 1.0
             if status_data.get("status") == "building":
@@ -321,17 +335,17 @@ def _check_frontend_complete(project_dir: Path) -> float:
 def _check_security_bandit(src_dir: Path) -> float:
     try:
         result = subprocess.run(
-            ["bandit", "-r", "-f", "json", str(src_dir)],
+            ["bandit", *bandit_args(src_dir)],
             capture_output=True, text=True, timeout=30,
         )
-        if not result.stdout:
-            return 1.0
-        data = json.loads(result.stdout)
-        findings = data.get("results", [])
+        findings = parse_bandit(result.stdout).get("results", [])
         if not findings:
             return 1.0
         high = sum(1 for r in findings if r.get("issue_severity") == "HIGH")
         return max(0.0, 1.0 - (high * 0.2))
+    except BanditScanError as exc:     # bandit ran but gave no report: not "clean" (KAN-69 SC-04)
+        logger.warning("_check_security_bandit: no usable bandit report: %s", exc)
+        return 0.0
     except Exception as exc:
         logger.debug("_check_security_bandit: bandit scan failed, using default: %s", exc)
         return 0.8
@@ -344,13 +358,11 @@ def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
         project_dir / "p04_backend" / "src",
         project_dir / "src",
     ]:
-        if candidate.is_dir() and (candidate / "main.py").exists():
+        if safe_fs.is_real_dir(project_dir, candidate) and _is_file(project_dir, candidate / "main.py"):
             return candidate
     candidates = [
-        p.parent for p in project_dir.rglob("main.py")
+        p.parent for p in _files(project_dir, "main.py")
         if "p03_scaffolding" not in str(p)
-        and "__pycache__" not in str(p)
-        and ".venv" not in str(p)
     ]
     if candidates:
         candidates.sort(key=lambda p: len(p.parts), reverse=True)
@@ -362,7 +374,13 @@ def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
 
 def score_project(project_dir: Path) -> QualityScore:
     """Return a real QualityScore based on AetherOS v2 Master Directive."""
-    src_dir = _find_real_src_dir(project_dir)
+    try:
+        project_dir = require_project_root(project_dir)
+    except SandboxViolation as exc:     # no usable run directory: nothing is scored, fail closed
+        logger.warning("score_project: %s", exc)
+        src_dir = None
+    else:
+        src_dir = _find_real_src_dir(project_dir)
     if src_dir is None:
         return QualityScore(
             total=0, auth_coverage=0, input_validation=0,
@@ -372,7 +390,7 @@ def score_project(project_dir: Path) -> QualityScore:
         )
 
     # Compute route-based metrics
-    all_routes = _collect_all_routes(src_dir)
+    all_routes = _collect_all_routes(src_dir, project_dir)
     checkable_routes = [r for r in all_routes if r.path not in _HEALTH_PATHS]
     write_routes = [r for r in all_routes if r.method in ("POST", "PUT", "PATCH")]
 
@@ -386,17 +404,17 @@ def score_project(project_dir: Path) -> QualityScore:
     )
 
     # Boolean presence checks
-    has_docker = (project_dir / "Dockerfile").exists() or (project_dir / "docker-compose.yml").exists()
-    has_env_example = (project_dir / ".env.example").exists()
-    has_readme = (project_dir / "README.md").exists()
-    has_frontend = (project_dir / "frontend" / "package.json").exists()
-    has_compliance_report = (project_dir / "compliance_scan.json").exists()
+    has_docker = _is_file(project_dir, project_dir / "Dockerfile") or _is_file(project_dir, project_dir / "docker-compose.yml")
+    has_env_example = _is_file(project_dir, project_dir / ".env.example")
+    has_readme = _is_file(project_dir, project_dir / "README.md")
+    has_frontend = _is_file(project_dir, project_dir / "frontend" / "package.json")
+    has_compliance_report = _is_file(project_dir, project_dir / "compliance_scan.json")
 
     # Numeric scores
     test_cov = _check_test_coverage(project_dir)
     test_sc = _check_test_score(project_dir)
-    domain_sc = _check_domain_specificity(src_dir)
-    seed_sc = _check_seed_quality(src_dir)
+    domain_sc = _check_domain_specificity(src_dir, project_dir)
+    seed_sc = _check_seed_quality(src_dir, project_dir)
     fe_sc = _check_frontend_complete(project_dir)
     docker_sc = 1.0 if has_docker else 0.0
     sec_sc = _check_security_bandit(src_dir)

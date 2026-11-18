@@ -13,7 +13,7 @@ from sqlalchemy import func, select, update
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.billing.payments import effective_plan
 from aether_os.core.db import get_session_factory
-from aether_os.core.models import Organisation, Run
+from aether_os.core.models import Organisation, Run, User
 from aether_os.core.policy.rules import QUOTA_PERIOD_SECONDS, Decision, Facts, evaluate
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,11 @@ async def gather_facts(org_id: str, role: str, now: Optional[float] = None) -> F
         in_period = (await session.execute(
             select(func.count()).select_from(Run)
             .where(Run.org_id == org_id, Run.started_at >= now - QUOTA_PERIOD_SECONDS))).scalar() or 0
+        seats = (await session.execute(
+            select(func.count()).select_from(User)
+            .where(User.org_id == org_id, User.is_active.is_(True), User.deleted_at.is_(None)))).scalar() or 0
     return Facts(
+        seats_used=seats,
         org_exists=True, org_deleted=bool(org.is_deleted),
         plan=effective_plan(org.plan, org.plan_period_end, now), role=role,
         active_runs=active, runs_in_period=in_period,

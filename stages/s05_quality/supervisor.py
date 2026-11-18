@@ -24,7 +24,8 @@ SUB-STEPS:
   2. [PARALLEL] p06b_formal_verification — Z3 SMT proofs of auth/SQL/state-machine invariants
   3. [SEQUENTIAL] Dimension Critic    — 8-dimension static scoring on all .py files
 
-CRITICAL: No — pipeline continues even if quality gate has findings (findings go to self-healing)
+CRITICAL: No for ordinary findings (they go to self-healing); unresolved High/Critical security
+         findings and a Z3 FAIL fail the gate, which ends the run.
 NOTE: Findings from this stage are fed into Stage 7 (SELF-HEALING) as repair targets.
 """
 from __future__ import annotations
@@ -39,8 +40,10 @@ from typing import Any, Dict, List
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.phases.utils import get_domain_ir
 from aether_os.core.projects import get_project_manager
+from aether_os.core.quality.axe_live import live_axe_violations
+from aether_os.core.quality.frontend_tools import collect as collect_frontend_tools
 from aether_os.stages.s05_quality.helpers import quality_gate_summary
-from aether_os.stages.s05_quality.gate_functions import detect_critical_issues, regenerate_file
+from aether_os.stages.s05_quality.gate_functions import blocking_findings, detect_critical_issues, regenerate_file
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +56,8 @@ class QualityGateSupervisor(PhaseBase):
     """
     Stage 5 supervisor: runs p06 + p06b in parallel, then dimension critic sequentially.
 
-    Findings are surfaced as metadata even when quality gate does not pass;
-    the pipeline is never blocked here — findings flow to Stage 7 (SELF-HEALING).
+    Findings are surfaced as metadata; only unresolved High/Critical security findings and a
+    Z3 FAIL block the run (validate_gate). The rest flow to Stage 7 (SELF-HEALING).
     """
 
     phase_name = "s05_quality"
@@ -106,7 +109,7 @@ class QualityGateSupervisor(PhaseBase):
         try:
             from aether_os.core.quality.dimension_critic import critique_directory
             if backend_path:
-                critic_reports = critique_directory(backend_path)
+                critic_reports = critique_directory(backend_path, root=merged_data.get("project_dir"))
                 failed = [r.artifact_path for r in critic_reports if not r.passed]
                 dimension_critique = {
                     "total": len(critic_reports),
@@ -124,6 +127,27 @@ class QualityGateSupervisor(PhaseBase):
                 )
             else:
                 logger.info("[s05] dimension critic: backend_output_path empty — skipping")
+            # Frontend: regex scorers plus the real tsc/eslint results (and axe-core's count when the
+            # a11y phase already produced one); tools that did not run are reported, never assumed clean.
+            fe_path = merged_data.get("frontend_output_path", "")
+            if fe_path and Path(fe_path).is_dir():
+                a11y = merged_data.get("accessibility_results") or {}
+                # The a11y stage's own count when it ran; else axe-core now, in the browser sandbox (when a
+                # build and the sandbox exist); else None plus a note: not run is never "zero violations".
+                axe_count = a11y.get("violations") if a11y.get("ran_axe") else None
+                axe_note = ""
+                if axe_count is None:
+                    axe_count, axe_note = await live_axe_violations(Path(fe_path))
+                tools = await asyncio.to_thread(collect_frontend_tools, fe_path, axe_count)
+                if axe_note:
+                    tools.notes.append(axe_note)
+                fe_reports = critique_directory(fe_path, tools=tools, root=merged_data.get("project_dir"))
+                critic_reports += fe_reports
+                dimension_critique["frontend"] = {
+                    "files": len(fe_reports), "failed": sum(1 for r in fe_reports if not r.passed),
+                    "tsc_ran": tools.tsc_ran, "eslint_ran": tools.eslint_ran,
+                    "axe_violations": tools.axe_violations, "notes": tools.notes,
+                }
         except Exception as e:
             logger.warning("Dimension critique failed (non-critical): %s", e)
 
@@ -165,15 +189,18 @@ class QualityGateSupervisor(PhaseBase):
         output_data: Dict[str, Any] = gate_summary
         critical_issues = detect_critical_issues(backend_src, security_findings, dimension_critique)
         resolved = 0
+        unresolved: list = []  # issues no regeneration attempt fixed (the old code assumed the first N were)
 
         if critical_issues and llm is not None:
             for issue in critical_issues:
+                fixed = False
                 for attempt in range(2):
                     success = await regenerate_file(
                         issue["file"], issue, domain_ir, project_name, llm
                     )
                     if success:
                         resolved += 1
+                        fixed = True
                         # Record fix in stage feedback
                         try:
                             from aether_os.core.stage_feedback import record_stage_fix
@@ -189,23 +216,33 @@ class QualityGateSupervisor(PhaseBase):
                         attempt + 1, issue["issue_type"],
                         issue["file"].name if hasattr(issue["file"], "name") else issue["file"],
                     )
+                if not fixed:
+                    unresolved.append(issue)
         elif critical_issues and llm is None:
+            unresolved = list(critical_issues)
             logger.warning(
                 "[s05] %d critical issue(s) found but no LLM available for regeneration",
                 len(critical_issues),
             )
 
-        remaining = len(critical_issues) - resolved
+        remaining = len(unresolved)
         if remaining > 0:
             # Escalate to healing stage with priority flag
             output_data["healing_priority"] = "critical"
             output_data["unresolved_critical_issues"] = [
-                i["description"] for i in critical_issues[resolved:]
+                i["description"] for i in unresolved
             ]
+            output_data["blocking_findings"] = blocking_findings(unresolved)
             logger.warning(
                 "[s05] %d critical issue(s) remain after regeneration — escalated to healing",
                 remaining,
             )
+
+        if (p06_result.metadata or {}).get("skipped"):
+            # Fail closed: no security review means nothing was checked, not that nothing was found.
+            output_data["blocking_findings"] = output_data.get("blocking_findings", []) + [
+                "security review could not run: " + str(p06_result.metadata.get("error", "unknown error"))
+            ]
 
         logger.info(
             "[s05] quality gate: %d critical issues found, %d resolved, %d remaining",
@@ -251,25 +288,27 @@ class QualityGateSupervisor(PhaseBase):
             confidence=_compute_confidence(gate_summary),
             metadata=gate_summary,
             issues=issues,
-            # Always success=True: findings go to self-healing, not a pipeline block
-            success=True,
+            success=True,  # the gate (validate_gate) decides blocking, not this flag
         )
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
-        """
-        Stage 5 gate always passes — quality findings go to Stage 7 (SELF-HEALING).
-
-        If the quality report itself could not be written (output_path empty or missing),
-        we still pass but log a warning so operators can investigate.
+        """Fail closed: a High/Critical security finding that regeneration could not fix, or a
+        Z3 FAIL verdict, stops delivery (the base class escalates and the run ends at this stage).
+        Every other finding still flows on to Stage 7 (SELF-HEALING) as a repair target.
         """
         if not result.output_path:
             logger.warning("[s05] quality gate: no output_path — report write may have failed")
 
-        return GateOutcome(
-            passed=True,
-            issues=result.issues,
-            confidence=result.confidence,
-        )
+        meta = result.metadata or {}
+        blockers = list(meta.get("blocking_findings") or [])
+        if (meta.get("verification_report") or {}).get("overall_verdict") == "FAIL":
+            blockers.append("Z3 formal verification verdict FAIL")
+        if blockers:
+            return GateOutcome(
+                passed=False, confidence=0.0,
+                issues=[f"BLOCKED: {b}" for b in blockers] + list(result.issues or []),
+            )
+        return GateOutcome(passed=True, issues=result.issues, confidence=result.confidence)
 
     # ── Internal helpers ────────────────────────────────────────────────────
 

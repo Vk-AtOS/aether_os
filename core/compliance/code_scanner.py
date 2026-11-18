@@ -9,7 +9,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
+
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
+from aether_os.core.run_app import safe_fs
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +59,14 @@ def scan_file(
     main_py_path: Path,
     project_name: str = "",
     domain: str = "general",
+    *,
+    root: Optional[Path],
 ) -> ComplianceScanResult:
     """
+    root: the run directory main_py_path lives in. Required, no fallback: a missing, relative or
+    symlinked root, or a main.py outside it, is reported as "source not found" (SCAN-001);
+    nothing below root is read through a symlink.
+
     Main entry point. Scans a FastAPI main.py and returns compliance results.
     Handles missing files gracefully — always returns a ComplianceScanResult,
     never raises.
@@ -64,7 +75,13 @@ def scan_file(
 
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    if not main_py_path.exists():
+    try:
+        root = require_project_root(root)
+        source = safe_fs.read_text_or_none(root, relative_to_root(root, main_py_path))
+    except SandboxViolation as exc:
+        logger.warning("code_scanner: %s", exc)
+        source = None
+    if source is None:
         return ComplianceScanResult(
             project_name=project_name,
             domain=domain,
@@ -85,18 +102,19 @@ def scan_file(
             scan_timestamp=ts,
         )
 
-    source = main_py_path.read_text(encoding="utf-8", errors="replace")
     routes = _extract_routes(source)
 
     # Collect all sibling *.py files in the same src/ directory (recursively),
     # including routers/crud.py and any other modules — CRUD routes live there,
     # not in main.py.
     src_dir = main_py_path.parent
-    for _router_file in sorted(src_dir.rglob("*.py")):
-        if _router_file == main_py_path or "__pycache__" in str(_router_file):
+    _under = relative_to_root(root, src_dir)
+    for _rel in safe_fs.walk_files(root, _under, skip_dirs=("__pycache__",)):
+        _router_file = root / _rel
+        if _router_file == main_py_path or _router_file.suffix != ".py":
             continue
         try:
-            _router_src = _router_file.read_text(encoding="utf-8", errors="replace")
+            _router_src = safe_fs.read_text_or_none(root, _router_file) or ""
             # Expand named-router decorator patterns (e.g. @employees_router.delete)
             # so _extract_routes() matches them via the @router.<method> pattern.
             _expanded = re.sub(
@@ -138,7 +156,7 @@ def _extract_routes(source: str) -> List[RouteInfo]:
     )
     auth_patterns = [
         r'Depends\s*\(\s*get_current_user',
-        r'Depends\s*\(\s*require_role',
+        r'Depends\s*\(\s*require_\w+',   # require_role, require_admin, ...
         r'Depends\s*\(\s*verify_token',      # AetherOS generated code
         r'Depends\s*\(\s*authenticate',
         r'Depends\s*\(\s*jwt_required',
@@ -168,10 +186,17 @@ def _extract_routes(source: str) -> List[RouteInfo]:
         r'audit_trail',
     ]
 
-    for i, line in enumerate(lines):
+    route_lines = [i for i, line in enumerate(lines) if route_pattern.search(line)]
+    # Auth declared once for the whole router (APIRouter(dependencies=[Depends(...)]) covers every route in it.
+    router_auth = re.search(
+        r'(?:APIRouter|include_router)\s*\([^)]*dependencies\s*=\s*\[[^\]]*Depends\s*\(\s*'
+        r'(?:get_current_user|require_\w+|verify_token|authenticate|jwt_required|get_user)',
+        source, re.S,
+    ) is not None
+
+    for n, i in enumerate(route_lines):
+        line = lines[i]
         m = route_pattern.search(line)
-        if not m:
-            continue
 
         method = m.group(1).upper()
         path = m.group(2)
@@ -184,15 +209,21 @@ def _extract_routes(source: str) -> List[RouteInfo]:
                 func_name = fm.group(1) or fm.group(2)
                 break
 
-        # Collect function body (next 50 lines) for pattern matching
-        body_end = min(i + 50, len(lines))
-        body = "\n".join(lines[i:body_end])
+        # This route's own text: its decorators and function, up to the NEXT route (at most 50 lines).
+        # A fixed 50-line window let an unauthenticated route inherit a neighbour's Depends(get_current_user).
+        body_end = min(i + 50, route_lines[n + 1] if n + 1 < len(route_lines) else len(lines))
+        while body_end > i + 1 and lines[body_end - 1].lstrip().startswith("@"):
+            body_end -= 1  # decorators above the next route belong to it
+        start = i
+        while start > 0 and lines[start - 1].lstrip().startswith("@") and not route_pattern.search(lines[start - 1]):
+            start -= 1  # e.g. @limiter.limit placed above the route decorator
+        body = "\n".join(lines[start:body_end])
 
         routes.append(RouteInfo(
             method=method,
             path=path,
             function_name=func_name,
-            has_auth=any(re.search(p, body, re.IGNORECASE) for p in auth_patterns),
+            has_auth=router_auth or any(re.search(p, body, re.IGNORECASE) for p in auth_patterns),
             has_rate_limit=any(re.search(p, body, re.IGNORECASE) for p in rate_limit_patterns),
             has_input_validation=(
                 method in ("POST", "PUT", "PATCH")

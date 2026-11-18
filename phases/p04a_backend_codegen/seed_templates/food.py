@@ -2,8 +2,7 @@
 Seed template for food domain (Restaurant focus).
 """
 import random
-from sqlalchemy import select, func
-from models import User, Location, MenuItem, Order, Staff
+from models import Location, MenuItem, Order, Staff
 
 async def seed_food(db_session):
     # 1. Locations (Minimum 3)

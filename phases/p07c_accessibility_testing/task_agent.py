@@ -1,50 +1,18 @@
 """P07c Accessibility Testing — axe-core checks against the generated frontend."""
 from __future__ import annotations
-import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from aether_os.core.domain_knowledge.loader import load_pack
+from aether_os.core.run_app import safe_fs
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.browser_job import run_browser_job
+from aether_os.core.sandbox.runner import SandboxUnavailable, sandbox_dirs
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
-
-_AXE_SCRIPT = """
-const { chromium } = require('playwright');
-const { checkA11y, injectAxe } = require('axe-playwright');
-
-(async () => {
-  const browser = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await browser.newPage();
-  try {
-    await page.goto(process.argv[2] || 'http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
-    await injectAxe(page);
-    const results = await checkA11y(page, null, { detailedReport: true, includedImpacts: ['critical', 'serious', 'moderate', 'minor'] }, true);
-    // checkA11y throws on violations; if we reach here, no violations
-    console.log(JSON.stringify({
-      violations: 0,
-      passes: 0,
-      incomplete: 0,
-      items: [],
-    }));
-  } catch (e) {
-    // checkA11y throws an AxeResults error containing violations
-    if (e && e.violations) {
-      console.log(JSON.stringify({
-        violations: e.violations.length,
-        passes: (e.passes || []).length,
-        incomplete: (e.incomplete || []).length,
-        items: e.violations.slice(0, 10).map(v => ({ id: v.id, impact: v.impact, description: v.description })),
-      }));
-    } else {
-      console.log(JSON.stringify({ error: e.message || String(e) }));
-    }
-  } finally {
-    await browser.close();
-  }
-})();
-"""
 
 _WCAG_CHECKLIST = [
     {"id": "color-contrast", "description": "Text has sufficient color contrast", "impact": "serious"},
@@ -58,17 +26,45 @@ _WCAG_CHECKLIST = [
 ]
 
 
+_BASE_AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]
+
+
+def axe_tags_for(domain: str) -> list:
+    """WCAG 2.1 AA always; the Section 508 ruleset too when the domain's compliance rules name it
+    (govtech, edtech): that is how the domain pack's "inject Section 508 into p07c" instruction is carried out."""
+    pack = load_pack(domain or "")
+    names = " ".join(f"{r.standard} {r.rule}" for r in (pack.compliance if pack else []))
+    return _BASE_AXE_TAGS + (["section508"] if "508" in names else [])
+
+
+_AXE_PORT = 4173   # on the browser sandbox's own loopback
+
+
+def dist_dir_for(data: Dict[str, Any]) -> Optional[Path]:
+    """The built frontend (dist/ with an index.html) the browser sandbox can serve, or None."""
+    for raw in (data.get("frontend_dist_dir"), (Path(data["frontend_output_path"]) / "dist")
+                if data.get("frontend_output_path") else None):
+        if raw:
+            d = Path(raw)
+            root = phase_exec.project_root(d)
+            if safe_fs.is_real_dir(root, d.relative_to(root)) and safe_fs.stat_or_none(root, (d / "index.html").relative_to(root)):
+                return d
+    return None
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
 
-    # Defer: this phase requires a running frontend, which is not available during pipeline build.
-    if not data.get("frontend_url") and not data.get("app_url"):
+    # Defer: the scan needs a built frontend to open. (A URL cannot stand in: the browser sandbox has no
+    # network by design, so "localhost" there is only what the sandbox itself serves.)
+    dist = dist_dir_for(data)
+    if dist is None:
         result = {
             "success": True,
             "skipped": True,
-            "reason": "deferred: requires running app — re-run after app start",
+            "reason": "deferred: needs a built frontend (dist/) — nothing to open in the browser sandbox",
         }
         (output_dir / "a11y_results.json").write_text(json.dumps(result, indent=2))
         return TaskResult(
@@ -77,57 +73,52 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             metadata={"phase": "p07c_accessibility_testing", "skipped": True, "data": result},
         )
 
-    frontend_port: int = data.get("frontend_port", 5173)
-    frontend_url = data.get("frontend_url") or f"http://localhost:{frontend_port}"
-
+    tags = axe_tags_for(data.get("domain", ""))
     results: Dict = {
-        "target": frontend_url,
-        "wcag_level": "WCAG 2.1 AA",
+        "target": f"dist served inside the browser sandbox ({dist})",
+        "wcag_level": "WCAG 2.1 AA" + (" + Section 508" if "section508" in tags else ""),
+        "axe_tags": tags,
         "checklist": _WCAG_CHECKLIST,
         "violations": 0,
         "passes": 0,
     }
 
-    # ── Try axe-core via playwright ───────────────────────────────────────────
-    axe_script = output_dir / "axe_runner.js"
-    axe_script.write_text(_AXE_SCRIPT)
-
+    # ── axe-core in the browser sandbox (Chromium never runs on the platform host) ──────────────
+    root = phase_exec.project_root(dist)
+    out_json = Path(sandbox_dirs(root)["TMPDIR"]) / "axe_result.json"
+    job = {"action": "axe", "tags": tags, "out": str(out_json),
+           "serve": {"dir": str(dist), "port": _AXE_PORT}, "url": f"http://127.0.0.1:{_AXE_PORT}/"}
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.get(frontend_url)
-
-        proc = await asyncio.create_subprocess_exec(
-            "node", str(axe_script), frontend_url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        axe_data = json.loads(stdout.decode().strip())
-        results.update(axe_data)
+        axe_data = await run_browser_job(job, project=dist, timeout=60)
+        if not axe_data.get("ok") or not isinstance(axe_data.get("violations"), int):
+            raise RuntimeError(axe_data.get("error") or "axe returned no violation count")
+        results.update({k: axe_data[k] for k in ("violations", "passes", "incomplete", "items") if k in axe_data})
         results["ran_axe"] = True
         logger.info("[p07c] axe done: %d violations, %d passes", axe_data.get("violations", 0), axe_data.get("passes", 0))
+    except SandboxUnavailable as exc:
+        logger.error("[p07c] axe not run, the browser sandbox is unavailable: %s", exc)
+        results["skipped"] = True
+        results["reason"] = f"browser sandbox unavailable: {exc}"
     except Exception as exc:
         logger.info("[p07c] axe skipped (%s) — using static checklist", exc)
         results["skipped"] = True
-        results["reason"] = "frontend not running locally or axe/playwright not installed"
+        results["reason"] = "axe did not run in the browser sandbox (see log)"
 
     # ── ARIA attribute audit on generated HTML ────────────────────────────────
     frontend_dir = Path(data.get("frontend_src_dir", "")) if data.get("frontend_src_dir") else None
     aria_issues = []
     if frontend_dir and frontend_dir.exists():
-        for f in list(frontend_dir.rglob("*.tsx")) + list(frontend_dir.rglob("*.jsx")):
-            try:
-                content = f.read_text()
-                if "<img" in content and "alt=" not in content:
-                    aria_issues.append(f"{f.name}: <img> missing alt attribute")
-                if "<button" in content and "aria-label" not in content and ">Submit" not in content:
-                    pass  # buttons with text content are fine
-            except Exception as exc:
-                logger.debug("p07c: ARIA scan failed for file %s (non-fatal): %s", f.name, exc)
+        root_fe = phase_exec.project_root(frontend_dir)
+        for rel in safe_fs.walk_files(root_fe, frontend_dir.relative_to(root_fe), skip_dirs=("node_modules", "dist")):
+            if rel.suffix not in (".tsx", ".jsx"):
+                continue
+            content = safe_fs.read_text_or_none(root_fe, rel)
+            if content and "<img" in content and "alt=" not in content:
+                aria_issues.append(f"{rel.name}: <img> missing alt attribute")
         results["aria_issues"] = aria_issues[:10]
 
-    results["passed"] = results["violations"] == 0
+    # "No violations" is only a result when axe actually ran: a scan that did not run is not a pass.
+    results["passed"] = bool(results.get("ran_axe")) and results["violations"] == 0
     (output_dir / "a11y_results.json").write_text(json.dumps(results, indent=2))
 
     return TaskResult(

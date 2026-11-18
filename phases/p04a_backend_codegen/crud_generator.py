@@ -8,11 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import DEFAULT_ROLE_MODEL
-from phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code, _AUTH_FLOWS_PROMPT
-from phases.p04a_backend_codegen.prompts import build_crud_prompt, build_seed_prompt
+from aether_os.phases.p04a_backend_codegen.helpers import _fallback_auth_flow_code
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ The current_user dict has an "org_id" key. Use it. Never return records from oth
 
 async def _llm_models_and_schemas(
     llm, project_name: str, domain: str, entities: list, raw_input: str, arch_doc: dict,
-    mem_hint: str = "", multi_tenancy: bool = False,
+    mem_hint: str = "", multi_tenancy: bool = False, org_id: str | None = None,
 ) -> Tuple[str, str]:
     """One LLM call → (models.py, schemas.py)."""
     entities_json = json.dumps(entities, indent=2)
@@ -46,7 +45,8 @@ async def _llm_models_and_schemas(
     golden_hint = ""
     try:
         from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p04
-        examples = await get_golden_examples(domain, limit=2)
+        # Tenant data: only this org's (and platform-owned) builds may reach the prompt.
+        examples = await get_golden_examples(domain, limit=2, org_id=org_id)
         golden_hint = format_golden_hint_p04(examples)
     except Exception as exc:
         logger.debug("p04a crud_generator: golden examples retrieval failed (non-fatal): %s", exc)
@@ -135,166 +135,6 @@ Return VALID JSON only (no markdown):
             )
 
     raise ValueError("Could not parse models/schemas from LLM response")
-
-
-def _check_and_fix_sql_injection(code: str) -> str:
-    """Post-processing: detect and neutralise f-string raw SQL patterns in generated crud.py.
-
-    LLMs occasionally emit raw SQL f-strings (SQL injection vectors).
-    This pass replaces any f-string SQL with a warning comment + safe ORM placeholder.
-    Pattern: f"SELECT ...", f'UPDATE ...', f"DELETE ...", f"INSERT ..."
-    """
-    _SQL_FSTRING_RE = re.compile(
-        r'f["\'].*?(SELECT|UPDATE|DELETE|INSERT).*?["\']',
-        re.IGNORECASE | re.DOTALL,
-    )
-    if not _SQL_FSTRING_RE.search(code):
-        return code
-
-    def _replace_sql(m: re.Match) -> str:
-        original = m.group(0)
-        logger.warning(
-            "p04a sql_injection_check: replaced raw SQL f-string with ORM placeholder: %.100s",
-            original,
-        )
-        return (
-            '# [AetherOS] Raw SQL f-string removed (SQL injection risk). '
-            'Use SQLAlchemy ORM select() instead.\n'
-            '        None  # TODO: replace with ORM query'
-        )
-
-    return _SQL_FSTRING_RE.sub(_replace_sql, code)
-
-
-def _scrub_password_fields_from_response(code: str) -> str:
-    """Post-processing pass: remove password_hash/password/hashed_password from response schemas.
-
-    LLM-generated crud.py sometimes leaks password fields into response dicts.
-    This scrub ensures they never appear in any dict comprehension or Pydantic model.
-    Only modifies lines that explicitly include these fields as dict keys in responses.
-    """
-    _BANNED = ("password_hash", "password", "hashed_password")
-    out_lines = []
-    for line in code.splitlines():
-        # Remove banned fields from inline dict comprehensions that filter columns by name
-        # e.g. {c.name: ... if c.name not in ('password_hash',)} patterns are already safe;
-        # target: literal key assignments like '"password_hash": obj.password_hash'
-        for field in _BANNED:
-            # Drop lines that are bare key-value pairs for password fields in response dicts
-            if (
-                f'"{field}"' in line or f"'{field}'" in line
-            ) and "not in" not in line and "exclude" not in line:
-                stripped = line.strip()
-                # Only drop if the line IS the key-value pair (not a comment or import)
-                if stripped.startswith(f'"{field}"') or stripped.startswith(f"'{field}'"):
-                    logger.debug("p04a scrub: removed password field line: %s", stripped)
-                    break
-        else:
-            out_lines.append(line)
-    return "\n".join(out_lines)
-
-
-async def _llm_crud_routers(
-    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
-    mem_hint: str = "", multi_tenancy: bool = False,
-) -> str:
-    """One LLM call → routers/crud.py with all entity CRUD routers."""
-    entity_names = [e.get("name", e.get("table", "")) for e in entities]
-    entity_list = ", ".join(entity_names)
-
-    # Build a compact entity→fields map so the LLM can produce correct column references
-    entity_fields_summary = ""
-    for e in entities:
-        fields = e.get("fields", []) or []
-        field_names = [f.get("name", f) if isinstance(f, dict) else str(f) for f in fields]
-        entity_fields_summary += f"  {e.get('name','')}: {', '.join(field_names)}\n"
-
-    # Pass full models + schemas so LLM sees exact class names, field names, and types
-    # Cap at 5000 chars each to stay within context budget
-    models_ctx = models_code[:5000] + ("\n# ... (truncated)" if len(models_code) > 5000 else "")
-    schemas_ctx = schemas_code[:5000] + ("\n# ... (truncated)" if len(schemas_code) > 5000 else "")
-
-    # Conditionally inject multi-tenancy filtering instructions into CRUD prompt
-    tenancy_block = _MULTI_TENANCY_PROMPT if multi_tenancy else ""
-
-    prompt = build_crud_prompt(
-        project_name=project_name,
-        entity_fields_summary=entity_fields_summary,
-        models_ctx=models_ctx,
-        schemas_ctx=schemas_ctx,
-        mem_hint=mem_hint,
-        multi_tenancy_block=tenancy_block,
-        auth_flows_prompt=_AUTH_FLOWS_PROMPT,
-    )
-
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=6000)
-    if not result or len(result.strip()) < 200:
-        raise ValueError("Empty or too-short LLM response for CRUD routers")
-
-    # Strip markdown fences if present
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-
-    # Fix relative imports that break when src/ is loaded as an absolute package
-    # e.g. Bedrock Nova sometimes writes "from..schemas import" or "from ..models import"
-    code = re.sub(r"from\s*\.+\s*(schemas|models|database|auth)\s+import", r"from \1 import", code)
-
-    # Post-process: remove any password fields that leaked into response dicts
-    code = _scrub_password_fields_from_response(code)
-
-    # Post-process: neutralise raw SQL f-strings (SQL injection risk)
-    code = _check_and_fix_sql_injection(code)
-
-    return code
-
-
-async def _llm_seed_data(
-    llm, project_name: str, domain: str, entities: list, models_code: str
-) -> str:
-    """One LLM call → seed.py with realistic startup data."""
-    models_ctx = models_code[:3000] + (
-        "\n# ... (truncated)" if len(models_code) > 3000 else ""
-    )
-    prompt = build_seed_prompt(
-        project_name=project_name,
-        domain=domain,
-        models_ctx=models_ctx,
-    )
-
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
-    if not result or len(result.strip()) < 200:
-        raise ValueError("Empty LLM seed response")
-
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-    return code
-
-
-async def _llm_service_layer(
-    llm, project_name: str, entities: list, models_code: str, schemas_code: str,
-    mem_hint: str = "",
-) -> str:
-    """One LLM call → services/entity_services.py with one service class per entity."""
-    prompt = f"""
-Generate src/services/__init__.py for "{project_name}".
-{mem_hint}
-Create one service class per entity: class EntityService with async staticmethods:
-  - get_all(db, skip, limit) -> list
-  - get_by_id(db, id) -> model | None
-  - create(db, data) -> model
-  - update(db, id, data) -> model | None
-  - delete(db, id) -> bool
-Each method uses SQLAlchemy async session (AsyncSession).
-Import models from ..models, return ORM objects.
-The CRUD routers will call these service methods instead of querying the DB directly.
-Return ONLY the complete Python file. No markdown.
-"""
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
-    if not result or len(result.strip()) < 100:
-        raise ValueError("Empty LLM response for service layer")
-    code = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
-    code = re.sub(r"\n?```\s*$", "", code.strip())
-    return code
 
 
 # ── Fallback generators (no LLM) ──────────────────────────────────────────────
@@ -448,7 +288,7 @@ def _fallback_crud_routers(
             if multi_tenancy else ""
         )
         mt_create_kwarg = (
-            f", org_id=current_user.get('org_id')"
+            ", org_id=current_user.get('org_id')"
             if multi_tenancy else ""
         )
 
@@ -489,59 +329,59 @@ def _fallback_crud_routers(
             "",
             f"@{var}.get('/', response_model=dict)",
             f"async def list_{table}(",
-            f"    page: int = Query(1, ge=1),",
-            f"    page_size: int = Query(20, ge=1, le=200),",
-            f"    db: AsyncSession = Depends(get_db),",
+            "    page: int = Query(1, ge=1),",
+            "    page_size: int = Query(20, ge=1, le=200),",
+            "    db: AsyncSession = Depends(get_db),",
             f"    current_user: dict = Depends({read_dep}),",
-            f"):",
+            "):",
             f"    _ck = {list_cache_key}",
-            f"    _cached = await _cache_get(_ck)",
-            f"    if _cached is not None:",
-            f"        return _cached",
-            f"    offset = (page - 1) * page_size",
+            "    _cached = await _cache_get(_ck)",
+            "    if _cached is not None:",
+            "        return _cached",
+            "    offset = (page - 1) * page_size",
             f"    total_q = await db.execute(select(func.count()).select_from(models.{name}){mt_list_filter})",
-            f"    total = total_q.scalar_one()",
+            "    total = total_q.scalar_one()",
             f"    result = await db.execute(select(models.{name}){mt_list_filter}.offset(offset).limit(page_size))",
-            f"    items = result.scalars().all()",
+            "    items = result.scalars().all()",
             f"    _resp = {{'items': [{ser_dict} for i in items], 'total': total, 'page': page, 'page_size': page_size}}",
-            f"    await _cache_set(_ck, _resp)",
-            f"    return _resp",
+            "    await _cache_set(_ck, _resp)",
+            "    return _resp",
             "",
             f"@{var}.get('/{{item_id}}', response_model=dict)",
             f"async def get_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({read_dep})):",
             f"    _ck = {item_cache_key}",
-            f"    _cached = await _cache_get(_ck)",
-            f"    if _cached is not None:",
-            f"        return _cached",
+            "    _cached = await _cache_get(_ck)",
+            "    if _cached is not None:",
+            "        return _cached",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    _resp = {ser_dict_obj}",
-            f"    await _cache_set(_ck, _resp)",
-            f"    return _resp",
+            "    await _cache_set(_ck, _resp)",
+            "    return _resp",
             "",
             f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends({create_dep})):",
             f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
-            f"    db.add(obj)",
-            f"    await db.flush()",
+            "    db.add(obj)",
+            "    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'CREATE', '{name}', str(getattr(obj, 'id', '')))",
-            f"    await db.refresh(obj)",
+            "    await db.refresh(obj)",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
             "",
             f"@{var}.patch('/{{item_id}}', response_model=dict)",
             f"async def update_{table}(item_id: int, data: {name}Update, db: AsyncSession = Depends(get_db), current_user: dict = Depends({update_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
-            f"    for k, v in data.model_dump(exclude_unset=True).items():",
-            f"        setattr(obj, k, v)",
-            f"    await db.flush()",
+            "    for k, v in data.model_dump(exclude_unset=True).items():",
+            "        setattr(obj, k, v)",
+            "    await db.flush()",
             f"    await _log_action(db, str(current_user.get('id', '')), 'UPDATE', '{name}', str(item_id))",
-            f"    await db.refresh(obj)",
+            "    await db.refresh(obj)",
             f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             f"    return {ser_dict_obj}",
@@ -553,11 +393,11 @@ def _fallback_crud_routers(
             f"@{var}.delete('/{{item_id}}', status_code=status.HTTP_204_NO_CONTENT)",
             f"async def delete_{table}(item_id: int, db: AsyncSession = Depends(get_db), current_user: dict = Depends({delete_dep})):",
             f"    result = await db.execute(select(models.{name}).where(models.{name}.id == item_id{mt_get_filter}))",
-            f"    obj = result.scalar_one_or_none()",
-            f"    if obj is None:",
+            "    obj = result.scalar_one_or_none()",
+            "    if obj is None:",
             f"        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='{name} not found')",
             f"    await _log_action(db, str(current_user.get('id', '')), 'DELETE', '{name}', str(item_id))",
-            f"    await db.delete(obj)",
+            "    await db.delete(obj)",
             f"    await _cache_delete({item_cache_key})",
             f"    await _cache_delete_pattern(f\"{name}:list:*\")",
             "",
@@ -571,5 +411,5 @@ def _fallback_crud_routers(
 
 
 # Re-exports from split modules (file-size limit compliance)
-from phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
-from phases.p04a_backend_codegen.crud_generator_seed import _fallback_seed  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.crud_generator_service import _fallback_service_layer  # noqa: F401
+from aether_os.phases.p04a_backend_codegen.crud_generator_seed import _fallback_seed  # noqa: F401

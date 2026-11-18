@@ -16,10 +16,11 @@ if config.config_file_name is not None:
 
 try:
     from aether_os.core.db import Base, _build_db_url
-    from aether_os.core.models import *  # noqa: F401,F403
+    from aether_os.core import schema_ddl
 except ModuleNotFoundError:
     from core.db import Base, _build_db_url
-    from core.models import *  # noqa: F401,F403
+    from core import schema_ddl
+schema_ddl.register_models()   # every model module, or autogenerate proposes dropping the tables it did not see
 target_metadata = Base.metadata
 
 
@@ -57,6 +58,13 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            # Several revision ids here are longer than Alembic's default VARCHAR(32) version column; without
+            # this a replay from an empty database fails with StringDataRightTruncation mid-history.
+            connection.exec_driver_sql("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(255) NOT NULL, "
+                                       "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
+            connection.exec_driver_sql("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
+            connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

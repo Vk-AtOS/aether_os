@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Users } from 'lucide-react';
 import { vc, vError, btn } from '../velaris/velarisApi';
 import { confirmAction } from '../confirmAction';
+import { useRole } from '../../hooks/useRole';
 import { Spinner, ErrorBox } from '../prime/parts';
 import MessageItem from './MessageItem';
 import Composer from './Composer';
@@ -12,6 +13,7 @@ const byId = (a, b) => (typeof a.id === 'number' && typeof b.id === 'number' ? a
 // Messages of one channel (or one thread). Only the newest PAGE are in the page at first; "Load earlier" adds
 // older ones, so a long channel never puts thousands of nodes on screen at once.
 const MessagePane = ({ channel, me, chat, onSide, topics }) => {
+  const { isAdmin } = useRole();                // organisation owner/admin: the compliance erase button (the gateway checks too)
   const [msgs, setMsgs] = useState({ key: null, list: [], more: false, error: '' });
   const [topic, setTopic] = useState('');
   const [filter, setFilter] = useState('');
@@ -99,6 +101,10 @@ const MessagePane = ({ channel, me, chat, onSide, topics }) => {
   const act = async (fn) => { try { await fn(); setNotice(''); return true; } catch (e) { setNotice(vError(e)); return false; } };
   const onReact = (m, e, had) => act(() => (had ? vc.delete(`/chat/messages/${m.id}/reactions/${encodeURIComponent(e)}`) : vc.put(`/chat/messages/${m.id}/reactions/${encodeURIComponent(e)}`, {})));
   const onEdit = (m, body) => act(async () => { const r = await vc.patch(`/chat/messages/${m.id}`, { body }); setMsgs((s) => ({ ...s, list: s.list.map((x) => (x.id === m.id ? r.data.message : x)) })); });
+  // Compliance erase (KAN-129): removes the content for good (a channel on legal hold keeps it; Velaris says so). Org
+  // admins only; the typed word travels as `confirm` and the gateway refuses the call without it and ledgers it.
+  // An author who is not an admin deletes their own message instead (Velaris allows erase for admins only).
+  const onErase = (m, word) => act(() => vc.post(`/chat/admin/messages/${m.id}/erase`, { confirm: word }));
   const onDelete = async (m) => { if (await confirmAction('Delete this message for everyone in the channel?', 'Delete message')) act(() => vc.delete(`/chat/messages/${m.id}`)); };
   const onPin = (m, pinned) => act(() => (pinned ? vc.delete(`/chat/messages/${m.id}/pin`) : vc.put(`/chat/messages/${m.id}/pin`, {})));
   const onDownload = (h) => act(async () => {
@@ -130,7 +136,7 @@ const MessagePane = ({ channel, me, chat, onSide, topics }) => {
             {msgs.list.length === 0 && <p className="text-sm text-muted text-center py-10">No messages yet. Say something.</p>}
             {msgs.list.map((m) => (
               <div key={m.id}>
-                <MessageItem m={m} me={me} pinned={pins.includes(m.id)} canAdmin={canAdmin} onReact={onReact} onEdit={onEdit} onDelete={onDelete}
+                <MessageItem m={m} me={me} pinned={pins.includes(m.id)} canAdmin={canAdmin} canErase={isAdmin} onReact={onReact} onEdit={onEdit} onDelete={onDelete} onErase={onErase}
                   onPin={onPin} onThread={setThread} onDownload={onDownload} onTopic={setFilter} />
                 {m.failed && <button className={`${btn('ghost')} ml-3`} onClick={() => post(m._payload, m.local_id)}>Retry send</button>}
               </div>

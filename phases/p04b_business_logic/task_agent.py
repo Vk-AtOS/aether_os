@@ -1,5 +1,6 @@
 """P04b Business Logic Layer — Workflows, notifications, payments."""
 from __future__ import annotations
+import html
 import json
 import logging
 import re
@@ -14,6 +15,7 @@ from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_stripe_service,
     generate_s3_service,
 )
+from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, write_inside
 from aether_os.phases.p04b_business_logic.helpers import (
     _FALLBACK_WORKFLOW_ENGINE,
     _FALLBACK_BUSINESS_RULES,
@@ -69,6 +71,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 issues=[f"DomainIR unavailable and inline recovery failed: {exc}"],
             )
 
+    bad_names = check_logic_names(ir_data)
+    if bad_names:     # fail closed before anything is written (KAN-69 G6)
+        logger.error("p04b: refusing the IR: %s", bad_names)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=bad_names)
+
     flags = phase_input.input_data.get("integration_flags", {})
     project_name = phase_input.input_data.get('project_name', 'App')
     domain = phase_input.input_data.get('domain', 'general')
@@ -96,22 +103,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         except Exception as _dk_exc:
             logger.warning("p04b: domain knowledge workflow injection failed: %s", _dk_exc)
 
-    # 2. Logic generation - Workflows
-    workflow_dir = output_dir / "workflows"
-    workflow_dir.mkdir(exist_ok=True)
-
-    for wf in ir_data.get("workflows", []):
-        entity = wf.get("entity", "Entity")
-        sm_code = generate_workflow_sm(entity, wf)
-        (workflow_dir / f"{entity.lower()}_sm.py").write_text(sm_code)
-
-    # 3. Logic generation - Integrations
-    # Root cause fix: write business logic files into the running app's src dir
-    # (backend_src_dir from accumulated_context), not into the phase output dir.
+    # Business logic belongs in the running app's src dir (backend_src_dir), not in the phase
+    # output dir: state machines written there were never part of the delivered backend.
     _canonical = phase_input.input_data.get("backend_src_dir", "")
     src_dir = Path(_canonical) if _canonical and Path(_canonical).is_dir() else output_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
     logger.info("p04b: writing business logic files to %s", src_dir)
+
+    # 2. Logic generation - Workflows
+    workflow_dir = src_dir / "workflows"
+    workflow_dir.mkdir(exist_ok=True)
+    (workflow_dir / "__init__.py").touch()
+
+    for wf in ir_data.get("workflows", []):
+        entity = wf.get("entity", "Entity")
+        sm_code = generate_workflow_sm(entity, wf)
+        write_inside(workflow_dir, f"{entity.lower()}_sm.py", sm_code)
+
+    # 3. Logic generation - Integrations (src_dir was resolved above)
 
     if flags.get("needs_email"):
         (src_dir / "email_service.py").write_text(generate_email_service())
@@ -165,7 +174,7 @@ async def trigger_notification(obj, new_status: str):
         email_tmpl_dir = src_dir.parent / "templates" / "emails"
         email_tmpl_dir.mkdir(parents=True, exist_ok=True)
 
-        welcome_body = f"""
+        welcome_body = """
                     <h2 style="color: #4f46e5; margin-top: 0;">Welcome!</h2>
                     <p>We're excited to have you on board. Your account is ready to go.</p>
                     <a href="#" class="button">Get Started</a>
@@ -196,11 +205,9 @@ async def trigger_notification(obj, new_status: str):
             event = notif.get("event", "notification")
             tmpl_body = f"""
                     <h2>Notification: {event.replace('_', ' ').capitalize()}</h2>
-                    <p>{notif.get('template', 'No details provided.')}</p>
+                    <p>{html.escape(str(notif.get('template', 'No details provided.')))}</p>
             """
-            (email_tmpl_dir / f"{event}.html").write_text(
-                get_responsive_email_template(project_name, tmpl_body)
-            )
+            write_inside(email_tmpl_dir, f"{event}.html", get_responsive_email_template(project_name, tmpl_body))
 
     # ── LLM Call A — Approval Workflow Engine ────────────────────────────────
     domain = phase_input.input_data.get("domain", "general")

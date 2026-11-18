@@ -10,7 +10,7 @@ Contains post-pipeline-completion hooks (non-fatal, all exceptions logged):
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 

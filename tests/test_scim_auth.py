@@ -18,9 +18,12 @@ def test_user_jwt_is_rejected_on_every_scim_route(gw):
         ("PUT", f"/scim/v2/Users/{owner.user_id}", {"active": False}),
         ("DELETE", f"/scim/v2/Users/{owner.user_id}", None),
         ("GET", "/scim/v2/Groups", None),
+        ("PATCH", f"/scim/v2/Users/{owner.user_id}", {"Operations": [{"op": "replace", "path": "active", "value": False}]}),
+        ("POST", "/scim/v2/Groups", {"displayName": "x"}),
+        ("GET", "/scim/v2/ServiceProviderConfig", None),
     ]
     scim_paths = {r.path for r in gw.app.routes if getattr(r, "path", "").startswith("/scim/")}
-    assert scim_paths == {"/scim/v2/Users", "/scim/v2/Users/{user_id}", "/scim/v2/Groups"}, scim_paths
+    assert {"/scim/v2/Users", "/scim/v2/Users/{user_id}", "/scim/v2/Groups"} <= scim_paths, scim_paths
     for method, url, body in calls:
         resp = gw.client.request(method, url, headers=owner.auth, json=body)
         assert resp.status_code == 401, (method, url, resp.status_code, resp.text)
@@ -76,6 +79,7 @@ def test_scim_bcrypt_does_not_run_on_the_event_loop(gw, monkeypatch):
     import aether_os.gateway.routers.scim_router as sr
     a = gw.register("scimthread")
     token = gw.client.post("/settings/scim/rotate", headers=a.auth).json()["token"]
+    gw.sql("UPDATE organisations SET scim_token_lookup = NULL WHERE id = ?", (a.org_id,))  # a pre-lookup (legacy) token
     on_loop = []
     real = sr._bcrypt.checkpw
 

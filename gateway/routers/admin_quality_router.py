@@ -13,9 +13,7 @@ Routes
 """
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -114,8 +112,9 @@ async def quality_metrics(
         }
 
     # ── Top error categories from registry ──────────────────────────────────
+    # The registry is platform-wide (every org's failures): only the platform operator sees it.
     top_error_categories: List[Dict[str, Any]] = []
-    if _registry_available:
+    if _registry_available and user.get("role") == "superadmin":
         try:
             reg = _get_registry()
             summary = reg.get_summary()
@@ -158,7 +157,7 @@ async def run_costs(
 
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import LLMCallRecord
-    from sqlalchemy import select, func as sqlfunc
+    from sqlalchemy import select
 
     org_id = user["org_id"]
     sf = get_session_factory()

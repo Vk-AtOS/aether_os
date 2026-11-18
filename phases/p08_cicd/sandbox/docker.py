@@ -1,10 +1,10 @@
 from __future__ import annotations
 import os
 import logging
+import re
 import tempfile
-import subprocess
 from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -189,32 +189,44 @@ def validate_patch_in_sandbox(
             error=f"Patch apply failed: {e}"
         )
 
-def _apply_simple_patch(
-    original: str,
-    patch_diff: str
-) -> str:
-    """
-    Apply a unified diff patch to original code. 
-    Simple line-by-line implementation for +/- diff format.
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
+
+
+def _apply_simple_patch(original: str, patch_diff: str) -> str:
+    """Apply a unified diff to `original` and return the whole patched file.
+
+    The old version returned only the added and context lines of the diff, so any diff that did not
+    cover the entire file produced a truncated file, and the sandbox validated that instead of the
+    patched code. Hunks are placed by their header line numbers; context and removed lines must match
+    the original exactly, else ValueError (a patch that does not apply must fail, not be guessed).
     """
     if not patch_diff or not patch_diff.strip():
         return original
-    
-    lines = original.splitlines(keepends=True)
-    result = []
-    diff_lines = patch_diff.splitlines()
-    
-    for line in diff_lines:
-        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
-            continue
+    src = original.splitlines()
+    out: list = []
+    pos = 0                                   # next original line (0-based) not yet copied
+    in_hunk = False
+    for line in patch_diff.splitlines():
+        m = _HUNK_RE.match(line)
+        if m:
+            start = int(m.group(1)) - (0 if m.group(2) == "0" else 1)   # "-N,0" inserts after line N
+            if start < pos or start > len(src):
+                raise ValueError(f"hunk at line {m.group(1)} overlaps an earlier hunk or is past the end of the file")
+            out.extend(src[pos:start])
+            pos = start
+            in_hunk = True
+        elif not in_hunk or line.startswith(("--- ", "+++ ", "\\")):
+            continue                          # file headers / "\ No newline at end of file"
         elif line.startswith("+"):
-            result.append(line[1:] + "\n")
-        elif line.startswith("-"):
-            continue
-        elif line.startswith(" "):
-            result.append(line[1:] + "\n")
-    
-    if not result:
-        return original
-    
-    return "".join(result)
+            out.append(line[1:])
+        elif line.startswith(("-", " ")) or line == "":
+            text = line[1:]
+            if pos >= len(src) or src[pos] != text:
+                raise ValueError(f"patch does not apply: expected {text!r} at line {pos + 1}")
+            if line.startswith(" ") or line == "":
+                out.append(text)
+            pos += 1
+    if not in_hunk:
+        raise ValueError("not a unified diff: no @@ hunk header")
+    out.extend(src[pos:])
+    return "\n".join(out) + ("\n" if original.endswith("\n") or not original else "")

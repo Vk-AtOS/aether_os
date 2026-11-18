@@ -264,7 +264,7 @@ const RerunDropdown = ({
               </div>
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold text-bright leading-tight">Full restart</div>
-                <div className="text-[11px] text-muted mt-0.5">New run through all 12 stages</div>
+                <div className="text-[11px] text-muted mt-0.5">New run through all {PHASES.length} stages</div>
               </div>
             </button>
 

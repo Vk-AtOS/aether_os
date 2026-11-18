@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -47,6 +48,9 @@ import pytest
 
 # See gateway/lifespan.py: background monitors make test teardown flaky.
 os.environ.setdefault("AETHER_DISABLE_MONITORS", "1")
+# Guardian snapshot dumps default to ./snapshots/guardian inside the source tree and were committed
+# (KAN-192/194); tests must never write into the repo.
+os.environ.setdefault("GUARDIAN_SNAPSHOT_DIR", tempfile.mkdtemp(prefix="aether-snapshots-"))
 
 
 @pytest.fixture(autouse=True)

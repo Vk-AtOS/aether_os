@@ -36,9 +36,19 @@ asyncio_mode = "strict"
 pythonpath = [".."]
 testpaths = ["tests"]
 addopts = "--ignore=tests/test_bedrock_integration.py"
+markers = [
+    "platform_budget: runs the real platform-owned LLM budget check (default: it is bypassed in tests)",
+    "docker: needs a running Docker daemon and the aether-sandbox image (skipped otherwise); run with -m docker",
+]
 filterwarnings = [
     # asyncio selector transport / redis connection left open by TestClient teardown
     "ignore::ResourceWarning",
     # coroutine-never-awaited from async test harness GC
     "ignore:coroutine .* was never awaited:RuntimeWarning",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Templates copied verbatim into generated apps: their imports belong to the generated code.
+"phases/p04a_backend_codegen/seed_templates/__init__.py" = ["F401"]
+# pytest fixtures are imported by name and then requested as test arguments, which ruff reads as a redefinition.
+"tests/**" = ["F811"]

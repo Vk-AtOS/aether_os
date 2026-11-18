@@ -8,11 +8,10 @@ They are bound to Pipeline as methods via import in pipeline.py.
 """
 from __future__ import annotations
 import asyncio
-import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from aether_os.core.approval.workflow import decide_for_risk
 from aether_os.core.config.loader import get_config
 from aether_os.core.memory.fingerprinter import fingerprint
@@ -366,7 +365,6 @@ async def phase_docs(self: Any, ctx: Any, sm: Any) -> None:
     ))
 async def phase_observability(self: Any, ctx: Any, sm: Any) -> None:
     t0 = time.time()
-    code = ctx.generated_code or ""
     prompt = (
         f"Generate an observability configuration for this project.\n\n"
         f"Project: {ctx.project_name}\n"

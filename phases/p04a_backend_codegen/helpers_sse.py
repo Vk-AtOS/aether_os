@@ -25,19 +25,25 @@ def _generate_sse_router(features: list, project_name: str) -> str:
         from __future__ import annotations
         import asyncio
         import json
+        import os
         import time
         from fastapi import APIRouter, Depends
         from fastapi.responses import StreamingResponse
         from auth import get_current_user
 
         realtime_router = APIRouter(prefix="/realtime", tags=["Realtime"])
+        # A stream that never ends pins a worker connection for ever (clients that vanish behind a proxy are
+        # never noticed): it ends after SSE_MAX_SECONDS and the browser's EventSource reconnects by itself.
+        _MAX_SECONDS = int(os.environ.get("SSE_MAX_SECONDS", "1800"))
 
 
         @realtime_router.get("/stream")
         async def event_stream(user: dict = Depends(get_current_user)):
             \"\"\"Server-Sent Events stream scoped to the caller's org.\"\"\"
             async def generate():
-                while True:
+                started = time.monotonic()
+                yield ": connected\\n\\n"        # a comment frame is a heartbeat: it opens the stream through proxies
+                while time.monotonic() - started < _MAX_SECONDS:
                     payload = json.dumps({{
                         "ts": time.time(),
                         "org_id": user.get("org_id"),
@@ -45,6 +51,10 @@ def _generate_sse_router(features: list, project_name: str) -> str:
                     }})
                     yield f"data: {{payload}}\\n\\n"
                     await asyncio.sleep(5)
+                yield "event: stream_limit\\ndata: {{}}\\n\\n"
 
-            return StreamingResponse(generate(), media_type="text/event-stream")
+            # no-cache and X-Accel-Buffering: nginx buffers a response until it is full, so without the
+            # header the events arrive in bursts or not at all.
+            return StreamingResponse(generate(), media_type="text/event-stream",
+                                     headers={{"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}})
     """)

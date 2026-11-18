@@ -16,8 +16,6 @@ Output layout (under output_dir/cell-architecture/):
 from __future__ import annotations
 
 import logging
-import os
-import socket
 from pathlib import Path
 from typing import List
 
@@ -71,7 +69,7 @@ provider "aws" {{
         endpoint_group_lines.append(f"""\
     endpoint_group {{
       endpoint_group_region = "{region}"
-      traffic_dial_percentage = {round(100 / len(regions))}
+      traffic_dial_percentage = 100
       health_check_path     = "/cell/health"
       health_check_interval = 30
       threshold_count       = 2
@@ -294,6 +292,7 @@ Environment variables:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -312,7 +311,8 @@ async def _check_db() -> bool:
     """Verify database connectivity — replace with your async DB pool ping."""
     try:
         import asyncpg  # type: ignore[import]
-        db_url = os.getenv("DATABASE_URL", "")
+        # asyncpg wants the plain scheme, the app's URL is often "postgresql+asyncpg://..."
+        db_url = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
         conn = await asyncpg.connect(db_url, timeout=3)
         await conn.fetchval("SELECT 1")
         await conn.close()
@@ -327,8 +327,9 @@ async def _check_queue() -> bool:
     try:
         brokers = os.getenv("KAFKA_BROKERS", "kafka:9092").split(",")
         host, port_str = brokers[0].split(":")
-        sock = socket.create_connection((host, int(port_str)), timeout=2)
-        sock.close()
+        # non-blocking: a blocking socket here would stall every request while a broker is down
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, int(port_str)), timeout=2)
+        writer.close()
         return True
     except Exception as exc:
         logger.warning("cell_health: queue check failed: %s", exc)

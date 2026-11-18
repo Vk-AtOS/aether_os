@@ -90,12 +90,11 @@ def test_login_pages_print_no_credentials_and_one_token_key_is_used(tmp_path, mo
         assert "localStorage.getItem('token')" not in text, f
     assert keys <= {"auth_token", "auth_refresh_token"}, keys
     login = (root / "src" / "lib" / "api.ts").read_text()
-    assert "access_token: string; refresh_token: string" in login      # the login pages destructure both
+    assert "access_token: string; refresh_token: string" in login      # the API still returns both; pages keep only the access token
 
 
 def test_model_written_pages_are_told_to_use_the_api_client_and_the_shared_token(monkeypatch):
     import asyncio
-    from types import SimpleNamespace
     from aether_os.phases.p05_frontend import llm_page_writer
     prompts = []
 
@@ -162,29 +161,43 @@ def test_gate2_revisions_go_to_the_shipped_copy(tmp_path, monkeypatch):
     assert (shipped / "src" / "App.tsx").exists()           # refreshed from this run, not the stale copy
 
 
-def test_preview_server_is_loopback_only_and_playwright_install_does_not_block_the_loop(tmp_path, monkeypatch):
-    # take_preview_screenshot ran `playwright install` with a blocking subprocess.run inside the coroutine (the event
-    # loop froze for up to two minutes) and served the build with http.server's default bind on every interface.
+def test_preview_screenshot_runs_in_the_browser_sandbox_not_on_the_host(tmp_path, monkeypatch):
+    """KAN-99: Chromium and http.server ran on the platform host (and `playwright install` blocked the loop);
+    now the build is served and screenshotted by the browser sandbox job on its own loopback."""
     import asyncio
-    import threading
-    from types import SimpleNamespace
     from aether_os.phases.p05_frontend import preview
-    ran_in, popen_args = [], []
+    jobs = []
 
-    def fake_run(argv, **kw):
-        ran_in.append(threading.current_thread())
-        return SimpleNamespace(returncode=0)
+    async def fake_job(job, *, project, timeout=120):
+        jobs.append(job)
+        Path(job["out"]).write_bytes(b"\x89PNG fake")
+        return {"ok": True}
 
-    class Proc:
-        def terminate(self):
-            pass
-    monkeypatch.setattr(preview.subprocess, "run", fake_run)
-    monkeypatch.setattr(preview.subprocess, "Popen", lambda argv, **kw: popen_args.append(argv) or Proc())
+    monkeypatch.setattr(preview, "run_browser_job", fake_job)
+    monkeypatch.setattr(preview.phase_exec, "project_root", lambda p: tmp_path)
     (tmp_path / "dist").mkdir()
-    asyncio.run(preview.take_preview_screenshot(tmp_path, tmp_path / "shot.png"))
-    assert ran_in and ran_in[0] is not threading.main_thread()
-    argv = popen_args[0]
-    assert argv[argv.index("--bind") + 1] == "127.0.0.1"
+    out = tmp_path / "shot.png"
+    assert asyncio.run(preview.take_preview_screenshot(tmp_path, out)) is True
+    assert out.read_bytes().startswith(b"\x89PNG")
+    job = jobs[0]
+    assert job["action"] == "screenshot" and job["serve"]["dir"] == str(tmp_path / "dist")
+    assert job["url"].startswith("http://127.0.0.1:")
+    for name in ("subprocess", "sys", "tempfile", "playwright"):
+        assert not hasattr(preview, name), name           # nothing left that can start a host process
+
+
+def test_preview_screenshot_without_a_browser_sandbox_is_no_screenshot(tmp_path, monkeypatch):
+    import asyncio
+    from aether_os.core.sandbox.runner import SandboxUnavailable
+    from aether_os.phases.p05_frontend import preview
+
+    async def down(job, *, project, timeout=120):
+        raise SandboxUnavailable("no docker")
+
+    monkeypatch.setattr(preview, "run_browser_job", down)
+    monkeypatch.setattr(preview.phase_exec, "project_root", lambda p: tmp_path)
+    (tmp_path / "dist").mkdir()
+    assert asyncio.run(preview.take_preview_screenshot(tmp_path, tmp_path / "shot.png")) is False
 
 
 def test_gate_fails_for_a_structurally_broken_project(tmp_path, monkeypatch):
@@ -311,7 +324,11 @@ def test_storefront_and_dashboard_show_no_invented_content(tmp_path, monkeypatch
                         "Free shipping", "30-day return", "Trusted by thousands", "(price * 1.2)"):
                 assert bad not in text, (f, bad)
             if "TREND_DATA" in text:
-                assert "Sample chart data" in text and "> Live" not in text, f
+                # real data: counted from the loaded records, no hard-coded series, no "sample"/"Live" label
+                assert "activityByDay" in text and "created_at" in text, f
+                assert "sample" not in text.lower() and "> Live" not in text and "value: 42" not in text, f
+                names = re.findall(r"const \{ data: (\w+) \}", text)
+                assert len(names) == len(set(names)), (f, names)   # ecommerce/fintech declared one const twice
         assert not tsc_syntax_errors(root)
 
 
@@ -328,3 +345,28 @@ def test_modal_and_login_forms_are_accessible(tmp_path, monkeypatch):
         assert 'htmlFor="login-email"' in login and 'id="login-email"' in login and 'htmlFor="login-password"' in login
         assert "admin@example.com" not in login
         assert not tsc_syntax_errors(root)
+
+
+@pytest.mark.parametrize("bad_table", ["patients'); alert(1); ('", "../../x", "a b", "1abc", "x-y"])
+def test_table_and_column_names_must_be_plain_identifiers(tmp_path, monkeypatch, bad_table):
+    # KAN-69 G5: table names went into TSX identifiers, route variables and paths of App.tsx unchecked
+    import asyncio
+    from types import SimpleNamespace
+    from aether_os.phases.p05_frontend import task_agent
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    for schema in ([{"table": bad_table, "columns": ["id"]}], [{"table": "ok", "columns": ["id", "na me"]}]):
+        pi = SimpleNamespace(input_data={"project_name": "Demo", "domain": "saas", "raw_input": "x",
+                                         "architecture_json": {"database_schema": schema}}, domain="saas", project_id="p")
+        out = tmp_path / "out"
+        result = asyncio.run(task_agent.run(pi, [], out))
+        assert result.success is False and "unsafe_name" in result.issues[0]
+        assert not (out / "src").exists()
+
+
+def test_refresh_token_is_never_kept_in_browser_storage(tmp_path, monkeypatch):
+    # KAN-69 G10: the 7-day refresh token sat in localStorage, readable by any XSS
+    root = build_frontend(tmp_path, "saas", monkeypatch)
+    for f, text in sources(root):
+        assert "auth_refresh_token" not in text and "REFRESH_KEY" not in text, f
+        assert not re.search(r"setToken\([^)]*,", text), f
+    assert "HttpOnly" in (root / "src" / "lib" / "auth.ts").read_text()

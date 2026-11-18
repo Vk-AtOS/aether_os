@@ -1,7 +1,6 @@
 import pytest
 import uuid
 import os
-import asyncio
 import warnings
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient

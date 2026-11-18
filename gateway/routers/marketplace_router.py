@@ -14,12 +14,11 @@ from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.policy_guard import admit_run_start
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import InstalledPluginRecord, MarketplaceProfile
-from aether_os.core.models import MarketplaceProfile
 from aether_os.core.services.pipeline_service import get_pipeline_service
 from sqlalchemy import select
 from sqlalchemy import select as _sel
-from sqlalchemy import select, func
-from sqlalchemy import select, update as _sa_upd
+from sqlalchemy import func
+from sqlalchemy import update as _sa_upd
 import uuid as _uuid_mp
 router = APIRouter(tags=["marketplace"])
 def _current_user():
@@ -162,7 +161,7 @@ async def install_marketplace_profile(
             domain=profile.base_domain,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     return {
         "installed": True,
         "profile_id": profile_id,
@@ -175,6 +174,9 @@ async def update_marketplace_profile(
     body: Dict[str, Any],
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
+    # Profile text becomes run input for every installing org: same admin rule as delete/publish.
+    if user.get("role") not in ["owner", "admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     sf = get_session_factory()
     async with sf() as session:
         p = await session.get(MarketplaceProfile, profile_id)

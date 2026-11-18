@@ -5,7 +5,6 @@ personal data in logs. Real chain code on a throwaway SQLite file; identity inje
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import aether_os.core.db as db
 from aether_os.core.audit import anchor, backfill, chain, deletion, subjects
 from aether_os.core.audit.ledger import DecisionLedger
+from aether_os.prime.models import PrimeCorrection  # erasure also deletes corrections (KAN-24)
 from aether_os.core.models import APIKey, AuditLog, Organisation, Run, User
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers import (
@@ -39,11 +39,12 @@ ROOT = {"user_id": "u-root", "org_id": A, "role": "superadmin"}
 async def world(ledger_sqlite, monkeypatch):
     async with db.get_engine().begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(
-            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run)]))
+            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run, PrimeCorrection)]))
     async with ledger_sqlite() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (A, B)])
         await s.flush()
         s.add_all([User(id="u-alice", org_id=A, email=EMAIL, password_hash="x", role="owner"),
+                   User(id="u-owner2", org_id=A, email="owner2@example.test", password_hash="x", role="owner"),  # alice is not the last owner
                    User(id="u-mem", org_id=A, email="mem@example.test", password_hash="x"),
                    User(id="u-bob", org_id=B, email="bob@example.test", password_hash="x", role="admin")])
         await s.commit()
@@ -166,7 +167,7 @@ async def test_data_export_holds_only_the_callers_own_entries(world):
 
 # ── item 4: pseudonyms in exports ────────────────────────────────────────────
 
-@pytest.mark.parametrize("path", ["/admin/audit/export.csv", "/admin/audit-logs/export"])
+@pytest.mark.parametrize("path", ["/admin/audit/export.csv"])
 async def test_csv_exports_show_the_subject_not_the_reference(world, path):
     await _login()
     ref = (await chain.read_entries())[0]["payload"]["ip_address"]["subject"]

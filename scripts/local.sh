@@ -69,7 +69,7 @@ EOF
 }
 
 up() {
-  (cd "$REPO" && $PY -m alembic upgrade head) || { echo "migration failed"; exit 1; }
+  (cd "$REPO" && $PY scripts/db_migrate.py) || { echo "migration failed"; exit 1; }
   (cd "$REPO" && $PY scripts/create_org.py --email "$EMAIL" --password "$PASSWORD" \
       --org-name "Local E2E" --plan enterprise --force >/dev/null 2>&1)
   psql -q "${DATABASE_URL/+asyncpg/}" -c "update users set email_verified=true where email='$EMAIL'" >/dev/null
