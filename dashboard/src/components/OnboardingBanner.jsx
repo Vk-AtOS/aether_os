@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { X, CheckCircle2, Circle } from 'lucide-react';
 import { api } from '../api';
 import { apiError } from '../apiError';
@@ -7,12 +7,16 @@ import { useRole } from '../hooks/useRole';
 
 // One sentence per server step id: what the step is and why. Unknown ids just show their title.
 const HINTS = {
+  org_name: 'Your organisation name appears in the sidebar, invitations and invoices. Set it in the settings.',
+  dpa: 'The data processing agreement covers the personal data you put into AetherOS. An owner or admin accepts it once for the organisation; it is recorded with their name and the time.',
   llm_key: 'Pipelines call a language model. Add your own key (or a cloud model) so runs use your account and your spend cap.',
   first_run: 'Describe an app in plain words. The factory plans, builds and tests it. A first run takes a few minutes.',
   invite_team: 'Add a teammate so approvals and reviews have a second person.',
   plan: 'Free and trial plans have a lower monthly model budget. Pick a plan when you need more.',
   sso: 'Single sign-on lets your identity provider control who can sign in.',
 };
+
+const DPA_VERSION = '1.0';   // the version the server serves and accepts (core/onboarding.py)
 
 const Step = ({ done, title, optional, onGo }) => (
   <div className={`flex items-center gap-4 p-3 rounded-lg border ${done ? 'border-success/30 bg-success/5' : 'border-border bg-surface/50'}`}>
@@ -31,6 +35,7 @@ const OnboardingBanner = () => {
   const navigate = useNavigate();
   const [state, setState] = useState(null);
   const [error, setError] = useState(null);
+  const [name, setName] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -42,6 +47,15 @@ const OnboardingBanner = () => {
   const done = state.steps.filter((s) => s.done).length;
   const current = state.steps.find((s) => !s.done);
 
+  const reload = () => api.getOnboarding().then((res) => setState(res.data)).catch(() => {});
+  const saveName = async () => {
+    try { await api.updateOrgSettings({ org_name: name.trim() }); setError(null); await reload(); }
+    catch (e) { setError(apiError(e) || 'Could not save the name.'); }
+  };
+  const accept = async () => {
+    try { await api.acceptDpa(DPA_VERSION); setError(null); await reload(); }
+    catch (e) { setError(apiError(e) || 'Could not record the acceptance.'); }
+  };
   const dismiss = async () => {
     try { await api.dismissOnboarding(); setState({ ...state, dismissed: true }); }
     catch (e) { setError(apiError(e) || 'Could not hide this.'); }
@@ -65,7 +79,20 @@ const OnboardingBanner = () => {
           <div className="text-[10px] font-bold text-accent uppercase tracking-wider">Step {state.steps.indexOf(current) + 1} of {state.steps.length}</div>
           <div className="text-sm font-bold text-bright mt-1">{current.title}</div>
           {HINTS[current.id] && <p className="text-xs text-muted mt-1">{HINTS[current.id]}</p>}
-          <button onClick={() => navigate(current.link)} className="mt-3 text-xs font-bold bg-accent text-white px-4 py-1.5 rounded">Start this step</button>
+          {current.id === 'org_name' && isAdmin ? (
+            <div className="mt-3 flex gap-2">
+              <input aria-label="Organisation name" value={name} onChange={(e) => setName(e.target.value)} maxLength={255}
+                className="flex-1 bg-surface border border-border rounded px-2 py-1 text-sm text-bright" />
+              <button onClick={saveName} disabled={!name.trim()} className="text-xs font-bold bg-accent text-white px-4 py-1.5 rounded disabled:opacity-50">Save name</button>
+            </div>
+          ) : current.id === 'dpa' && isAdmin ? (
+            <div className="mt-3 flex items-center gap-3">
+              <Link to="/legal?doc=dpa" className="text-xs text-accent underline">Read the DPA (version {DPA_VERSION})</Link>
+              <button onClick={accept} className="text-xs font-bold bg-accent text-white px-4 py-1.5 rounded">Accept the DPA</button>
+            </div>
+          ) : (
+            <button onClick={() => navigate(current.link)} className="mt-3 text-xs font-bold bg-accent text-white px-4 py-1.5 rounded">Start this step</button>
+          )}
         </div>
       )}
       <div className="space-y-2">

@@ -187,6 +187,7 @@ export const api = {
   // Onboarding (server-side progress)
   getOnboarding: () => client.get('/onboarding'),
   dismissOnboarding: () => client.post('/onboarding/dismiss'),
+  acceptDpa: (version) => client.post('/onboarding/dpa', { version }),
 
   // Run reports
   getTestReport: (runId) => client.get(`/factory/runs/${runId}/test-report`),

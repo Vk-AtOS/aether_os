@@ -29,6 +29,12 @@ export const useVelaris = (fetcher) => {
     loading: !fresh, reload };
 };
 
+// An agent result is a refusal when its status is not ok AND it says why (the contract: "a reason when it is not ok"),
+// or its status is one of the refusal kinds. A data field named status that is not a verdict (INTERVIEW_RECORD's
+// evidence_view carries the session status "open" next to its facts) is not a refusal.
+const REFUSALS = /^(denied|invalid_input|not_found|conflict|not_configured|expired|refused|forbidden|error|failed|unavailable)$/;
+export const refused = (r) => Boolean(r && r.status && r.status !== 'ok' && (r.reason || (r.errors || []).length || REFUSALS.test(String(r.status))));
+
 // HR agent methods through the allow-listed proxy. Resolves {pending, run, result}. Throws Error(message):
 // HTTP errors, and agent-level refusals (result.status other than ok).
 export const hr = async (agent, method, args = {}) => {
@@ -42,7 +48,7 @@ export const hr = async (agent, method, args = {}) => {
   }
   if (res.status === 202) return { pending: true, run: res.data.run || null, result: null };
   const result = res.data.result ?? {};
-  if (result && result.status && result.status !== 'ok') {
+  if (refused(result)) {
     throw new Error(result.reason || (result.errors || []).join('; ') || String(result.status).replace(/_/g, ' '));
   }
   return { pending: false, run: null, result };
@@ -94,7 +100,7 @@ export const send = async (call, args = {}, { download } = {}) => {
   if (download) { save(download, res.data); return { pending: false, result: { saved: download } }; }
   const body = res.data;
   const result = call.agent || call.hr ? (body.result ?? {}) : body;
-  if (result && result.status && result.status !== 'ok' && (call.agent || call.hr)) {
+  if (refused(result) && (call.agent || call.hr)) {
     throw new Error(result.reason || (result.errors || []).join('; ') || String(result.status).replace(/_/g, ' '));
   }
   return { pending: false, run: null, result };
