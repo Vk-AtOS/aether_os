@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from aether_os.core.onboarding import DPA_VERSION
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.db import get_session_factory
@@ -30,7 +31,7 @@ import secrets
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 _CURRENT_TOS_VERSION = "1.0"
-_CURRENT_DPA_VERSION = "1.0"
+_CURRENT_DPA_VERSION = DPA_VERSION   # one source: core.onboarding (the version an organisation accepts as well)
 # ── Pydantic models ────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):
     email: str

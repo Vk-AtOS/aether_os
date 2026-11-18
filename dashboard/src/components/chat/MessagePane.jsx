@@ -101,12 +101,10 @@ const MessagePane = ({ channel, me, chat, onSide, topics }) => {
   const act = async (fn) => { try { await fn(); setNotice(''); return true; } catch (e) { setNotice(vError(e)); return false; } };
   const onReact = (m, e, had) => act(() => (had ? vc.delete(`/chat/messages/${m.id}/reactions/${encodeURIComponent(e)}`) : vc.put(`/chat/messages/${m.id}/reactions/${encodeURIComponent(e)}`, {})));
   const onEdit = (m, body) => act(async () => { const r = await vc.patch(`/chat/messages/${m.id}`, { body }); setMsgs((s) => ({ ...s, list: s.list.map((x) => (x.id === m.id ? r.data.message : x)) })); });
-  // Compliance erase (KAN-129): removes the content for good (a channel on legal hold keeps it; Velaris says so). Org admins only.
-  const onErase = async (m) => {
-    if (await confirmAction('Erase this message permanently? Its text cannot be recovered. A channel on legal hold keeps it.', 'Erase message')) {
-      act(() => vc.post(`/chat/admin/messages/${m.id}/erase`));
-    }
-  };
+  // Compliance erase (KAN-129): removes the content for good (a channel on legal hold keeps it; Velaris says so). Org
+  // admins only; the typed word travels as `confirm` and the gateway refuses the call without it and ledgers it.
+  // An author who is not an admin deletes their own message instead (Velaris allows erase for admins only).
+  const onErase = (m, word) => act(() => vc.post(`/chat/admin/messages/${m.id}/erase`, { confirm: word }));
   const onDelete = async (m) => { if (await confirmAction('Delete this message for everyone in the channel?', 'Delete message')) act(() => vc.delete(`/chat/messages/${m.id}`)); };
   const onPin = (m, pinned) => act(() => (pinned ? vc.delete(`/chat/messages/${m.id}/pin`) : vc.put(`/chat/messages/${m.id}/pin`, {})));
   const onDownload = (h) => act(async () => {
