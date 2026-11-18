@@ -84,10 +84,58 @@ export const BarChart = ({ list, label, value, min = 0, max = 1 }) => (
   </div>
 );
 
-const Out = ({ data, rows, cols, view, chart }) => {
+// Interviewers side by side (KAN-147): one row per rater, one column per competency, the leniency offset (how far
+// above, +, or below, -, the others this rater scores) as a signed number with a bar. Velaris sends the offsets
+// per competency as {rater: offset}; a competency with no offset for a rater is a blank cell.
+export const Comparison = ({ list, field }) => {
+  const raters = [...new Set(list.flatMap((c) => Object.keys(c?.[field] || {})))].sort();
+  if (!raters.length) return <p className="text-xs text-muted">No per-interviewer figures yet: they appear when interviewers have scored the same items.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs" aria-label="Interviewers side by side">
+        <thead><tr><th className="text-left text-[10px] uppercase text-muted py-2 pr-4">Interviewer</th>
+          {list.map((c) => <th key={c.competency} className="text-left text-[10px] uppercase text-muted py-2 pr-4">{c.competency}</th>)}</tr></thead>
+        <tbody>{raters.map((r) => (
+          <tr key={r} className="border-t border-border"><th scope="row" className="text-left py-2 pr-4 font-mono text-bright">{r}</th>
+            {list.map((c) => {
+              const v = c?.[field]?.[r];
+              const ok = Number.isFinite(v);
+              return (
+                <td key={c.competency} className="py-2 pr-4" data-testid={`cmp-${r}-${c.competency}`}>
+                  {ok ? <span className="inline-flex items-center gap-2"><span className={`font-mono ${v > 0 ? 'text-warning' : v < 0 ? 'text-sky-300' : 'text-muted'}`}>{v > 0 ? '+' : ''}{v.toFixed(2)}</span>
+                    <span className="inline-block h-2 bg-surface border border-border rounded w-16 relative"><span className={`absolute top-0 h-full ${v >= 0 ? 'bg-warning left-1/2' : 'bg-sky-400 right-1/2'}`} style={{ width: `${Math.min(50, Math.abs(v) * 50)}%` }} /></span></span>
+                    : <span className="text-muted">n/a</span>}
+                </td>
+              );
+            })}</tr>))}</tbody>
+      </table>
+      <p className="text-[10px] text-muted mt-1">+ means the interviewer scores higher than the others on the same items, - lower. Read it with the agreement above before acting on it.</p>
+    </div>
+  );
+};
+
+// Who has agreed to be recorded, and for what (KAN-148). Velaris's evidence answer carries `consents`
+// {participant: {scopes, notice_version, withdrawn}}; a withdrawn consent is stated as withdrawn, not hidden.
+export const ConsentState = ({ consents }) => {
+  const rows = Object.entries(consents || {});
+  return (
+    <div className="space-y-1" data-testid="consent-state">
+      <div className="text-[11px] font-bold text-muted uppercase">Consent to be recorded</div>
+      {rows.length === 0 ? <p className="text-xs text-warning">Nobody has consented yet, so nothing is recorded.</p> : (
+        <Table rows={rows.map(([participant, c]) => ({ id: participant, participant, ...c }))} cols={[
+          ['Participant', (r) => r.participant], ['Recording', (r) => (r.withdrawn
+            ? <span className="text-danger font-bold">Withdrawn</span> : <span className="text-success font-bold">Consented</span>)],
+          ['Scopes', (r) => (r.scopes || []).join(', ') || 'none'], ['Notice version', (r) => r.notice_version]]} />
+      )}
+    </div>
+  );
+};
+
+const Out = ({ data, rows, cols, view, chart, compare }) => {
   const list = rows ? (data?.[rows] ?? []) : null;
   if (view === 'issue' && data && typeof data === 'object') return <IssueView data={data} />;
-  if (chart && list?.length) return <div className="space-y-3"><BarChart list={list} {...chart} /><ListTable list={list} /></div>;
+  if (view === 'evidence' && data?.consents) return <div className="space-y-3"><ConsentState consents={data.consents} /><Detail data={Object.fromEntries(Object.entries(data).filter(([k]) => k !== 'consents'))} /></div>;
+  if (chart && list?.length) return <div className="space-y-3"><BarChart list={list} {...chart} />{compare && <Comparison list={list} field={compare} />}<ListTable list={list} /></div>;
   if (list && cols) return <Table rows={list} cols={cols.map(([h, k]) => [h, (r) => String(r[k] ?? '')])} />;
   if (data && typeof data === 'object' && !Array.isArray(data) && Array.isArray(data.sources) && data.sources.length) {
     const { sources, ...rest } = data;
@@ -107,7 +155,7 @@ const Load = ({ s }) => {
     <Card title={s.title} actions={<button className={btn('ghost')} onClick={() => setN(n + 1)}>Refresh</button>}>
       {s.note && <p className="text-xs text-muted">{s.note}</p>}
       <LoadView q={q} isEmpty={(d) => d == null || (typeof d === 'object' && Object.keys(d).length === 0)} emptyText={s.empty || 'Nothing here yet.'}>
-        {(d) => <Out data={d} rows={s.rows} cols={s.cols} view={s.view} chart={s.chart} />}
+        {(d) => <Out data={d} rows={s.rows} cols={s.cols} view={s.view} chart={s.chart} compare={s.compare} />}
       </LoadView>
     </Card>
   );
