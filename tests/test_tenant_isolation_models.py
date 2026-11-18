@@ -138,3 +138,64 @@ def test_org_a_cannot_touch_org_b_rows_by_id_for_every_id_parameter(gw):
                 leaks.append(f"{m} {path} -> {resp.status_code} {resp.text[:120]}")
     assert checked >= 10
     assert not leaks, "cross-tenant exposure:\n" + "\n".join(leaks)
+
+
+# ── KAN-115 round 6: the same walk over guardian / prime / mcp / portal / agents ────────────────
+WALK_PREFIXES = ("/guardian", "/prime", "/mcp", "/agents", "/factory/runs/{run_id}/portal",
+                 "/client-portal", "/portal")
+# id-parameter name -> (table, column) for the extra route groups
+EXTRA_PARAM_TABLES = {"snapshot_id": ("guardian_snapshots", "id"), "event_id": ("guardian_events", "id"),
+                      "correction_id": ("prime_corrections", "id"), "request_id": ("prime_requests", "id"),
+                      "delegation_id": ("prime_delegations", "id")}
+
+
+def test_guardian_prime_mcp_portal_agents_routes_do_not_leak_across_orgs(gw):
+    a, b = gw.register("xwa"), gw.register("xwb")
+    admin_a = gw.user_with_role("admin", a.org_id)
+    marker = f"ZZX{uuid.uuid4().hex[:10]}"
+    # B owns a run; org A asks for it through every run-scoped portal route
+    gw.sql("INSERT INTO runs (id, org_id, command, status, started_at, cost, run_version) "
+           "VALUES (?, ?, 'x', 'completed', 0, 0, 1)", ("xw-run-b", b.org_id))
+    import aether_os.tests.test_tenant_isolation_models as me  # noqa: F401  (module-level SKIP_* are read below)
+    saved = me.SKIP_TABLE_PREFIXES
+    me.SKIP_TABLE_PREFIXES = ()          # prime_corrections / prime_requests / prime_delegations too
+    try:
+        seeded = _seed_all(b.org_id, marker)
+    finally:
+        me.SKIP_TABLE_PREFIXES = saved
+    ids = {p: seeded[t][c] for p, (t, c) in EXTRA_PARAM_TABLES.items() if isinstance(seeded.get(t), dict)}
+    ids.update({"run_id": "xw-run-b", "token_id": str(uuid.uuid4()), "seq": 1, "agent_name": "x"})
+    assert {"event_id", "correction_id"} <= set(ids), ids
+    ids.setdefault("snapshot_id", str(uuid.uuid4()))
+    # positive control: B's own admin sees its marked rows on these routes, so "clean" for A means isolation
+    admin_b = gw.user_with_role("admin", b.org_id)
+    visible = []
+    for r in gw.app.routes:
+        if "GET" in (getattr(r, "methods", None) or ()) and getattr(r, "path", "").startswith(WALK_PREFIXES) \
+                and "{" not in r.path:
+            try:   # a generic text marker in a typed (Decimal) column can crash a route: not a tenant question
+                if marker in gw.client.get(r.path, headers=admin_b.auth).text:
+                    visible.append(r.path)
+            except Exception:  # noqa: BLE001
+                continue
+    assert visible, "no route of these groups shows org B its own marked rows: the walk proves nothing"
+    leaks, checked = [], 0
+    for r in gw.app.routes:
+        path = getattr(r, "path", "")
+        if not path.startswith(WALK_PREFIXES):
+            continue
+        for m in sorted(set(getattr(r, "methods", None) or ()) - {"HEAD", "OPTIONS"}):
+            url = re.sub(r"{(\w+)(?::\w+)?}", lambda mm: str(ids.get(mm.group(1), "x")), path)
+            try:
+                resp = gw.client.request(m, url, headers=admin_a.auth,
+                                         json={} if m in ("POST", "PUT", "PATCH") else None)
+            except Exception as exc:   # an unhandled server error on A's request is a finding too
+                leaks.append(f"{m} {path} -> raised {type(exc).__name__}: {str(exc)[:100]}")
+                continue
+            checked += 1
+            body = resp.text
+            if marker in body or b.org_id in body or "xw-run-b" in body and resp.status_code < 300 \
+                    or (resp.status_code >= 500 and resp.status_code != 503):
+                leaks.append(f"{m} {path} -> {resp.status_code} {body[:140]}")
+    assert checked >= 25, f"walked only {checked} routes"
+    assert not leaks, "cross-tenant exposure:\n" + "\n".join(leaks)

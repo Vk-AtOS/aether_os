@@ -62,6 +62,14 @@ def image() -> str:
     return os.environ.get("AETHER_SANDBOX_IMAGE", "aether-sandbox:1")
 
 
+def browser_image() -> str:
+    """Image with Chromium, Playwright and axe-core (core/sandbox/Dockerfile.browser)."""
+    return os.environ.get("AETHER_SANDBOX_BROWSER_IMAGE", "aether-sandbox-browser:1")
+
+
+BROWSER_ENTRY_IN_IMAGE = "/opt/aether/browser_entry.py"
+
+
 def publish_ip() -> str:
     return os.environ.get("AETHER_SANDBOX_PUBLISH_IP", "127.0.0.1")
 
@@ -200,16 +208,19 @@ class DockerRunner(SandboxRunner):
     name = "docker"
     bind_host = "0.0.0.0"  # inside the container; reachable only through the published port
 
-    def __init__(self, limits: Limits = Limits()) -> None:
+    def __init__(self, limits: Limits = Limits(), img: Optional[str] = None) -> None:
         super().__init__(limits)
-        self._img, self._user = image(), sandbox_user()
+        self._img, self._user = img or image(), sandbox_user()
+
+    def browser_entry(self) -> str:
+        return BROWSER_ENTRY_IN_IMAGE
 
     def available(self) -> bool:
         try:
             if _docker("version", "--format", "{{.Server.Version}}").returncode != 0:
                 return False
             if _docker("image", "inspect", self._img).returncode != 0:
-                logger.error("sandbox: image %s not built (docker build -f core/sandbox/Dockerfile "
+                logger.error("sandbox: image %s not built (docker build -f core/sandbox/Dockerfile[.browser] "
                              "-t %s core/sandbox)", self._img, self._img)
                 return False
             for net in NETWORKS:

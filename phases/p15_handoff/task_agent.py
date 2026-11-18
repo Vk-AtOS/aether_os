@@ -31,6 +31,28 @@ def _strip_md_fences(text: str) -> str:
     return text.strip()
 
 
+def _text(parsed: Any, key: str, default: str) -> str:
+    """A model-written document, only if it is a non-empty string (a list or null would crash write_text)."""
+    value = parsed.get(key) if isinstance(parsed, dict) else None
+    return value if isinstance(value, str) and value.strip() else default
+
+
+def _stub_items(endpoints: List[dict]) -> List[dict]:
+    items = []
+    for ep in endpoints[:20]:
+        method = str(ep.get("method", "GET")).upper()
+        path = str(ep.get("path", "/"))
+        items.append({
+            "name": f"{method} {path}",
+            "request": {
+                "method": method,
+                "url": {"raw": f"{{{{base_url}}}}{path}", "host": ["{{base_url}}"], "path": path.strip("/").split("/")},
+                "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
+            },
+        })
+    return items
+
+
 def _ctx_summary(data: dict) -> str:
     """Build a compact context string for LLM prompts."""
     domain = data.get("domain", "general")
@@ -122,8 +144,8 @@ Return ONLY JSON, no markdown fences around the JSON itself."""
             result_a = await llm.call(prompt_a, task_type="analysis", max_tokens=3000)
             result_a = _strip_md_fences(result_a)
             parsed_a = json.loads(result_a)
-            readme_content = parsed_a.get("readme", readme_content)
-            arch_content = parsed_a.get("architecture", arch_content)
+            readme_content = _text(parsed_a, "readme", readme_content)
+            arch_content = _text(parsed_a, "architecture", arch_content)
         except Exception as exc:
             logger.warning("p15: Call A failed: %s", exc)
 
@@ -163,8 +185,8 @@ Return ONLY JSON, no markdown fences around the JSON itself."""
             result_b = await llm.call(prompt_b, task_type="analysis", max_tokens=4000)
             result_b = _strip_md_fences(result_b)
             parsed_b = json.loads(result_b)
-            db_content = parsed_b.get("database", db_content)
-            api_content = parsed_b.get("api", api_content)
+            db_content = _text(parsed_b, "database", db_content)
+            api_content = _text(parsed_b, "api", api_content)
         except Exception as exc:
             logger.warning("p15: Call B failed: %s", exc)
 
@@ -213,9 +235,9 @@ Return ONLY JSON, no markdown fences around the JSON itself."""
             result_c = await llm.call(prompt_c, task_type="analysis", max_tokens=4000)
             result_c = _strip_md_fences(result_c)
             parsed_c = json.loads(result_c)
-            runbook_content = parsed_c.get("runbook", runbook_content)
-            perms_content = parsed_c.get("permissions", perms_content)
-            dev_content = parsed_c.get("development", dev_content)
+            runbook_content = _text(parsed_c, "runbook", runbook_content)
+            perms_content = _text(parsed_c, "permissions", perms_content)
+            dev_content = _text(parsed_c, "development", dev_content)
         except Exception as exc:
             logger.warning("p15: Call C failed: %s", exc)
 
@@ -249,6 +271,11 @@ Return ONLY JSON, no markdown fences around the JSON itself."""
         "item": [],
     }
 
+    # The collection always lists the architecture's endpoints; a model-written collection replaces it only when
+    # it is a valid one. (The stub used to exist only after a failed model call: with no model there were no
+    # items at all.)
+    postman_collection["item"] = _stub_items(endpoints)
+
     if llm and endpoints:
         try:
             endpoints_json = json.dumps(endpoints[:20], indent=2)
@@ -278,21 +305,7 @@ No explanation, no markdown fences."""
             if isinstance(parsed_d, dict) and ("item" in parsed_d or "info" in parsed_d):
                 postman_collection = parsed_d
         except Exception as exc:
-            logger.warning("p15: Call D (Postman) failed, using stub: %s", exc)
-            # Build stub items from endpoints list
-            items = []
-            for ep in endpoints[:20]:
-                method = ep.get("method", "GET")
-                path = ep.get("path", "/")
-                items.append({
-                    "name": f"{method} {path}",
-                    "request": {
-                        "method": method,
-                        "url": {"raw": f"{{{{base_url}}}}{path}", "host": ["{{base_url}}"], "path": path.strip("/").split("/")},
-                        "header": [{"key": "Authorization", "value": "Bearer {{access_token}}"}],
-                    },
-                })
-            postman_collection["item"] = items
+            logger.warning("p15: Call D (Postman) failed, using the stub collection: %s", exc)
 
     (postman_dir / "collection.json").write_text(json.dumps(postman_collection, indent=2))
     files_written.append("postman/collection.json")
@@ -303,7 +316,7 @@ No explanation, no markdown fences."""
         if _bm and isinstance(_bm, dict):
             _bm_path = output_dir / "business_model.json"
             _bm_path.write_text(json.dumps(_bm, indent=2), encoding="utf-8")
-            files_written.append(str(_bm_path))
+            files_written.append("business_model.json")
             logger.info("p15: business_model.json written to handoff package")
     except Exception as _bm_exc:
         logger.warning("p15: business_model.json write failed: %s", _bm_exc)

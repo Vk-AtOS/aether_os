@@ -19,7 +19,7 @@ def test_parse_tsc_and_eslint():
 def test_frontend_files_have_a_real_overall_score(tmp_path):
     f = tmp_path / "A.tsx"
     f.write_text(CLEAN)
-    r = critique_artifact(str(f))
+    r = critique_artifact(str(f), root=str(tmp_path))
     assert r.overall_score == 1.0 and r.passed       # was 0.0 for every frontend file: no weights existed
 
 
@@ -27,13 +27,13 @@ def test_known_violations_from_the_tools_lower_the_score(tmp_path):
     f = tmp_path / "src" / "A.tsx"
     f.parent.mkdir()
     f.write_text(CLEAN)
-    base = critique_artifact(str(f)).overall_score
+    base = critique_artifact(str(f), root=str(tmp_path)).overall_score
     tools = ft.FrontendToolReport(
         tsc_ran=True, eslint_ran=True, axe_violations=3,
         tsc={"src/A.tsx": ["L2 TS2322: bad", "L3 TS2304: nope"]},
         eslint={"src/A.tsx": [{"rule": "jsx-a11y/alt-text", "severity": 2, "message": "m", "line": 1}]},
     )
-    worse = critique_artifact(str(f), tools=tools)
+    worse = critique_artifact(str(f), tools=tools, root=str(tmp_path))
     assert worse.overall_score < base
     text = " ".join(x for d in worse.dimension_scores for x in d.findings)
     assert "tsc: 2 error(s)" in text and "jsx-a11y" in text and "axe-core reported 3" in text

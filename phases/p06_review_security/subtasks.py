@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -17,6 +16,7 @@ from aether_os.core.compliance.code_scanner import scan_file
 from aether_os.core.compliance.pdf_report import generate_pdf
 from aether_os.core.domain_knowledge.loader import build_compliance_summary, load_pack
 from aether_os.core.llm.client import get_llm_client
+from aether_os.core.run_app import safe_fs
 from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
@@ -27,6 +27,33 @@ from aether_os.phases.utils import memory_hint
 logger = logging.getLogger(__name__)
 
 _SUBTASK_TIMEOUT = 150.0
+
+
+def _rel_under(root: Any, path: Any):
+    """path relative to the run directory, or None when it is not under it (or either is empty)."""
+    if not root or not path or str(root) in ("", "."):
+        return None
+    try:
+        return Path(path).relative_to(root)
+    except ValueError:
+        return None
+
+
+def _file_under(root: Any, path: Any) -> bool:
+    """A regular file under the run directory reached without following a link (the AST patcher
+    writes to what this returns, so a planted link must never pass)."""
+    rel = _rel_under(root, path)
+    return rel is not None and safe_fs.stat_or_none(root, rel) is not None
+
+
+def _read_under(root: Any, path: Any):
+    rel = _rel_under(root, path)
+    return None if rel is None else safe_fs.read_text_or_none(root, rel)
+
+
+def _real_dir_under(root: Any, path: Any) -> bool:
+    rel = _rel_under(root, path)
+    return rel is not None and safe_fs.is_real_dir(root, rel)
 
 
 async def run_code_review(
@@ -49,8 +76,9 @@ async def run_code_review(
             Path(backend_path) / "src" / "main.py" if backend_path else None,
             Path(backend_path) / "main.py" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
-                code_to_review = candidate.read_text(encoding="utf-8")[:6000]
+            text = _read_under(project_dir, candidate)
+            if text is not None:
+                code_to_review = text[:6000]
                 break
 
         if not code_to_review:
@@ -137,7 +165,7 @@ async def run_bandit_scan(
             project_dir / "src",
             Path(backend_path) / "src" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
+            if _real_dir_under(project_dir, candidate):
                 src_path = candidate
                 break
 
@@ -243,7 +271,7 @@ async def run_bandit_scan(
             for finding in bandit_findings:
                 if finding.get("issue_severity") == "HIGH":
                     fname = finding.get("filename")
-                    if fname and os.path.exists(fname) and fname not in patched_files:
+                    if fname and _file_under(project_dir, Path(fname)) and fname not in patched_files:
                         patcher.patch_file(fname)
                         patched_files.add(fname)
                         logger.info(
@@ -258,7 +286,7 @@ async def run_bandit_scan(
                         else None
                     ),
                 ]:
-                    if candidate and candidate.exists():
+                    if _file_under(project_dir, candidate):
                         patcher.patch_file(str(candidate))
                         break
 
@@ -302,7 +330,7 @@ async def run_compliance_scan(
             Path(backend_path) / "src" / "main.py" if backend_path else None,
             Path(backend_path) / "main.py" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
+            if _file_under(project_dir, candidate):
                 main_py = candidate
                 break
 
@@ -321,7 +349,7 @@ async def run_compliance_scan(
 
         domain = data.get("domain", "general")
         project_name = data.get("project_name", "")
-        scan_result = scan_file(main_py, project_name=project_name, domain=domain)
+        scan_result = scan_file(main_py, project_name=project_name, domain=domain, root=project_dir)
 
         scan_dir = output_dir / "compliance"
         scan_dir.mkdir(parents=True, exist_ok=True)

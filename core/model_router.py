@@ -42,7 +42,7 @@ from aether_os.core.model_router_providers import (
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm as _ahm
-from aether_os.orchestrator.events import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
+from aether_os.core.run_context import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
 
 logger = logging.getLogger(__name__)
 

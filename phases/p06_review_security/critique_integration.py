@@ -11,6 +11,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
 
+from aether_os.core.run_app import safe_fs
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,13 @@ def run_dimension_critique(
             Path(backend_path) if backend_path else None,
             Path(project_dir),
         ]:
-            if candidate and candidate.is_dir():
+            if not candidate or not project_dir:
+                continue
+            try:  # only a real directory under the run directory (no link on the way)
+                real = safe_fs.is_real_dir(project_dir, candidate.relative_to(project_dir))
+            except ValueError:
+                continue
+            if real:
                 src_dir = str(candidate)
                 break
 
@@ -55,7 +63,7 @@ def run_dimension_critique(
             return
 
         logger.info("[p06/critique] Running dimension critique on: %s", src_dir)
-        reports = critique_directory(src_dir)
+        reports = critique_directory(src_dir, root=project_dir)
 
         if not reports:
             logger.info("[p06/critique] No Python files found to critique in %s", src_dir)

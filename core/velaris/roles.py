@@ -13,7 +13,12 @@ keys, velaris/api/providers_api.py) is held by owner and admin, like the organis
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
 from typing import Dict, FrozenSet, Optional
+
+logger = logging.getLogger(__name__)
 
 VELARIS_ROLES: Dict[str, FrozenSet[str]] = {
     "owner": frozenset({"hr_admin", "payroll_admin", "flow_approver", "model_admin", "mail_admin", "chat_admin",
@@ -30,8 +35,42 @@ MAY_ACT: FrozenSet[str] = frozenset({"owner", "admin", "member"})
 ADMIN_ROLES: FrozenSet[str] = frozenset({"owner", "admin"})
 
 
+# Velaris roles that exist (recruiter, hiring_manager, interviewer, atlassian_reader) but that no
+# AetherOS org role holds by default, so the screens behind them refuse everybody (KAN-104).
+# An operator grants them by configuration, never in code:
+#   AETHER_VELARIS_ROLE_GRANTS='{"member": ["recruiter", "interviewer"], "admin": ["hiring_manager"]}'
+# Default: no grant. Only these roles can be granted this way; the admin roles above cannot, an
+# unknown role name is ignored with a warning, and malformed JSON grants nothing (fails closed).
+CONFIGURABLE_ROLES: FrozenSet[str] = frozenset(
+    {"recruiter", "hiring_manager", "interviewer", "atlassian_reader"})
+
+
+def _configured_grants() -> Dict[str, FrozenSet[str]]:
+    raw = os.environ.get("AETHER_VELARIS_ROLE_GRANTS", "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("must be a JSON object of org role -> list of Velaris roles")
+        out: Dict[str, FrozenSet[str]] = {}
+        for org_role, names in data.items():
+            if not isinstance(names, list):
+                raise ValueError(f"{org_role!r}: expected a list")
+            ok = frozenset(n for n in names if n in CONFIGURABLE_ROLES)
+            for n in set(names) - ok:
+                logger.warning("AETHER_VELARIS_ROLE_GRANTS: %r is not a configurable Velaris role: ignored", n)
+            out[str(org_role)] = ok
+        return out
+    except (ValueError, TypeError) as exc:
+        logger.warning("AETHER_VELARIS_ROLE_GRANTS is not usable, granting nothing extra: %s", exc)
+        return {}
+
+
 def velaris_roles(org_role: Optional[str]) -> FrozenSet[str]:
-    return VELARIS_ROLES.get(org_role or "", frozenset())
+    base = VELARIS_ROLES.get(org_role or "", frozenset())
+    extra = _configured_grants().get(org_role or "", frozenset())
+    return base | extra
 
 
 # Which Velaris roles may read OTHER people's records of a sensitive category. Mirrors

@@ -9,6 +9,11 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
+
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
+from aether_os.core.run_app import safe_fs
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -54,8 +59,14 @@ def scan_file(
     main_py_path: Path,
     project_name: str = "",
     domain: str = "general",
+    *,
+    root: Optional[Path],
 ) -> ComplianceScanResult:
     """
+    root: the run directory main_py_path lives in. Required, no fallback: a missing, relative or
+    symlinked root, or a main.py outside it, is reported as "source not found" (SCAN-001);
+    nothing below root is read through a symlink.
+
     Main entry point. Scans a FastAPI main.py and returns compliance results.
     Handles missing files gracefully — always returns a ComplianceScanResult,
     never raises.
@@ -64,7 +75,13 @@ def scan_file(
 
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    if not main_py_path.exists():
+    try:
+        root = require_project_root(root)
+        source = safe_fs.read_text_or_none(root, relative_to_root(root, main_py_path))
+    except SandboxViolation as exc:
+        logger.warning("code_scanner: %s", exc)
+        source = None
+    if source is None:
         return ComplianceScanResult(
             project_name=project_name,
             domain=domain,
@@ -85,18 +102,19 @@ def scan_file(
             scan_timestamp=ts,
         )
 
-    source = main_py_path.read_text(encoding="utf-8", errors="replace")
     routes = _extract_routes(source)
 
     # Collect all sibling *.py files in the same src/ directory (recursively),
     # including routers/crud.py and any other modules — CRUD routes live there,
     # not in main.py.
     src_dir = main_py_path.parent
-    for _router_file in sorted(src_dir.rglob("*.py")):
-        if _router_file == main_py_path or "__pycache__" in str(_router_file):
+    _under = relative_to_root(root, src_dir)
+    for _rel in safe_fs.walk_files(root, _under, skip_dirs=("__pycache__",)):
+        _router_file = root / _rel
+        if _router_file == main_py_path or _router_file.suffix != ".py":
             continue
         try:
-            _router_src = _router_file.read_text(encoding="utf-8", errors="replace")
+            _router_src = safe_fs.read_text_or_none(root, _router_file) or ""
             # Expand named-router decorator patterns (e.g. @employees_router.delete)
             # so _extract_routes() matches them via the @router.<method> pattern.
             _expanded = re.sub(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
@@ -12,14 +13,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     Problem 80: if p10 already generated the portal, reuse it instead of regenerating.
     """
-    project_dir = Path(phase_input.input_data.get("project_dir", "/tmp"))
+    # No default: a missing project_dir used to be "/tmp", where a stray consolidated.json was picked up.
+    project_dir_raw = phase_input.input_data.get("project_dir")
+    project_dir = Path(project_dir_raw) if project_dir_raw else None
     project_name = phase_input.input_data.get("project_name", "Application")
 
     # Problem 80: check if p10 already generated this portal — reuse it
     _p10_consolidated = None
     for _p10_candidate in [
         output_dir.parent / "consolidated.json",
-        project_dir / "p10_docs_delivery" / "consolidated.json",
+        *([project_dir / "p10_docs_delivery" / "consolidated.json"] if project_dir else []),
     ]:
         if _p10_candidate.exists():
             try:
@@ -32,7 +35,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if _p10_consolidated:
         _p10_portal = _p10_consolidated.get("phases", {}).get("client_portal", {})
         _p10_portal_path = _p10_portal.get("output_path", "")
-        if _p10_portal_path and Path(_p10_portal_path).exists():
+        # the path comes from a JSON file: it must stay inside this project (never write elsewhere)
+        _inside = bool(_p10_portal_path and project_dir and Path(_p10_portal_path).resolve().is_relative_to(project_dir.resolve()))
+        if _inside and Path(_p10_portal_path).exists():
             # Portal already exists from p10 — reference it, optionally enhance
             _existing_portal_dir = Path(_p10_portal_path)
             _portal_html = _existing_portal_dir / "client_portal.html"
@@ -49,10 +54,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     try:
                         _html = _portal_html.read_text()
                         _inject = ""
-                        if _quality_score:
-                            _inject += f'\n  <div class="card"><h2>Quality Score</h2><div class="stat-value">{_quality_score}</div></div>'
-                        if _council_verdict:
-                            _inject += f'\n  <div class="card"><h2>Council Verdict</h2><p>{_council_verdict}</p></div>'
+                        # the verdict is model-written text: escaped, and injected once (re-runs add nothing)
+                        if _quality_score and "data-aether-quality" not in _html:
+                            _inject += f'\n  <div class="card" data-aether-quality><h2>Quality Score</h2><div class="stat-value">{html.escape(str(_quality_score))}</div></div>'
+                        if _council_verdict and "data-aether-council" not in _html:
+                            _inject += f'\n  <div class="card" data-aether-council><h2>Council Verdict</h2><p>{html.escape(str(_council_verdict))}</p></div>'
                         if _inject:
                             _html = _html.replace("</div>\n</body>", f"{_inject}\n  </div>\n</body>")
                             _portal_html.write_text(_html)
@@ -229,19 +235,35 @@ def portal_home():
     return HTMLResponse("<h1>Client Portal</h1>")
 
 
+def _org(user: dict) -> str:
+    return str(user.get("org_id") or "")
+
+
+def _can_see(t: dict, user: dict) -> bool:
+    """A ticket belongs to one organisation and one author: an admin sees the organisation's tickets,
+    anybody else only their own. Another organisation's tickets do not exist for the caller."""
+    if t.get("org_id", "") != _org(user):
+        return False
+    return user.get("role") == "admin" or t.get("owner") == str(user.get("sub"))
+
+
 @router.get("/tickets")
-def list_tickets(status: Optional[str] = None):
+def list_tickets(status: Optional[str] = None, limit: int = 100, offset: int = 0,
+                 user: dict = Depends(get_current_user)):
     _load_tickets()
-    tickets = _TICKETS if not status else [t for t in _TICKETS if t["status"] == status]
-    return {"tickets": tickets, "total": len(tickets)}
+    mine = [t for t in _TICKETS if _can_see(t, user) and (not status or t["status"] == status)]
+    page = mine[max(offset, 0): max(offset, 0) + min(max(limit, 1), 500)]
+    return {"tickets": page, "total": len(mine)}
 
 
 @router.post("/tickets")
-def create_ticket(ticket: TicketCreate):
+def create_ticket(ticket: TicketCreate, user: dict = Depends(get_current_user)):
     global _ticket_id
     _load_tickets()
     _ticket_id += 1
     entry = {
+        "org_id": _org(user),
+        "owner": str(user.get("sub")),
         "id": _ticket_id,
         "title": ticket.title,
         "description": ticket.description,
@@ -255,19 +277,19 @@ def create_ticket(ticket: TicketCreate):
 
 
 @router.get("/tickets/{ticket_id}")
-def get_ticket(ticket_id: int):
+def get_ticket(ticket_id: int, user: dict = Depends(get_current_user)):
     _load_tickets()
     for t in _TICKETS:
-        if t["id"] == ticket_id:
+        if t["id"] == ticket_id and _can_see(t, user):
             return t
     raise HTTPException(status_code=404, detail="Ticket not found")
 
 
 @router.patch("/tickets/{ticket_id}", dependencies=[Depends(require_admin)])
-def update_ticket(ticket_id: int, update: TicketUpdate):
+def update_ticket(ticket_id: int, update: TicketUpdate, user: dict = Depends(get_current_user)):
     _load_tickets()
     for t in _TICKETS:
-        if t["id"] == ticket_id:
+        if t["id"] == ticket_id and t.get("org_id", "") == _org(user):
             if update.status:
                 t["status"] = update.status
             if update.priority:
@@ -325,7 +347,7 @@ def download_artifacts():
         "Then visit `/portal/` to see the portal dashboard.\n\n"
         "## API Endpoints\n\n"
         "- `GET /portal/` — Portal HTML dashboard\n"
-        "- `GET /portal/tickets` — List all tickets\n"
+        "- `GET /portal/tickets` — List your tickets (an admin: the organisation's), paged with limit/offset\n"
         "- `POST /portal/tickets` — Create ticket\n"
         "- `GET /portal/tickets/{id}` — Get ticket\n"
         "- `PATCH /portal/tickets/{id}` — Update ticket status/priority\n"

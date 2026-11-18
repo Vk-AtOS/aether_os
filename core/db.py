@@ -131,7 +131,8 @@ def get_engine() -> AsyncEngine:
         is_postgres = "postgresql" in url or "asyncpg" in url
 
         connect_args: dict = {}
-        engine_kwargs: dict = {"echo": echo}
+        # hide_parameters: bound values (emails, tokens) never appear in DBAPIError text or logs.
+        engine_kwargs: dict = {"echo": echo, "hide_parameters": True}
 
         if is_sqlite:
             connect_args = {"check_same_thread": False}

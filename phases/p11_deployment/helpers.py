@@ -17,6 +17,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.build_runner import build_image
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
 # Re-export writers so callers can import everything from helpers
 from .writers import (  # noqa: F401
     write_dockerfile,
@@ -260,23 +264,24 @@ async def deploy_to_railway(project_dir: Path, run_id: str) -> Dict[str, Any]:
 # ── Docker low-level helpers ──────────────────────────────────────────────────
 
 async def docker_build(app_dir: Path, image_name: str) -> Dict[str, Any]:
+    """Build the generated Dockerfile in the builder sandbox (core/sandbox/build_runner.py), never with a
+    host `docker build`: its RUN steps are generated code. No sandbox means no build."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "build", "-t", image_name, str(app_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-        if proc.returncode != 0:
+        done = await asyncio.wait_for(
+            asyncio.to_thread(build_image, app_dir, image_name, run_dir=phase_exec.project_root(app_dir),
+                              timeout=600),
+            timeout=660)
+        if done.returncode != 0:
             return {
                 "success": False,
-                "error": f"Docker build failed: {stderr.decode()[:500]}",
+                "error": f"Docker build failed: {(done.stderr or b'').decode(errors='replace')[-500:]}",
             }
         return {"success": True}
-    except asyncio.TimeoutError:
+    except SandboxUnavailable as exc:
+        logger.error("p11_deployment: generated Dockerfile NOT built: %s", exc)
+        return {"success": False, "error": f"Docker build refused, builder sandbox unavailable: {exc}"}
+    except (asyncio.TimeoutError, subprocess.TimeoutExpired):
         return {"success": False, "error": "Docker build timed out (600s)"}
-    except FileNotFoundError:
-        return {"success": False, "error": "Docker not found — is Docker installed?"}
     except Exception as exc:
         logger.warning("p11_deployment: docker_build failed: %s", exc)
         return {"success": False, "error": str(exc)}

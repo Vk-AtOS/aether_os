@@ -25,7 +25,6 @@ Never end a session with "pending verification." Either verify or explicitly sta
 
 Allowed large files (pre-approved, do not split further unless user asks):
 - `phases/p05_frontend/code_writer.py` — 35 pure code generators, all in one concern
-- `orchestrator/factory_pipeline.py` — core orchestrator, already reduced
 - `gateway/routers/factory_runs_router.py` — already reduced from 3317 lines
 
 ---

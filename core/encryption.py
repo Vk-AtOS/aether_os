@@ -20,6 +20,7 @@ from sqlalchemy.types import TypeDecorator
 logger = logging.getLogger(__name__)
 
 _fernet: Fernet | None = None
+_EPHEMERAL_KEY_ENVIRONMENTS = frozenset({"development", "dev", "test", "testing"})
 
 
 def _get_fernet() -> Fernet:
@@ -29,10 +30,12 @@ def _get_fernet() -> Fernet:
         if raw:
             _fernet = Fernet(raw.encode())
         else:
-            _is_production = os.environ.get("ENVIRONMENT", "development") == "production"
-            if _is_production:
+            # An ephemeral key is only for a developer's laptop or a test run. Staging (ENVIRONMENT=staging)
+            # used to get one too: every worker then encrypted with its own key and could not read the others'.
+            _env = os.environ.get("ENVIRONMENT", "development").strip().lower()
+            if _env not in _EPHEMERAL_KEY_ENVIRONMENTS:
                 raise RuntimeError(
-                    "AETHER_FIELD_KEY must be set in production. "
+                    f"AETHER_FIELD_KEY must be set when ENVIRONMENT={_env!r} (only development and test may use a per-process key). "
                     "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
                 )
             logger.warning(
