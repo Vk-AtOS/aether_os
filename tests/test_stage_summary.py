@@ -36,3 +36,39 @@ def test_s06_with_failing_verdict_is_a_failed_stage(monkeypatch, tmp_path):
 
 async def _empty():
     return []
+
+
+# ── KAN-188 (M5): the s06 gate can fail, and says what it did not check ───────
+
+def _unit(passed, failed):
+    return {"unit_testing": s06.TaskResult("t.py", 0.75, metadata={"passed": passed, "failed": failed, "test_file": "t.py"})}
+
+
+def _gate(consolidated):
+    consolidated["gate"] = s06._gate_report(consolidated)
+    res = s06.TaskResult("c.json", 0.5, metadata=consolidated)
+    return asyncio.run(s06.TestingStageSupervisor().validate_gate(res, SimpleNamespace()))
+
+
+def test_s06_gate_blocks_when_no_unit_test_ran():
+    out = _gate(s06._consolidate_results({}, ["unit_testing failed: sandbox unavailable"]))
+    assert out.passed is False
+    assert out.issues == ["no unit test ran: unit_testing failed: sandbox unavailable"]
+    assert _gate(s06._consolidate_results(_unit(0, 0), [])).passed is False      # pytest ran nothing
+
+
+def test_s06_gate_lets_failing_tests_through_and_discloses_it():
+    consolidated = s06._consolidate_results(_unit(6, 4), [])
+    assert _gate(consolidated).passed is True
+    gate = consolidated["gate"]
+    assert gate["tests_failed_but_did_not_block"] is True and gate["tests_failed"] == 4
+    assert any(n.startswith("e2e_testing: not run here") for n in gate["not_checked"])
+    assert any("frontend unit tests" in n for n in gate["not_checked"])
+    summary = summarize_stage_outcomes({"s06_testing": {"status": "passed", "metadata": consolidated}})
+    assert summary["tests_failed_but_did_not_block"] is True and summary["tests_not_checked"] == gate["not_checked"]
+    clean = s06._consolidate_results(_unit(10, 0), [])
+    assert _gate(clean).passed and clean["gate"]["tests_failed_but_did_not_block"] is False
+
+
+def test_s06_verdict_is_fail_when_most_unit_tests_fail():
+    assert s06._consolidate_results(_unit(1, 9), [])["test_quality_flag"] == "fail"   # was "warn"
