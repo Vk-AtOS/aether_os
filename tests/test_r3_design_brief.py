@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from aether_os.phases.p05_frontend import design_brief as db
-from tests.test_p05_generated_frontend import ENTITIES, build_frontend
+from aether_os.tests.test_p05_generated_frontend import ENTITIES, build_frontend
 
 FIXTURES = Path(__file__).parent / "fixtures" / "design_briefs"
 

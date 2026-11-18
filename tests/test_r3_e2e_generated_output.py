@@ -7,8 +7,8 @@ import subprocess
 
 import pytest
 
-from tests.test_p04a_generated_backend import generate, run_app
-from tests.test_p05_generated_frontend import build_frontend, unresolved_imports
+from aether_os.tests.test_p04a_generated_backend import generate, run_app
+from aether_os.tests.test_p05_generated_frontend import build_frontend, unresolved_imports
 
 
 def test_generated_product_backend_serves_crud_and_frontend_is_complete(tmp_path, monkeypatch):

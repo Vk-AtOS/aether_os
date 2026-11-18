@@ -78,16 +78,6 @@ jobs:
       - name: Static security analysis (bandit, high severity)
         run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
 
-      - name: Dependency vulnerabilities (pip-audit, blocking)
-        # Audits the pinned lock file; any finding fails. Accepted no-fix findings are listed with reasons in the script.
-        run: bash scripts/ci/audit_deps.sh
-
-      - name: Secret scan (gitleaks, full history, blocking)
-        # Pinned, checksum-verified binary: no GITLEAKS_LICENSE needed. Config: .gitleaks.toml.
-        run: |
-          bash scripts/ci/install_gitleaks.sh "$RUNNER_TEMP/bin"
-          PATH="$RUNNER_TEMP/bin:$PATH" bash scripts/ci/secret_scan.sh
-
       - name: Run tests
         working-directory: ${{ runner.temp }}/pkg/aether_os
         run: |
@@ -99,6 +89,20 @@ jobs:
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-fail-under=$COVERAGE_FLOOR
+
+      # The two scans below run AFTER the tests on purpose: they are blocking, but a red scan (a known advisory, a secret in history)
+      # must not hide whether the tests pass.
+      - name: Dependency vulnerabilities (pip-audit, blocking)
+        if: always()
+        # Audits the pinned lock file; any finding fails. Accepted no-fix findings are listed with reasons in the script.
+        run: bash scripts/ci/audit_deps.sh
+
+      - name: Secret scan (gitleaks, full history, blocking)
+        if: always()
+        # Pinned, checksum-verified binary: no GITLEAKS_LICENSE needed. Config: .gitleaks.toml.
+        run: |
+          bash scripts/ci/install_gitleaks.sh "$RUNNER_TEMP/bin"
+          PATH="$RUNNER_TEMP/bin:$PATH" bash scripts/ci/secret_scan.sh
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

@@ -9,7 +9,7 @@ import time
 import pytest
 
 from aether_os.core.security.prompt_guard import guard
-from tests.injection_pack.corpus import CANARY, CASES, SYSTEM, wrap
+from aether_os.tests.injection_pack.corpus import CANARY, CASES, SYSTEM, wrap
 
 
 def test_corpus_is_well_formed():

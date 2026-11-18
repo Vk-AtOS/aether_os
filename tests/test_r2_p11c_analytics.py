@@ -99,7 +99,7 @@ def test_generated_app_analytics_endpoints_need_a_signed_in_user_and_events_need
     import subprocess
 
     import pytest
-    from tests.test_p04a_generated_backend import generate
+    from aether_os.tests.test_p04a_generated_backend import generate
     for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
         pytest.importorskip(mod)
     monkeypatch.setenv("ENVIRONMENT", "test")

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from tests.gateway_env import gateway_env
+from aether_os.tests.gateway_env import gateway_env
 import aether_os.gateway.routers.ops_status_router as ops
 from aether_os.core.resilience import health
 
