@@ -3,7 +3,6 @@ Seed 60 loadtest users + admin into PostgreSQL for load testing.
 Run: python3 tests/load/seed_load_users.py
 """
 import asyncio
-import os
 import sys
 import pathlib
 
@@ -92,7 +91,7 @@ async def seed():
 
         await session.commit()
         print(f"Seeded {seeded} users ({COUNT} load test + admin) into PostgreSQL")
-        print(f"Existing users were skipped.")
+        print("Existing users were skipped.")
 
 
 if __name__ == "__main__":

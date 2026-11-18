@@ -7,9 +7,9 @@
 
 set -uo pipefail
 
-BASE="${1:-http://REDACTED_IP}"
+BASE="${1:?usage: smoke_test.sh <base_url> [email] [password]}"
 EMAIL="${2:-${AETHER_ADMIN_EMAIL:-demo@aetheros.ai}}"
-PASS="${3:-${AETHER_ADMIN_PASS:-demo1234}}"
+PASS="${3:-${AETHER_ADMIN_PASS:?set AETHER_ADMIN_PASS or pass the password as arg 3}}"
 
 PASS_COUNT=0
 FAIL_COUNT=0

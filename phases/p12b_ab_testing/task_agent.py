@@ -103,19 +103,31 @@ def get_variant(experiment: str, user_id) -> str:
 
     # A/B router (standalone — consumer must include it manually)
     (ab_dir / "ab_router.py").write_text(
-        '''from fastapi import APIRouter, HTTPException
+        '''from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from .ab_testing import register, get_variant, _EXPERIMENTS
 
-router = APIRouter(prefix="/experiments", tags=["A/B Testing"])
+# The app's own auth module (main.py imports it by its plain name). Fail closed: without it every
+# route answers 503, never "open to everyone".
+try:
+    from auth import get_current_user, require_admin
+except ImportError:
+    try:
+        from src.auth import get_current_user, require_admin
+    except ImportError:
+        async def get_current_user():
+            raise HTTPException(status_code=503, detail="experiments disabled: auth module not found")
+        require_admin = get_current_user
+
+router = APIRouter(prefix="/experiments", tags=["A/B Testing"], dependencies=[Depends(get_current_user)])
 
 class ExperimentCreate(BaseModel):
     name: str
     variants: List[str]
     weights: Optional[List[float]] = None
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_admin)])
 def create_experiment(exp: ExperimentCreate):
     register(exp.name, exp.variants, exp.weights)
     return {"name": exp.name, "variants": exp.variants}

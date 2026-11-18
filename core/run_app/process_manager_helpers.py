@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 import re
 import secrets
 import textwrap
 from typing import Optional, Tuple
 
-from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
+from aether_os.core.run_app.safe_fs import read_text_or_none, safe_read_text, safe_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +70,7 @@ def api_explorer_html(project_label: str, run_id: str) -> str:
 const base='/app-preview';
 fetch('/api/factory/runs/{run_id}/preview-credentials',{{headers:{{'Authorization':'Bearer '+(localStorage.getItem('aether_token')||'')}}}})
   .then(r=>r.ok?r.json():null).then(d=>{{
-    if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'Admin1234!';}}
+    if(d){{document.getElementById('email').textContent=d.email||'admin@example.com';document.getElementById('password').textContent=d.password||'';}}
   }}).catch(()=>{{}});
 
 fetch(base+'/openapi.json').then(r=>r.json()).then(spec=>{{
@@ -166,6 +165,17 @@ async def mock_api_delete(path: str):
 """
 
 
+def _load_or_create_preview_password(root_dir: pathlib.Path) -> str:
+    """Password from this run's preview_credentials.json, else a new random one."""
+    try:
+        old = json.loads(read_text_or_none(root_dir, "preview_credentials.json") or "{}").get("password")
+        if isinstance(old, str) and len(old) >= 12:
+            return old
+    except ValueError as e:  # corrupt file: make a new one
+        logger.info("no reusable preview password (%s)", e)
+    return secrets.token_urlsafe(16)
+
+
 def patch_generated_project(
     backend_dir: pathlib.Path,
     root_dir: pathlib.Path,
@@ -181,7 +191,9 @@ def patch_generated_project(
 
     Returns (preview_email, preview_password).
     """
-    _PREVIEW_PASSWORD = "Admin1234!"
+    # Random per run (reused on relaunch), never a constant: the seed reads it from ADMIN_PASSWORD,
+    # which process_manager puts in the preview app's environment.
+    _PREVIEW_PASSWORD = _load_or_create_preview_password(root_dir)
     # FE-H3: None means email not found in seed.py — backend returns None so
     # frontend can show guidance instead of a hardcoded credential that won't work.
     _preview_email = None
@@ -297,7 +309,7 @@ def _spa_catchall(path: str = ""):
             if frontend_dist and frontend_dist.is_dir()
             else ""
         )
-        preview_content = textwrap.dedent(f"""\
+        preview_content = textwrap.dedent("""\
             \"\"\"AetherOS run-preview entrypoint — VPS only, not distributed.\"\"\"
             import os
             import pathlib
@@ -309,7 +321,7 @@ def _spa_catchall(path: str = ""):
             _PREVIEW_DB = _PROJECT_DIR / "preview.db"
             _DIST = _PROJECT_DIR / "p05_frontend" / "frontend" / "dist"
 
-            os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{{_PREVIEW_DB}}")
+            os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PREVIEW_DB}")
             os.environ.setdefault("SECRET_KEY", os.environ.get("PREVIEW_JWT_SECRET") or secrets.token_urlsafe(32))
 
             from main import app  # noqa: E402
@@ -319,7 +331,7 @@ def _spa_catchall(path: str = ""):
                 from fastapi.responses import FileResponse
                 from fastapi import HTTPException
 
-                @app.get("/{{path:path}}", include_in_schema=False)
+                @app.get("/{path:path}", include_in_schema=False)
                 def _spa(path: str = ""):
                     if path.startswith("api/"):
                         raise HTTPException(status_code=404, detail="Not found")
@@ -444,36 +456,23 @@ def _spa_catchall(path: str = ""):
             )
             safe_write_text(root_dir, _auth_py, _auth + _bcrypt_patch)
 
-    # ── Patch seed.py: enforce predictable demo password ──────────────────
+    # ── Preview admin email: read from the seed; the password comes from ADMIN_PASSWORD ──
     _seed_py = backend_dir / "src" / "seed.py"
     if _seed_py.exists():
-        _seed = safe_read_text(root_dir, _seed_py)
-        _email_m = re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', _seed)
+        _email_m = re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', safe_read_text(root_dir, _seed_py))
         if _email_m:
             _preview_email = _email_m.group(1)
-        _seed_patched = re.sub(
-            r'(_ADMIN_PASSWORD\s*=\s*)["\'][^"\']*["\']',
-            f'\\1"{_PREVIEW_PASSWORD}"',
-            _seed,
-        )
-        _seed_patched = re.sub(
-            r"get_password_hash\s*\(\s*os\.environ\.get\s*\([^)]+\)\s*\)",
-            f'get_password_hash("{_PREVIEW_PASSWORD}")',
-            _seed_patched,
-        )
-        if _seed_patched != _seed:
-            safe_write_text(root_dir, _seed_py, _seed_patched)
 
     # Write credentials file
     _creds_path = root_dir / "preview_credentials.json"
     safe_write_text(root_dir, _creds_path, json.dumps({
         "email": _preview_email,
         "password": _PREVIEW_PASSWORD,
-        "note": "Demo credentials for the AetherOS preview — change before production",
+        "note": "Credentials for this AetherOS preview only; the delivered app takes its own ADMIN_PASSWORD",
     }))
     with open(log_path, "a") as _lf:
         _lf.write(
-            f"[AetherOS] Preview credentials: {_preview_email} / {_PREVIEW_PASSWORD}\n"
+            f"[AetherOS] Preview credentials written to preview_credentials.json for {_preview_email}\n"
         )
 
     return _preview_email, _PREVIEW_PASSWORD

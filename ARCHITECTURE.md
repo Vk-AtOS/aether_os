@@ -1,323 +1,163 @@
-# AetherOS — System Architecture
+# AetherOS - System Architecture
 
-## System Overview
+Checked against the code at commit `e5c23fd`. Each section names the files it was read from.
+Claims about runtime behaviour in production (load, latency, uptime) are not measured.
+
+## System overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          User / Client                                  │
-└───────────────────────────────┬─────────────────────────────────────────┘
-                                │ HTTPS
-                    ┌───────────▼───────────┐
-                    │   nginx reverse proxy  │
-                    │   + certbot TLS        │
-                    └───────────┬───────────┘
-                                │
-              ┌─────────────────┴──────────────────┐
-              │                                    │
-   ┌──────────▼──────────┐            ┌────────────▼───────────┐
-   │  Dashboard (React)   │            │  CLI / API clients      │
-   │  Vite + Tailwind     │            │  aether (Typer/Rich)    │
-   └──────────┬──────────┘            └────────────┬───────────┘
-              │                                    │
-              └─────────────┬──────────────────────┘
-                            │ REST + SSE (JWT Bearer)
-                ┌───────────▼───────────────┐
-                │   API Gateway (FastAPI)    │
-                │   gateway/api.py           │
-                │   ● CORS                   │
-                │   ● JWT auth middleware    │
-                │   ● X-Org-ID enforcement   │
-                │   ● Rate limiting (slowapi)│
-                │   ● Sentry instrumentation │
-                └──────────┬────────────────┘
-                           │
-          ┌────────────────┼──────────────────┐
-          │                │                  │
-┌─────────▼──────┐  ┌──────▼──────┐  ┌───────▼───────┐
-│ PipelineService│  │ Auth / RBAC │  │ Intelligence  │
-│ (core/services)│  │ Billing     │  │ Engines       │
-└─────────┬──────┘  └─────────────┘  └───────────────┘
-          │
-┌─────────▼──────────────────────────────────────────┐
-│           Pipeline Orchestrator                     │
-│           orchestrator/factory_pipeline.py          │
-│           ● Loads supervisors dynamically           │
-│           ● Routes via MessageBus                   │
-│           ● State machine (PipelineStateMachine)    │
-│           ● Gate evaluation per phase               │
-│           ● Human approval escalation               │
-└─────────┬──────────────────────────────────────────┘
-          │  MessageBus (Redis RPUSH/BLPOP)
-          │
-┌─────────▼────────────────────────────────────────────────────────┐
-│                    21-Phase Execution Layer                       │
-│  p01 → p02 → p02b → p03 → p04 → p05 → p06 → p07 → p07b → p08  │
-│  → p09 → p10 → p11 → p11a → p11b → p11c → p11d → p12a → p12b  │
-│  → p13 → p14                                                      │
-│                                                                   │
-│  Each phase: SupervisorAgent → TaskAgent → GateValidator         │
-└─────────┬────────────────────────────────────────────────────────┘
-          │
-┌─────────▼──────────────────────┐    ┌─────────────────────────┐
-│   Output Artifacts             │    │  Persistence             │
-│   (filesystem per run_id)      │    │  PostgreSQL (asyncpg)    │
-│   ● source code                │    │  Redis (state + SSE bus) │
-│   ● compliance_report.json     │    │  SQLite (generated apps) │
-│   ● scan_report.json           │    └─────────────────────────┘
-│   ● ci.yml, devcontainer.json  │
-│   ● docs/, tests/              │
-└────────────────────────────────┘
+User / CLI / API client
+        |  HTTPS
+   nginx (deploy/nginx.conf; TLS via certbot, deploy/setup_vps.sh)
+        |
+   uvicorn, 4 workers  ->  FastAPI app  gateway/api.py (create_app, --factory)
+        |        middleware: CORS, GZip, trace id, request logging (org/user id),
+        |        security headers, optional HTTPS redirect
+        |        78 router entries mounted from gateway/api.py (_ROUTERS)
+        |
+   FactoryPipeline  orchestrator/factory_pipeline.py
+        |  12 stages in order (orchestrator/phase_sequence.py PHASE_SEQUENCE)
+        |  each stage supervisor runs its own phase agents (stages/sNN_*/supervisor.py)
+        |
+   Stores: PostgreSQL or SQLite (core/db.py), Redis (bus, run events, auth state, rate limits),
+           run files on local disk, optional Chroma vector store
 ```
 
----
-
-## The 21-Phase Pipeline — Detail
-
-The pipeline is defined in `PHASE_SEQUENCE` in `orchestrator/factory_pipeline.py`. Each phase is mapped to a supervisor class via `PHASE_SUPERVISORS`. Phases are loaded dynamically at runtime via `importlib`; adding a new phase requires no changes to the orchestrator.
-
-### Phase Detail
-
-**p01 — Intake & Requirements**
-- Accepts: raw natural language prompt (and optional uploaded requirement doc / GitHub repo)
-- Produces: `intake/intake.json` (structured PRD), `consolidated.json`
-- Gate: validates `raw_text` is non-empty; if `structured_requirements` is empty, promotes `raw_text` as fallback so p02 always has input
-- Domain engine runs here: detects `fintech`, `healthcare`, `saas`, `ecommerce`, etc. and injects compliance notes
-
-**p02 — Architecture**
-- Produces: architecture decision records (ADRs), entity-relationship model, technology stack selection, system context diagram
-- Gate: checks architecture doc is non-empty and references at least one data model
-
-**p02b — Domain IR**
-- Consumes: p02 architecture output + p01 domain detection result
-- Produces: `domain_ir.json` — a normalised intermediate representation of detected domain, entity graph, compliance annotations, and tech-stack constraints
-- Used by all downstream phases to avoid re-detecting domain context on each LLM call
-- Gate: validates that domain IR contains at least one entity and a non-empty compliance profile
-
-**p03 — Scaffolding**
-- Produces: full project directory tree, `pyproject.toml` / `package.json`, `Dockerfile`, `docker-compose.yml`, `.env.example`
-- Uses cookiecutter templates parameterised by domain profile from p01
-
-**p04 — Backend**
-- Produces: `src/main.py` (FastAPI app), CRUD routers, SQLAlchemy models, Alembic migration, auth module, `requirements.txt`
-- LLM generates code; aider-chat applies diffs cleanly
-
-**p05 — Frontend**
-- Produces: React TypeScript components, page routing, API client (axios), Tailwind CSS styling
-- Gate: checks that at least one `.tsx` component file and a router entry exist
-
-**p06 — Review & Security**
-- Runs Bandit (Python AST security linter) and Semgrep (SAST rules)
-- Produces: `scan_report.json` with findings, severity counts, fix suggestions
-- Gate fails if any CRITICAL findings exist; HIGH findings generate warnings
-
-**p07 — Testing**
-- Runs: pytest unit/integration, Locust performance baseline, Playwright E2E, axe-playwright accessibility
-- Produces: `test_report.json`, coverage report, performance baseline metrics
-- Gate: overall pass rate ≥ 80%; no unhandled exceptions in E2E
-
-**p07b — Self-Healing**
-- If p07 gate fails, this phase re-runs failing tests, identifies root causes, patches code, and re-validates
-- Maximum 5 healing iterations before escalating to human approval gate
-
-**p08 — CI/CD & Deployment**
-- Produces: `ci.yml` (GitHub Actions), `devcontainer.json`, `Dockerfile` (if not already present)
-- Runs Docker build in sandbox; performs HTTP readiness probe on the container
-
-**p09 — Observability**
-- Wires Prometheus `/metrics` endpoint, OTEL tracing, structured logging (structlog)
-- Produces: `prometheus.yml`, `grafana_dashboard.json`, logging config
-
-**p10 — Docs & Delivery**
-- Runs pdoc to generate HTML API documentation
-- Produces: `README.md`, `CHANGELOG.md`, architecture diagram PNG (via `diagrams` library), artifact ZIP
-
-**p11 — Deployment**
-- Builds and runs Docker container; performs live HTTP readiness probe
-- Produces: live URL, container ID, deployment manifest
-
-**p11a — Monitoring**
-- Produces: Prometheus scrape config, Grafana dashboard JSON with pre-built panels for latency/error rate/throughput
-
-**p11b — Error Tracking**
-- Wires Sentry SDK into generated app; configures `send_default_pii=False`
-- Produces: Sentry project config, alert rules YAML
-
-**p11c — Analytics**
-- Instruments PostHog events (page views, feature interactions, funnels)
-- Produces: PostHog config, event schema documentation
-
-**p11d — Alerting**
-- Produces: Alertmanager rules YAML, on-call runbooks (Markdown), Slack/PagerDuty webhook config
-
-**p12a — Feature Flags**
-- Integrates Unleash client; defines flag schema
-- Produces: Unleash toggle definitions, SDK init code, documentation
-
-**p12b — A/B Testing**
-- Integrates GrowthBook; binds experiments to metrics
-- Produces: GrowthBook config JSON, experiment definitions, results schema
-
-**p13 — App Memory**
-- Wires mem0 memory layer and ChromaDB vector store into the generated app
-- Seeds initial knowledge graph from requirements and architecture docs
-
-**p14 — Client Portal**
-- Generates a standalone read-only web portal for client review
-- Includes approval workflow, feedback form, and artifact download links
-
----
-
-## Key Architectural Decisions
-
-### Why FastAPI
-FastAPI was chosen for its native async support (critical for non-blocking LLM calls), automatic OpenAPI schema generation, Pydantic v2 integration, and first-class dependency injection. The alternative (Django) would have required significant async adaptation.
-
-### Why Redis Message Bus
-The MessageBus (defined in `orchestrator/bus.py`) uses Redis RPUSH/BLPOP as the primary transport. This design means:
-- Multiple worker processes can pick up phase work without coordination
-- Pipeline state survives worker restarts (Redis persistence)
-- SSE event streams are decoupled from the HTTP process
-
-The asyncio.Queue fallback ensures the system works in single-process development mode when Redis is unavailable.
-
-### Why SQLite for Generated Apps
-Generated applications use SQLite by default. This keeps the generated code dependency-free and runnable immediately. The architecture document generated by p02 always includes a migration path to PostgreSQL; this is an intentional trade-off for time-to-first-run. See `GENERATED_OUTPUT.md` for limitations.
-
----
-
-## MessageBus Design
-
-```python
-# orchestrator/bus.py — simplified
-
-class MessageBus:
-    """Per-run message bus. Redis primary; asyncio.Queue fallback."""
-
-    async def publish(self, phase_name: str, message: PhaseMessage) -> None:
-        if redis_available:
-            await redis.rpush(f"aether:bus:{run_id}:{phase_name}", message.json())
-        else:
-            await self._queue.put(message)          # in-process fallback
-
-    async def subscribe(self, phase_name: str) -> PhaseMessage:
-        if redis_available:
-            _, data = await redis.blpop(f"aether:bus:{run_id}:{phase_name}", timeout=300)
-            return PhaseMessage.parse_raw(data)
-        else:
-            return await self._subscribers[phase_name].get()
-```
-
-Redis keys are namespaced as `aether:bus:{run_id}:{phase_name}` and carry a TTL of 3600 seconds.
-
----
-
-## Multi-Tenancy
-
-Every database model with user-generated data carries an `org_id` foreign key. Queries in `PipelineService` always include a `.where(Model.org_id == org_id)` clause. There are no cross-org data joins anywhere in the codebase.
-
-The `org_id` is embedded in the JWT at login time. The gateway middleware extracts it and makes it available via the `get_current_user` dependency. No route needs to accept `org_id` from the request body or URL.
-
----
-
-## Authentication
-
-- **JWT**: PyJWT with RS256 (RSA-2048 asymmetric signing; HS256 legacy fallback with deprecation warning). Access tokens expire in 1 hour. Refresh tokens are 30-day, stored hashed in the database.
-- **Refresh flow**: `POST /auth/refresh` accepts a refresh token, rotates it (old token is revoked), and returns a new access + refresh pair.
-- **RBAC**: roles are `owner`, `admin`, `member`, `viewer`. Role checks are enforced via FastAPI dependencies in individual routes.
-- **MFA**: TOTP (pyotp) — QR code provisioning + verification endpoint. Enforced at login for orgs with MFA required.
-- **SAML SSO**: python3-saml integration. SP-initiated SSO flow with ACS endpoint. Metadata endpoint for IdP configuration.
-- **SCIM v2**: `/scim/v2/Users` and `/scim/v2/Groups` for automated user provisioning from Okta, Azure AD, etc.
-- **API Keys**: org-scoped, hashed at rest. Used by CLI and CI integrations.
-
----
-
-## Compliance Engine
-
-`core/policy/compliance.py — ComplianceEngine` takes a `ComplianceContext` (country code, region, data sensitivity, industries, high-risk use cases, crypto flags) and evaluates:
-
-- **Export / embargo controls**: blocks or warns on sanctioned country codes
-- **Data residency**: flags EU personal data destined for non-adequate third-country cloud regions
-- **High-risk AI use cases**: biometric identification, surveillance, social scoring → mandatory human gate
-- **Crypto controls**: weak crypto (MD5, SHA1, DES) in security-sensitive contexts → gate failure
-- **GDPR**: triggered when `handles_personal_data=True` and `region=EU`
-- **HIPAA**: triggered when `healthcare` is in `industries` and `handles_personal_data=True`
-- **PCI-DSS**: triggered when `fintech` / `ecommerce` in `industries`
-
-All checks are deterministic and produce a structured result that is logged to the audit ledger. The engine carries an explicit disclaimer: it is not a substitute for legal advice.
-
-The domain engine in `core/domain_engine.py` pre-populates `ComplianceContext` fields from the detected domain, so compliance evaluation happens automatically at p01 without user intervention.
-
----
-
-## Gate System
-
-Every phase exposes a `gate.py` module with a `validate(result: TaskResult) -> GateOutcome` function. The `GateOutcome` carries:
-
-```python
-@dataclass
-class GateOutcome:
-    passed: bool
-    confidence: float   # 0.0 – 1.0
-    issues: List[str]
-```
-
-The orchestrator (`factory_pipeline.py`) calls `supervisor.validate_gate()` after every phase. If the gate fails:
-1. The orchestrator consults the routing table (`orchestrator/routing/router.py`) to find the remediation phase
-2. If a self-healing phase is available, it is queued
-3. After `MAX_RETRIES` failures, a human approval ticket is created and the pipeline pauses
-4. On approval, the pipeline resumes from the failed phase
-
----
-
-## Pipeline Checkpoint & Resume
-
-Failed pipeline runs can be resumed from their last completed phase without restarting from p01. The mechanism works as follows:
-
-1. After each phase completes successfully, the orchestrator writes `checkpoint_data` to the `runs` table:
-   ```json
-   {
-     "last_completed_phase": "p06_review_security",
-     "accumulated_context": { "...phase output keys..." }
-   }
-   ```
-
-2. When a run is retried (via `POST /factory/runs/{id}/retry`), the orchestrator reads `checkpoint_data` and fast-forwards `PHASE_SEQUENCE` to the phase *after* `last_completed_phase`.
-
-3. The `accumulated_context` is injected into the new run's context dict before execution resumes, so later phases have access to all earlier outputs.
-
-4. The `checkpoint_data` column is stored as JSONB on PostgreSQL (efficient partial indexing) and as JSON on SQLite (dev/test).
-
-This eliminates the most expensive retry scenario — a transient LLM timeout in p09 no longer means regenerating backend, frontend, and tests from scratch.
-
----
-
-## Full Development Environment (FDE)
-
-The FDE turns the AetherOS dashboard into a lightweight IDE for the generated project:
-
-| Endpoint | Function |
-|----------|----------|
-| `GET /factory/runs/{id}/file-content` | Read any file in the generated project |
-| `PATCH /factory/runs/{id}/file-content` | Write file content from Monaco editor |
-| `POST /factory/runs/{id}/open-in-vscode` | Open project folder in local VS Code via `code` CLI |
-| `GET /factory/runs/{id}/envvars` | Read `.env` for the generated app |
-| `PATCH /factory/runs/{id}/envvars` | Update env vars (written to `.env` on disk) |
-| `POST /factory/runs/{id}/run-app` | Start the generated app process |
-| `DELETE /factory/runs/{id}/run-app` | Stop the running process |
-
-The Monaco editor is embedded in the dashboard's Artifacts tab. File saves are debounced and sent via `PATCH`. Process stdout is streamed back over SSE.
-
----
+- Clients: the React dashboard in `dashboard/` (Vite, Tailwind 4, React 19, Monaco editor; `dashboard/package.json`)
+  and the CLI `cli/aetheros.py` (Typer, Rich).
+- Gateway: `gateway/api.py`. The 78 entries in `_ROUTERS` come from 72 `*_router.py` modules in
+  `gateway/routers/` (76 `.py` files in that folder in all, including helpers and `__init__.py`) plus the
+  client portal, MCP, SAML, OAuth and MFA routers elsewhere in `gateway/`. Entries marked required stop startup
+  if the import fails; the others log a warning.
+- Sentry is started from `gateway/api_utils.py:_init_sentry` when configured. Rate limiting is in
+  `core/rate_limiter.py`, not slowapi (see `SECURITY.md`).
+- `core/services/pipeline_service.py` defines `PipelineService`, but no gateway router imports it. Routers call
+  `get_factory()` and other code directly.
+
+## Data stores
+
+- Database: PostgreSQL through asyncpg when `DATABASE_URL` is set, otherwise SQLite at `~/.aether_os/aether_os.db`
+  (`core/db.py:36-51`). On PostgreSQL the schema belongs to Alembic and startup refuses a database that is not
+  at the Alembic head (`core/db.py:166-190`). Table reference: `DATA_MODEL.md`.
+- Redis: message bus lists, run event history and live events, auth token state, rate-limit counters. Without
+  Redis the bus falls back to in-process queues, and rate limits fall back to memory unless `REQUIRE_REDIS` is on.
+- Generated apps: the default stack profile is `web_saas` (`core/stack_profiles.py:255`, PostgreSQL plus Redis).
+  A `web_saas_sqlite` profile exists (`stack_profiles.py:46`) and is used when selected. SQLite is not the default
+  for generated apps.
+
+## The pipeline: 12 stages
+
+`orchestrator/phase_sequence.py:90-103` defines `PHASE_SEQUENCE` as 12 stages (it was a list of 21 phases in
+older docs). `PHASE_SUPERVISORS` maps each stage to a supervisor class (`:108-121`), loaded with `importlib`
+(`_load_supervisor`). Critical stages, whose failure ends the run: `s01_intake`, `s02_architecture`,
+`s03_backend` (`:22-26`). The phase agents in `phases/` are called by the stage supervisors; they are not in
+`PHASE_SEQUENCE`. `docs/PIPELINE_SPEC.md` lists every phase directory.
+
+| Stage | Name | Phases it calls (from the stage supervisor) | Org may switch off |
+|-------|------|----------------------------------------------|--------------------|
+| s01_intake | Intake | p00_research, p00b_data_archaeology, p00c_architecture_planner (parallel), then p01_intake_requirements, p01b_integration_discovery | no |
+| s02_architecture | Architecture | p02_architecture, p02b_domain_ir, p02c_permission_modeling, p03_scaffolding (sequential) | no |
+| s03_backend | Backend | p04_backend (calls p04a_backend_codegen), p04b_business_logic, p04c_integration_codegen, then the architecture governor | no |
+| s04_frontend | Frontend | p05_frontend; p05b_mobile, p05c_desktop, p05d_cli, p05e_serverless only when the build profile asks | no |
+| s05_quality | Quality gate | p06_review_security and p06b_formal_verification (Z3), then a dimension scorer | no |
+| s06_testing | Testing | p07a_unit_testing; performance, accessibility and E2E are deferred to s07 | no |
+| s07_healing | Self-healing | starts the app, probes 4 health layers, repairs with p07b_self_healing; runs p07b_performance_testing, p07c_accessibility_testing, p07d_e2e_testing | no |
+| s08_observability | Observability | p09_observability, then p11a, p11b, p11c in parallel, then p11d_alerting | yes |
+| s09_devops | DevOps | p08_cicd_deployment, p11_deployment, p11e_enterprise_deployment (kubernetes or microservices only) | no |
+| s10_enterprise | Enterprise | p12a, p12b, p13, p16, p18, p21 in parallel; p17_control_plane when kubernetes or microservices | yes |
+| s11_handoff | Handoff | p10_docs_delivery, then p14_client_portal and p15_handoff in parallel | no |
+| s12_specialist | Specialist outputs | p05b-e, p19_service_catalog, p20_multiregion, each conditional | yes |
+
+Sources: `stages/s*/supervisor.py` module docstrings (inputs, outputs, sub-steps) and
+`orchestrator/stage_gate.py:15-25` (`MANDATORY_STAGES`). Docstring text describes intent; which sub-steps ran
+in a real run: not measured.
+
+### Gates and failure handling
+
+- Every phase extends `PhaseBase` (`phases/base.py`): run the task, call `validate_gate`, retry up to
+  `max_retries` (default 3), then mark the result `escalated`
+  (`phases/base.py:46`, `:208-250`). `GateOutcome` has `passed`, `issues`, `confidence` (`phases/base.py:33-36`).
+- The pipeline treats an `escalated` result as a failed gate for any stage, and a `failed` or timed-out result
+  as blocking for critical stages (`orchestrator/stage_gate.py:gate_block_reason`; used at
+  `factory_pipeline.py:471` and `:576`).
+- `orchestrator/routing/router.py` maps failure types to a pipeline state to retry, but nothing outside tests
+  calls `route_failure`. The factory pipeline does not use it.
+- A run can wait for a human decision (`decision_mode` `approval_required`, `factory_pipeline.py:298`; wait up
+  to 7 days, `:1048`). Organisations in autonomous mode skip approval gates.
+
+### Checkpoint and resume
+
+After each completed stage `save_checkpoint` writes `{"last_completed_phase", "accumulated_context"}` to
+`runs.checkpoint_data` (`orchestrator/run_state.py:62-83`; `factory_pipeline.py:480`, `:688`). The column has the generic JSON type on every
+database (`core/models.py:115`), not JSONB. On start, `restore_from_checkpoint`
+(`orchestrator/phase_selector.py:129`) skips the stages already done and reloads the saved context.
+Routes: `POST /factory/runs/{id}/restart` resumes a failed or cancelled run from its checkpoint
+(`gateway/routers/run_decisions_router.py:116`); `POST /factory/runs/{id}/rerun` creates a new run that starts at
+a chosen stage on a copy of the parent's files (`run_fork_router.py:109`); `POST /factory/runs/{id}/branch`
+(`run_fork_router.py:129`). There is no `/retry` route.
+
+## Message bus and live events
+
+- `orchestrator/bus.py`: Redis `RPUSH` to a list per run and target phase, `BLPOP` to read, with a 3600 second
+  expiry; keys are `aetheros:bus:{run_id}:{phase}` and a `__broadcast__` list (`bus.py:15-26`, `:74-82`, `:129`).
+  The wait for a message is 120 seconds. Without Redis it uses bounded `asyncio.Queue` objects (1000 items).
+- Live events to the browser: `GET /factory/runs/{id}/stream` (Server-Sent Events,
+  `gateway/routers/factory_run_streaming_router.py:50`). It replays stored event history, then follows a Redis
+  pub/sub channel (`:99-209`). A short-lived token comes from `POST /factory/runs/{id}/sse-token` (`:36`).
+
+## Model routing
+
+`core/model_router.py` and `core/model_router_providers.py`. Before each call `core/llm/guard.py:admit()` checks
+kill switches, the organisation and its spend allowance. The chain is built from `PRIMARY_LLM` (default
+`bedrock`): Bedrock Nova Pro, a Bedrock fallback, Anthropic and Gemini when keys are set, OpenRouter models, then
+Ollama. One attempt per model; timeouts 45 to 60 seconds for cloud models. Details and prices: `COST_MODEL.md`.
+
+## Multi-tenancy and authentication
+
+The `org_id` is a claim in the JWT; handlers take it from the validated token (`gateway/dependencies.py`). The
+`X-Org-ID` header only tags logs. Models carry an `org_id` column where the data belongs to an organisation
+(`DATA_MODEL.md`). That every query filters on it: not verified.
+
+Authentication, roles, MFA, SAML and SCIM: `SECURITY.md` has the code references. Short form: RS256 JWT (HS256
+fallback), access token 1 hour, refresh token 30 days with rotation and reuse detection; roles `viewer`,
+`member`, `api`, `admin`, `owner`, `superadmin`; TOTP MFA; SAML through python3-saml; SCIM v2 Users and Groups.
+
+## Compliance engine
+
+`core/policy/compliance.py` `ComplianceEngine.evaluate(ComplianceContext)` runs five rules: export embargo
+(a fixed country set), EU data residency with a third-country cloud, high-risk AI use cases, weak or strong
+crypto in embargoed countries, and sensitive data (children, EU/UK biometric, sensitive industries). The worst
+violation decides: critical means denied, high or medium means approval needed, otherwise allowed. It has no
+rule named GDPR, HIPAA or PCI-DSS and does not certify anything. It is called from `agents/implementations.py`
+(lines 92 and 394), not from `factory_pipeline.py`. Separately, the generated-app scanner
+(`core/security/code_scanner.py`) and the domain packs (`core/domain_knowledge/packs/`) carry compliance rule
+text for generated code.
+
+## Full development environment endpoints
+
+| Endpoint | File |
+|----------|------|
+| `GET`, `PATCH /factory/runs/{id}/file-content` | `gateway/routers/factory_run_files_router.py:130`, `:160` |
+| `POST /factory/runs/{id}/open-in-vscode` | `factory_run_files_router.py:187` |
+| `GET`, `PATCH /factory/runs/{id}/envvars` | `factory_run_files_router.py:203`, `:237` |
+| `POST`, `DELETE /factory/runs/{id}/run-app`, `GET .../run-app/status` | `gateway/routers/run_app_router.py:83`, `:97`, `:133` |
+
+Whether the dashboard debounces saves and streams process output over SSE: not verified.
+
+## Sandbox for generated code
+
+`core/sandbox/docker_backend.py`: each command runs in a Docker container with dropped capabilities, read-only
+root, resource limits and no network except for package installs; see `SECURITY.md`. There is no host-side execution
+helper (the unused `guard.py`, `manager.py` and `python_tools.py` were removed, KAN-69 SC-05).
 
 ## Deployment
 
-Production deployment is handled by `deploy/deploy.sh` and `deploy/setup_vps.sh`:
-
-1. **systemd**: `aetheros.service` runs `uvicorn aether_os.gateway.api:create_app --factory` as a non-root user
-2. **nginx**: reverse proxy config in `deploy/nginx.conf`; proxies `/api` to uvicorn, serves static files directly
-3. **TLS**: certbot (`--nginx` plugin) obtains and auto-renews Let's Encrypt certificates
-4. **PostgreSQL**: installed on the VPS or connected as a managed service
-5. **Redis**: installed on the VPS (`redis-server`) or connected as a managed service (e.g. Redis Cloud)
-6. **Zero-downtime deploys**: `deploy.sh` pulls new code, runs `alembic upgrade add_pipeline_run_checkpoint`, restarts systemd service with `--no-block` and a health-check loop
-
-The `docker-compose.yml` in the project root provides a local development stack (Postgres + Redis + app).
+- systemd unit `deploy/aetheros.service` runs `uvicorn aether_os.gateway.api:create_app --factory` with 4 workers
+  (user `aetheros`). The `Dockerfile` runs the same command with 4 workers.
+- `deploy/setup_vps.sh` installs nginx and certbot and builds the dashboard with `npm ci`.
+- `deploy/deploy.sh` installs the package, runs `scripts/db_migrate.py` (`alembic upgrade head` on an existing
+  database, create-and-stamp on an empty one; `deploy.sh:46-48`), rebuilds the dashboard, reloads the service and
+  checks `/health`. The old text named `alembic upgrade add_pipeline_run_checkpoint`, which is not what the script does.
+- `docker-compose.yml` and `docker-compose.staging.yml` exist in the repository root. `helm/` and
+  `deploy/terraform` and `deploy/kubernetes` also exist. That any of these has been applied to a live
+  environment: not verified.

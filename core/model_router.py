@@ -1,10 +1,9 @@
 """
 AetherOS — Multi-Model Router
 ==============================
-Fallback chain (in priority order):
-  1. Anthropic  claude-sonnet-4-6   — 30 s timeout, 2 retries
-  2. Gemini     gemini-2.5-flash    — 45 s timeout, 2 retries
-  3. Ollama     qwen2.5-coder:3b    — 90 s timeout, 2 retries
+Fallback chain, per-provider timeouts and retry counts are defined in
+get_fallback_chain() in model_router_providers.py (the single source of truth;
+timeouts are partly set by env vars such as BEDROCK_TIMEOUT and OLLAMA_TIMEOUT).
 
 Each provider is skipped if its credentials are absent.
 Retry vs fallback decision is based on error-message classification:
@@ -23,23 +22,27 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from aether_os.core.llm.plans import PLATFORM_ORG
+from aether_os.core.llm.data_policy import effective_level, filter_chain
 from aether_os.core.model_router_providers import (
     ModelSpec,
     get_fallback_chain,
     _is_provider_configured,
     _classify_error,
     _mark_provider_dead,
+    _is_server_side_failure,
+    _note_provider_result,
     _is_provider_dead,
     PLATFORM_SCOPE,
     _apply_org_chain_overrides,
-    _DEAD_PROVIDERS,
-    _DEAD_MODELS,
-    FALLBACK_CHAIN,
+    _DEAD_PROVIDERS,  # noqa: F401  re-exported: tests and ops tooling read/patch them here
+    _DEAD_MODELS,  # noqa: F401
+    FALLBACK_CHAIN,  # noqa: F401
 )
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm as _ahm
-from aether_os.orchestrator.events import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
+from aether_os.core.run_context import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +136,7 @@ class ModelRouter:
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
         primary_provider: Optional[str] = None,
+        data_level: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
@@ -142,10 +146,10 @@ class ModelRouter:
         from aether_os.core.errors import LLMUnavailable
         from aether_os.core.telemetry.langsmith_tracer import trace_call
 
-        # ── 0. Global kill switch (D6): nothing is sent to any model ──────────
-        from aether_os.core.llm.budget import kill_switch_on, resolve_plan
-        if kill_switch_on():
-            raise LLMUnavailable("LLM calls are disabled by the platform kill switch")
+        # ── 0. Kill switches, org/plan/USD allowance, sensitivity (D6) — before anything is sent ──
+        from aether_os.core.llm.guard import admit
+        admission = await admit(org_id, plan, prompt, system, max_tokens, enforce_local)
+        plan = admission.plan
 
         # ── 1. Semantic cache check ───────────────────────────────────────────
         if not enforce_local:
@@ -172,21 +176,8 @@ class ModelRouter:
             except Exception as _ce:
                 logger.debug("Cache check failed (continuing): %s", _ce)
 
-        # ── 2. Token budget check — fails closed (D6) ─────────────────────────
-        _recommended_model: Optional[str] = None
-        if org_id and not enforce_local:
-            plan = await resolve_plan(org_id, plan)
-            try:
-                from aether_os.core.llm.budget import get_budget_manager
-                allowed, reason, _recommended_model = await get_budget_manager().check_budget(
-                    org_id=org_id, plan=plan
-                )
-            except Exception as _be:
-                raise LLMUnavailable(f"Token budget check unavailable: {_be}") from _be
-            if not allowed:
-                raise LLMUnavailable(f"Token budget exceeded: {reason}")
-            if _recommended_model == "haiku":
-                logger.info("Router: budget downgrade → Haiku (%s)", reason)
+        # ── 2. Budget downgrade hint (the check itself ran in admit()) ────────
+        _recommended_model: Optional[str] = admission.model_hint
 
         # Reset daily fallback counter on calendar-day boundary
         today = time.strftime("%Y-%m-%d")
@@ -211,10 +202,8 @@ class ModelRouter:
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
 
-        # Free/community endpoints may log or train on prompts: never use them for
-        # customer data unless the operator explicitly opts in.
-        if not enforce_local and os.environ.get("ALLOW_COMMUNITY_LLM", "").lower() not in ("1", "true", "yes"):
-            chain = [s for s in chain if not (s.provider == "openrouter" and s.model.endswith(":free"))]
+        # The data policy (core/llm/data_policy.py) is applied as the LAST step of building the chain, below.
+        level = effective_level(data_level, prompt, system or "")
 
         # ── Caller-pinned provider (ContextVar-safe; avoids os.environ mutation) ──
         if primary_provider is not None and not enforce_local:
@@ -261,6 +250,14 @@ class ModelRouter:
                 )
             chain = filtered_chain
 
+        # Last step, after org overrides, AHM and plan filters: nothing above can add a community/free pool back.
+        if not enforce_local:
+            chain = filter_chain(chain, level)
+            if not chain:
+                raise LLMUnavailable(
+                    "No approved provider is configured for this data"
+                    + (" (restricted data never goes to a free or third-party pool)" if level == "restricted" else ""))
+
         error_class = "fallback"  # default for first iteration
         for spec in chain:
             _api_key = await _provider_key(spec.provider, org_id)
@@ -293,6 +290,7 @@ class ModelRouter:
             error_class = "fallback"  # default if no attempt completes
 
             _active_prompt = prompt  # augmented with self-critique on placeholder retry
+            _server_failed = False   # the last failed attempt of this provider was server-side (KAN-49 breaker)
             for attempt in range(spec.retry_count):
                 try:
                     async with trace_call(
@@ -334,12 +332,12 @@ class ModelRouter:
                     # Record token usage for budget tracking (approximate)
                     _est_input = len(_active_prompt) // 4
                     _est_output = len(result) // 4
-                    if org_id:
+                    if org_id or not enforce_local:    # platform-owned calls are charged to the platform budget
                         try:
                             from aether_os.core.llm.budget import get_budget_manager
                             _ct2 = asyncio.create_task(
                                 get_budget_manager().record_usage(
-                                    org_id=org_id,
+                                    org_id=org_id or PLATFORM_ORG,
                                     input_tokens=_est_input,
                                     output_tokens=_est_output,
                                     model=spec.model,
@@ -449,6 +447,7 @@ class ModelRouter:
                         continue
                     # ── AHM: record success ───────────────────────────────────
                     _ahm_record(spec.provider, None)
+                    _note_provider_result(spec.provider, _scope, False)
                     # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
@@ -459,6 +458,7 @@ class ModelRouter:
                     error_class = "fallback"   # timeout → skip to next tier
                     # ── AHM: record timeout as a failure ─────────────────────
                     _ahm_record(spec.provider, f"timeout {spec.timeout_seconds}s")
+                    _server_failed = True
                     break
 
                 except Exception as exc:
@@ -471,6 +471,7 @@ class ModelRouter:
                         _mark_provider_dead(spec.provider, exc, model=spec.model, scope=_scope)
                     # ── AHM: record exception as a failure ────────────────────
                     _ahm_record(spec.provider, str(exc)[:120])
+                    _server_failed = _is_server_side_failure(exc)
                     # For OpenRouter free-tier, a rate-limit on one model won't
                     # clear in 1-2 seconds — skip immediately to the next model.
                     if spec.provider == "openrouter" and error_class == "retry":
@@ -483,6 +484,8 @@ class ModelRouter:
                 if attempt < spec.retry_count - 1:
                     backoff = 1.5 ** attempt   # 1 s, 1.5 s
                     await asyncio.sleep(backoff)
+            if _server_failed:
+                _note_provider_result(spec.provider, _scope, True)
 
         raise LLMUnavailable(
             "All models in the fallback chain exhausted. "

@@ -109,7 +109,7 @@ def test_ci_is_blocking_and_scans():
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     text = (ROOT / ".github/workflows/ci.yml").read_text()
     assert "|| true" not in text
-    for needle in ("pip-audit", "bandit", "gitleaks", "cov-fail-under", "postgres:15", "npm run build"):
+    for needle in ("pip-audit", "bandit", "gitleaks", "cov-fail-under", "pgvector/pgvector:pg15", "npm run build"):
         assert needle in text
     assert ci["permissions"] == {"contents": "read"}
 
@@ -122,3 +122,40 @@ def test_generate_workflow_is_hardened():
     assert any("checkout" in s.get("uses", "") for s in job["steps"])
     assert "maintainer-approved" in job["if"]
     assert "UNTRUSTED" in text and "${{ github.event.issue.body }}" not in text.split("run:")[1]
+
+
+def test_api_is_published_on_loopback_only():
+    # KAN-69 SC-02: `8000:8000` binds 0.0.0.0 and Docker-published ports bypass ufw, so the API was reachable
+    # without nginx (no TLS, no rate limits, spoofable X-Forwarded-For).
+    for name in ("docker-compose.yml", "docker-compose.staging.yml"):
+        compose = yaml.safe_load((ROOT / name).read_text())
+        for ports in (svc.get("ports", []) for svc in compose["services"].values()):
+            for p in ports:
+                assert str(p).startswith("127.0.0.1:"), f"{name}: {p} is published on every interface"
+
+
+def test_velaris_services_get_the_vault_key_file_outside_the_data_volume():
+    # KAN-69 VP-1: without a vault key the shipped profile failed closed for HR, mail and chat, and operators
+    # tended to put the key into the data volume.
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    for name in ("velaris", "velaris_public"):
+        svc = compose["services"][name]
+        assert svc["environment"]["VELARIS_VAULT_KEY_FILE"] == "/run/vault/vault.key", name
+        assert any(v.endswith("/run/vault/vault.key:ro") and not v.startswith("velaris_data") for v in svc["volumes"]), name
+
+
+def test_csp_connect_src_is_configurable_and_every_placeholder_is_substituted():
+    import re
+    import subprocess
+    conf = (DEPLOY / "nginx.conf").read_text()
+    placeholders = set(re.findall(r"\b[A-Z_]+_PLACEHOLDER\b", conf))
+    for script in ("setup_vps.sh", "deploy.sh"):
+        text = (DEPLOY / script).read_text()
+        assert all(p in text for p in placeholders), (script, placeholders)
+    assert "connect-src CSP_CONNECT_SRC_PLACEHOLDER;" in conf and "https: wss:" not in conf.split("connect-src", 1)[1][:60]
+    line = next(ln for ln in (DEPLOY / "setup_vps.sh").read_text().splitlines() if ln.startswith("CSP_CONNECT_SRC_CLEAN="))
+    run = lambda value: subprocess.run(["bash", "-c", line + '\nprintf "%s" "$CSP_CONNECT_SRC_CLEAN"'], capture_output=True,  # noqa: E731
+                                       text=True, env={"CSP_CONNECT_SRC": value} if value is not None else {}).stdout
+    assert run(None) == "'self' https: wss: blob:"                       # default unchanged: nothing breaks on upgrade
+    assert run("'self' wss://a.example.com") == "'self' wss://a.example.com"
+    assert ";" not in run("'self'; script-src *") and "\n" not in run("'self'\nadd_header X y;") and "|" not in run("a|b")

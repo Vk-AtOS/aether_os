@@ -3,7 +3,10 @@ P04b Business Logic Layer — Logic Generators.
 Real functional scaffolds for Email, Payments, and Storage.
 """
 import json
-from typing import Dict, List
+import re
+from typing import Dict
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 def _step_name(step) -> str:
     if isinstance(step, dict):
@@ -12,7 +15,8 @@ def _step_name(step) -> str:
 
 def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
     """Generate a Python StateMachine class for a workflow with role checks."""
-    trigger = workflow.get("trigger", "updated")
+    if not _IDENT.match(entity_name or ""):      # it becomes a class name and sits inside a quoted log message
+        raise ValueError(f"unsafe workflow entity name {str(entity_name)[:40]!r}")
     raw_steps = workflow.get("steps", [])
     steps = [_step_name(s) for s in raw_steps]
 
@@ -28,9 +32,9 @@ def generate_workflow_sm(entity_name: str, workflow: Dict) -> str:
         f"    VALID_TRANSITIONS = {json.dumps(transitions, indent=8)}",
         "",
         "    @staticmethod",
-        f"    def transition(obj, new_status: str, actor_role: str = 'user') -> bool:",
+        "    def transition(obj, new_status: str, actor_role: str = 'user') -> bool:",
         f"        if new_status not in {entity_name}StateMachine.VALID_TRANSITIONS.get(obj.status, []):",
-        f"            raise ValueError(f'Invalid transition: {{obj.status}} -> {{new_status}}')",
+        "            raise ValueError(f'Invalid transition: {obj.status} -> {new_status}')",
         "",
         "        # Role-based restriction: only staff/admin can move beyond 'placed'",
         "        if obj.status != 'placed' and actor_role not in ['admin', 'staff']:",
@@ -102,7 +106,7 @@ import stripe
 
 class StripeService:
     def __init__(self):
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
         self.webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
     async def create_payment_intent(self, amount: int, currency: str = "usd", metadata: dict = None):
@@ -121,6 +125,9 @@ class StripeService:
 
     async def handle_webhook(self, payload: bytes, sig: str):
         """Handle incoming Stripe events."""
+        if not self.webhook_secret:
+            # An empty secret still "verifies": anyone can sign a forged event with the empty key.
+            raise RuntimeError("STRIPE_WEBHOOK_SECRET is not set: refusing to process webhook events")
         try:
             event = stripe.Webhook.construct_event(payload, sig, self.webhook_secret)
             return event

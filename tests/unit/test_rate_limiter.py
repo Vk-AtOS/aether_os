@@ -7,7 +7,7 @@ also tested to ensure correctness without any external dependencies.
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 import pytest
 
 import aether_os.core.rate_limiter as rl_mod

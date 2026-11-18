@@ -43,20 +43,22 @@ echo "→ Installing Python dependencies..."
 echo "→ Installing aether_os package (editable)..."
 "$VENV/pip" install -q -e "$INSTALL_DIR"
 
-# 4. Run database migrations. There is a single Alembic head: always upgrade to it
-#    (this includes the ledger and field-encryption migrations; the latter needs
-#    AETHER_FIELD_KEY in the environment). A failed migration must stop the deploy.
+# 4. Run database migrations (scripts/db_migrate.py: `alembic upgrade head` on an existing database, create-and-stamp on an
+#    empty one, because the chain cannot be replayed from nothing). The field-encryption migration needs
+#    AETHER_FIELD_KEY in the environment. A failed migration must stop the deploy.
 echo "→ Running database migrations..."
 cd "$INSTALL_DIR"
 set -a; [[ -f "$INSTALL_DIR/.env" ]] && . "$INSTALL_DIR/.env"; set +a
-"$VENV/python" -m alembic upgrade head
+PYTHONPATH="$(dirname "$INSTALL_DIR")" "$VENV/python" scripts/db_migrate.py
 
 # 5. Configure nginx domain (first deploy or when --domain is passed)
 if [[ -n "$DOMAIN" ]]; then
     echo "→ Configuring nginx domain: $DOMAIN"
     NGINX_CONF=/etc/nginx/sites-available/aetheros
     if [[ -f "$NGINX_CONF" ]]; then
-        sed -i -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/${PREVIEW_DOMAIN:-preview.$DOMAIN}/g" "$NGINX_CONF"
+        # connect-src: CSP_CONNECT_SRC overrides it; default as broad as before. Only CSP source characters survive.
+        CSP_CONNECT_SRC_CLEAN=$(printf '%s' "${CSP_CONNECT_SRC:-'self' https: wss: blob:}" | tr -cd "A-Za-z0-9:/.*' _-")
+        sed -i -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/${PREVIEW_DOMAIN:-preview.$DOMAIN}/g" -e "s|CSP_CONNECT_SRC_PLACEHOLDER|$CSP_CONNECT_SRC_CLEAN|g" "$NGINX_CONF"
         ln -sfn "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
         nginx -t && systemctl reload nginx || echo "⚠ nginx reload failed — check config"
     fi
@@ -100,6 +102,17 @@ if echo "$HEALTH" | grep -q "ok\|healthy\|running"; then
     echo "✅ Health check passed"
 else
     echo "⚠ Health check returned: $HEALTH"
+fi
+
+# 8b. Velaris: one correctly signed request from this host to Velaris must be accepted (HMAC + Ed25519 end to end).
+#     Skipped when Velaris is not configured here. VELARIS_SMOKE_ORG is the AetherOS organisation id Velaris serves
+#     (its VELARIS_ORG). A failure stops the deploy: the dashboard's Velaris pages would not work.
+if [[ -n "${VELARIS_API_URL:-}" ]]; then
+    echo "→ Velaris signed smoke test..."
+    : "${VELARIS_SMOKE_ORG:?VELARIS_SMOKE_ORG must be set in .env when VELARIS_API_URL is set}"
+    cd "$(dirname "$INSTALL_DIR")"   # the directory that contains the aether_os package
+    "$VENV/python" "$INSTALL_DIR/scripts/velaris_smoke.py" --org "$VELARIS_SMOKE_ORG" || { echo "❌ Velaris smoke test failed"; exit 1; }
+    cd "$INSTALL_DIR"
 fi
 
 # 9. Refresh Guardian file-integrity baseline in Redis so new file hashes are

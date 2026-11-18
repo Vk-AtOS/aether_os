@@ -1,5 +1,4 @@
 """KAN-110: a worker starting up must not interrupt a sibling worker's live run."""
-import asyncio
 import time
 import uuid
 

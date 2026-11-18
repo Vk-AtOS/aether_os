@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 import asyncio
 import logging
@@ -6,8 +6,11 @@ import re
 import os
 import json
 import subprocess
+import tempfile
 import time
 from pathlib import Path
+
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +66,34 @@ def _run_pip_audit(project_dir: str) -> list["Finding"]:
     return findings
 
 
+_PINNED = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?==[A-Za-z0-9.+!_-]+$")
+
+
+def _pinned_requirements(req_file: Path) -> str:
+    """Only plain `name==version` lines. The file belongs to a generated (untrusted) project:
+    VCS/URL/path requirements and ranges would make pip-audit build or resolve packages,
+    which runs arbitrary setup code on the host outside the sandbox."""
+    lines = []
+    for raw in req_file.read_text(errors="replace").splitlines():
+        line = raw.split("#", 1)[0].split(";", 1)[0].strip()
+        if _PINNED.match(line):
+            lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
 def _run_pip_audit_uncached(req_file: Path) -> list["Finding"]:
     findings: list[Finding] = []
     try:
-        res = subprocess.run(
-            ["pip-audit", "-r", str(req_file), "-f", "json", "--progress-spinner", "off"],
-            capture_output=True, text=True, timeout=120,
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pinned = Path(tmp) / "requirements.txt"
+            pinned.write_text(_pinned_requirements(req_file))
+            # --no-deps --disable-pip: look the pinned versions up in the vulnerability DB; never
+            # resolve or install anything.
+            res = subprocess.run(
+                ["pip-audit", "-r", str(pinned), "--no-deps", "--disable-pip", "-f", "json",
+                 "--progress-spinner", "off"],
+                capture_output=True, text=True, timeout=120,
+            )
         if res.stdout:
             data = json.loads(res.stdout)
             for dep in data.get("dependencies", []):
@@ -117,11 +141,16 @@ class CodeScanner:
         # Note: bandit requires installation
         try:
             res = subprocess.run(
-                ["bandit", "-r", project_dir, "-f", "json", "-q"],
+                ["bandit", *bandit_args(project_dir, "-q")],
                 capture_output=True, text=True
             )
-            if res.stdout:
-                data = json.loads(res.stdout)
+            try:
+                data = parse_bandit(res.stdout)
+            except BanditScanError as e:       # an empty report is not "no findings" (KAN-69 SC-04)
+                logger.error("Bandit produced no report for %s: %s", project_dir, e)
+                findings.append(Finding(severity="CRITICAL", rule_id="SCAN_INCOMPLETE", file_path=str(project_dir),
+                                        line_number=0, message=f"Static analysis did not run: {e}"))
+            else:
                 for issue in data.get("results", []):
                     sev = issue["issue_severity"]
                     findings.append(Finding(

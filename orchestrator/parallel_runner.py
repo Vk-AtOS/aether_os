@@ -94,7 +94,6 @@ async def _run_one_phase_in_wave(
     timeout = _phase_timeout_for(phase_name)
 
     # Import here to avoid circular import at module load time.
-    from aether_os.orchestrator.messages import PhaseInput  # noqa: PLC0415
 
     phase_input = phase_input_cls(
         run_id=run_id,

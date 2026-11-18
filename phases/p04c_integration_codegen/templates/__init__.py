@@ -1,6 +1,6 @@
 """Named integration templates for p04c — deterministic, production-ready clients."""
 from __future__ import annotations
-from pathlib import Path
+import re
 
 from .stripe import generate_stripe_client
 from .sendgrid import generate_sendgrid_client
@@ -21,7 +21,21 @@ NAMED_TEMPLATES: dict = {
     "chromadb": (generate_rag_service, "rag_service.py"),
 }
 
+def match_template(name: str):
+    """The named template for an integration, matched on whole words of its name.
+
+    Substring matching handed Braintree/Mailchimp ("ai" in "braintree") the OpenAI client
+    and Google Cloud Storage the RAG service ("rag" in "storage").
+    """
+    words = re.findall(r"[a-z0-9]+", name.lower())
+    for key, entry in NAMED_TEMPLATES.items():
+        if key in words or key == "".join(words):
+            return entry
+    return None
+
+
 __all__ = [
+    "match_template",
     "NAMED_TEMPLATES",
     "generate_stripe_client",
     "generate_sendgrid_client",

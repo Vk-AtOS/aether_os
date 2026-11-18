@@ -1,8 +1,7 @@
 """
 Seed template for hrm (Human Resource Management) domain.
 """
-from sqlalchemy import select, func
-from models import User, Department, Employee, LeaveRequest
+from models import Department, Employee, LeaveRequest
 
 async def seed_hrm(db_session):
     # 1. Departments

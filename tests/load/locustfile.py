@@ -27,7 +27,6 @@ Targets:
 """
 from __future__ import annotations
 import random
-import string
 import threading
 from locust import HttpUser, task, between, events
 from locust.exception import StopUser
@@ -176,7 +175,7 @@ class ActiveUser(HttpUser):
     @task(1)
     def refresh_token(self):
         """Simulate token refresh via /auth/refresh endpoint."""
-        refresh = localStorage_refresh = getattr(self, "_refresh_token", None)
+        refresh = getattr(self, "_refresh_token", None)
         if not refresh:
             return
         with self.client.post(
@@ -242,7 +241,6 @@ class AdminUser(HttpUser):
 @events.test_start.add_listener
 def on_test_start(environment, **kwargs):
     """Seed user pool before the load test begins."""
-    import requests as _req
     host = environment.host.rstrip("/")
     print("\n=== AetherOS Load Test Starting ===")
     print(f"Target host: {host}")

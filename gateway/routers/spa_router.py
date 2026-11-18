@@ -11,7 +11,6 @@ import pathlib
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["spa"])
@@ -29,6 +28,19 @@ _NO_CACHE = {
 }
 
 
+def _file_inside(base: str, rel: str):
+    """Real path of base/rel if it is a file that really lives under base, else None.
+
+    A plain startswith(base) also accepted a sibling such as dist-old/ or dist_secrets/, and
+    isfile follows links out of the tree; the resolved path must be inside the resolved base.
+    """
+    root = os.path.realpath(base)
+    target = os.path.realpath(os.path.join(root, rel))
+    if os.path.commonpath([root, target]) == root and target != root and os.path.isfile(target):
+        return target
+    return None
+
+
 if os.path.isdir(_DIST):
     logger.debug("SPA router: dashboard dist found at %s", _DIST)
 
@@ -37,8 +49,8 @@ if os.path.isdir(_DIST):
     async def _dashboard_spa(request: Request, path: str = ""):
         _index = os.path.join(_DIST, "index.html")
         if path:
-            candidate = os.path.normpath(os.path.join(_DIST, path))
-            if candidate.startswith(_DIST) and os.path.isfile(candidate):
+            candidate = _file_inside(_DIST, path)
+            if candidate:
                 return FileResponse(candidate)
         # Inject CSP nonce into index.html <script> tags (M-10)
         nonce = getattr(request.state, "csp_nonce", "")

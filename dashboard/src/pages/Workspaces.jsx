@@ -67,7 +67,7 @@ const Workspaces = () => {
     if (!editForm.name.trim()) return;
     setEditStatus('saving');
     try {
-      await api.client.put(`/workspaces/${editingWs.id}`, editForm);
+      await api.updateWorkspace(editingWs.id, editForm);
       setEditingWs(null);
       setEditStatus(null);
       await loadWorkspaces();

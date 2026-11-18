@@ -1,7 +1,7 @@
 """Conflict Resolver — detects and resolves contradictions in requirements or design."""
 from __future__ import annotations
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

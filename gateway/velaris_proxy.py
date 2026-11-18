@@ -31,9 +31,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from aether_os.core.audit import chain as audit_chain
-from aether_os.core.velaris.client import Identity, VelarisClient, VelarisUnavailable
+from aether_os.core.velaris.client import MAX_RESPONSE, Identity, VelarisClient, VelarisUnavailable
 from aether_os.core.velaris.identity import identity_for_user
-from aether_os.core.velaris.roles import MAY_ACT
+from aether_os.core.velaris.roles import ADMIN_ROLES, MAY_ACT, velaris_roles
 from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,13 @@ MAX_FILE = 10 * 1024 * 1024
 POLL_MAX_S = 25.0
 SSE_MAX_S = 300.0
 CALL_TIMEOUT_S = 70.0           # Velaris gives a call up to 60 s
+MAX_LIMIT = 200                 # hard ceiling for a client-supplied page size (query or body "limit")
+# Body keys that would name WHO or WHICH ORGANISATION a call is for. The identity comes from the signed
+# assertion only (D7); a body that tries to override it is refused, never forwarded.
+FORBIDDEN_KEYS = frozenset({"org_id", "org", "tenant_id", "reviewed_by", "approved_by", "actor", "actor_id"})
+# Query names that would name WHO a call is for: refused like the body keys (KAN-69 VP-5), so a Velaris reader
+# that ever trusted one of them is not exposed through a forwarded query string.
+FORBIDDEN_QUERY = frozenset(FORBIDDEN_KEYS | {"user_id", "user", "as_user", "sub", "roles", "role"})
 _PARAM = re.compile(r"[A-Za-z0-9_.:@-]{1,128}\Z")
 _EMOJI = re.compile(r"[^/?#%\\\s]{1,32}\Z")
 _PASS_HEADERS = ("content-type", "content-disposition", "x-content-type-options", "cache-control",
@@ -72,9 +79,21 @@ class Route:
     method: str
     path: str                       # under the prefix; "{name}" segments are validated path parameters
     action: str                     # ledger action: velaris.<action>
-    kind: str = "json"              # json | upload | download | poll | sse
+    kind: str = "json"              # json | upload | download | export | poll | sse
     ledger: Optional[bool] = None   # None: ledgered when the method changes state
     log: Tuple[str, ...] = ()       # body fields whose (short) values go in the ledger entry
+    admin: bool = False             # owner/admin only, checked here (a UI that hides a button is not security)
+    confirm: Optional[str] = None   # typed confirmation: the body must carry "confirm": <this word>; never forwarded
+    timeout: Optional[float] = None  # upstream timeout for this row (seconds); default CALL_TIMEOUT_S
+    max_body: int = MAX_JSON        # JSON body cap for this row
+    empty_body: bytes = b""         # sent when the caller sends no body (agent calls want "{}")
+    extra: Tuple[Tuple[str, str], ...] = ()   # fixed (name, value) pairs added to the ledger entry
+    needs: Optional[str] = None     # the Velaris role this row needs (velaris/mail, velaris/chat check it): refused
+                                    # here with a plain sentence when the caller's mapped roles do not hold it
+    query: str = ""                 # fixed query string Velaris wants on this row (its own confirmation word); a
+                                    # client-supplied query is not forwarded on such a row
+    self_id: bool = False           # the method takes employee_id: when the body has none, the caller's own linked
+                                    # employee record is used (never a value from another person's request)
 
 
 def _client() -> VelarisClient:
@@ -172,7 +191,7 @@ async def call(who: Identity, action: str, method: str, path: str, *, body: byte
 
 def _check_param(name: str, value: str) -> str:
     ok = bool(_EMOJI.match(value)) if name == "emoji" else bool(_PARAM.match(value))
-    if not ok or ".." in value:
+    if not ok or ".." in value or not value.strip("."):     # "." and ".." are dot segments an HTTP client may collapse
         raise HTTPException(status_code=400, detail=f"Invalid {name}")
     return value
 
@@ -196,12 +215,47 @@ def check_mail_rule(body: Dict[str, Any]) -> None:
             raise HTTPException(status_code=422, detail="A rule condition needs a value (an empty value matches every message)")
 
 
+def guard_args(parsed: Dict[str, Any], confirm: Optional[str] = None) -> bool:
+    """THE shared guard for any JSON object the gateway forwards to Velaris (dedicated rows and the generic agent
+    route alike): refuses body keys that name who or which organisation, verifies and removes the typed
+    confirmation, clamps a page size. Returns True when `parsed` was changed (so it must be re-serialised)."""
+    bad = FORBIDDEN_KEYS.intersection(parsed)
+    if bad:
+        raise HTTPException(status_code=400, detail=f"{', '.join(sorted(bad))} cannot be set here: it comes from your sign-in")
+    changed = False
+    if confirm:
+        if parsed.get("confirm") != confirm:
+            raise HTTPException(status_code=422, detail=f"Type {confirm} to confirm this action")
+        del parsed["confirm"]
+        changed = True
+    if "limit" in parsed:
+        parsed["limit"] = _clamp_limit(parsed["limit"])
+        changed = True
+    return changed
+
+
+def check_body(route: Route, parsed: Dict[str, Any]) -> bool:
+    return guard_args(parsed, route.confirm)
+
+
+def _clamp_limit(value: Any) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid limit") from None
+    return min(max(n, 1), MAX_LIMIT)
+
+
 def _query(request: Request, route: Route) -> Tuple[str, float]:
     """The query string to forward (timeouts clamped) and how long the upstream call may take."""
     items = list(request.query_params.multi_items())
-    timeout = CALL_TIMEOUT_S
+    timeout = route.timeout or CALL_TIMEOUT_S
     out = []
     for k, v in items:
+        if k.lower() in FORBIDDEN_QUERY:
+            raise HTTPException(status_code=400, detail=f"{k} cannot be set here: it comes from your sign-in")
+        if k == "limit":
+            v = str(_clamp_limit(v))
         if k == "timeout" and route.kind == "poll":
             try:
                 v = str(min(max(float(v), 0.0), POLL_MAX_S))
@@ -268,34 +322,77 @@ def _sse(who: Identity, request: Request, path: str, query: str, timeout: float)
     return start()
 
 
+def _not_linked() -> HTTPException:
+    return HTTPException(status_code=409, detail="Your sign-in is not linked to an employee record yet. "
+                                                 "An owner or admin links it under Employee links.")
+
+
+def _parse_body(route: Route, body: bytes, detail: Dict[str, Any], who: Optional[Identity] = None) -> bytes:
+    """Validate a JSON body against the row; returns the bytes to forward."""
+    own = who.employee_id if route.self_id and who is not None else None
+    if not body:
+        if route.confirm:
+            raise HTTPException(status_code=422, detail=f"Type {route.confirm} to confirm this action")
+        if route.self_id and who is not None and not own:
+            raise _not_linked()
+        if not own:
+            return route.empty_body
+        body = b"{}"
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="The body is not JSON") from None
+    if not isinstance(parsed, (dict, list)):
+        raise HTTPException(status_code=400, detail="The body must be a JSON object")
+    if route.action in _RULE_ACTIONS:
+        check_mail_rule(parsed if isinstance(parsed, dict) else {})
+    if not isinstance(parsed, dict):
+        return body
+    changed = check_body(route, parsed)
+    if route.self_id and who is not None and parsed.get("employee_id") in (None, ""):
+        if not own:
+            raise _not_linked()
+        parsed["employee_id"], changed = own, True
+    detail["fields"] = sorted(parsed)[:20]
+    detail.update({k: str(parsed[k])[:80] for k in route.log if k in parsed})
+    if not changed:
+        return body
+    # a DELETE whose only field was the confirmation has nothing left to send
+    return json.dumps(parsed, separators=(",", ":")).encode() if parsed or route.method != "DELETE" else b""
+
+
+def _export_response(route: Route, resp: httpx.Response) -> Response:
+    if len(resp.content) > MAX_FILE:
+        return safe_error(502, None)
+    h = _safe_download_headers({"content-type": "application/json",
+                                "content-disposition": f'attachment; filename="{route.action}.json"'})
+    return Response(resp.content, status_code=200, headers=h)
+
+
 def _endpoint(route: Route, upstream: str) -> Any:
     acting = route.method != "GET"
-    do_ledger = route.ledger if route.ledger is not None else route.method != "GET"
+    # a confirmed (destructive) call and an export are always ledgered, whatever the method
+    do_ledger = route.ledger if route.ledger is not None else (route.method != "GET" or route.kind == "export")
 
     async def endpoint(request: Request, user: Dict[str, Any] = Depends(get_current_user)) -> Response:
         who = await identity(user, acting=acting)
+        if route.admin and who.org_role not in ADMIN_ROLES:
+            raise HTTPException(status_code=403, detail="Only an organisation owner or admin can do this")
+        if route.needs and route.needs not in velaris_roles(who.org_role):
+            raise HTTPException(status_code=403, detail=f"This needs the {route.needs} role in Velaris, which your "
+                                                        "organisation role does not carry")
         params = {k: _check_param(k, str(v)) for k, v in request.path_params.items()}
         path = upstream + route.path.format(**params)
         query, timeout = _query(request, route)
+        if route.query:
+            query = route.query
         body, ctype = b"", None
-        detail: Dict[str, Any] = {"params": params}
+        detail: Dict[str, Any] = {"params": params, **dict(route.extra)}
         if route.kind == "upload":
             body, ctype = await read_body(request, MAX_FILE), request.headers.get("content-type")
             detail["bytes"] = len(body)
-        elif route.method in ("POST", "PUT", "PATCH"):
-            body = await read_body(request, MAX_JSON)
-            if body:
-                try:
-                    parsed = json.loads(body)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail="The body is not JSON") from None
-                if not isinstance(parsed, (dict, list)):
-                    raise HTTPException(status_code=400, detail="The body must be a JSON object")
-                if route.action in _RULE_ACTIONS:
-                    check_mail_rule(parsed if isinstance(parsed, dict) else {})
-                if isinstance(parsed, dict):
-                    detail["fields"] = sorted(parsed)[:20]
-                    detail.update({k: str(parsed[k])[:80] for k in route.log if k in parsed})
+        elif route.method in ("POST", "PUT", "PATCH") or route.confirm:
+            body = _parse_body(route, await read_body(request, route.max_body), detail, who)
         if route.kind == "sse":
             return await _sse(who, request, path, query, timeout)
         run = call(who, route.action, route.method, path, body=body, query=query, content_type=ctype,
@@ -307,6 +404,11 @@ def _endpoint(route: Route, upstream: str) -> Any:
             if len(resp.content) > MAX_FILE:
                 return safe_error(502, None)
             return Response(resp.content, status_code=200, headers=_safe_download_headers(resp.headers))
+        if route.kind == "export" and resp.status_code == 200:
+            return _export_response(route, resp)
+        if len(resp.content) > (MAX_FILE if route.kind == "export" else MAX_RESPONSE):
+            logger.warning("velaris %s: answer of %d bytes refused", route.action, len(resp.content))
+            return safe_error(502, None)
         return reply(resp)
 
     endpoint.__name__ = f"velaris_{route.action.replace('.', '_')}_{route.method.lower()}"

@@ -135,7 +135,11 @@ systemctl enable aetheros
 # ── 12. nginx ─────────────────────────────────────────────────────────────────
 NGINX_CONF=/etc/nginx/sites-available/aetheros
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.$DOMAIN}"
-sed -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/$PREVIEW_DOMAIN/g" \
+# Content-Security-Policy connect-src: CSP_CONNECT_SRC overrides it (e.g. "'self' wss://$DOMAIN https://api.razorpay.com blob:").
+# The default stays as broad as before (any https/wss origin) so no deployment breaks on upgrade; narrow it per site.
+# Only characters that belong in a CSP source list survive, so the value cannot break out of the nginx directive.
+CSP_CONNECT_SRC_CLEAN=$(printf '%s' "${CSP_CONNECT_SRC:-'self' https: wss: blob:}" | tr -cd "A-Za-z0-9:/.*' _-")
+sed -e "s/APP_DOMAIN_PLACEHOLDER/$DOMAIN/g" -e "s/PREVIEW_DOMAIN_PLACEHOLDER/$PREVIEW_DOMAIN/g" -e "s|CSP_CONNECT_SRC_PLACEHOLDER|$CSP_CONNECT_SRC_CLEAN|g" \
     "$REPO_DIR/deploy/nginx.conf" > "$NGINX_CONF"
 ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/aetheros
 rm -f /etc/nginx/sites-enabled/default

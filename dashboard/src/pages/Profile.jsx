@@ -4,6 +4,7 @@ import { appPath } from '../appUrl';
 import { User, Key, Lock, Copy, CheckCircle2, Eye, EyeOff, ShieldCheck, QrCode, Trash2, AlertTriangle } from 'lucide-react';
 import { PageLoader } from '../components/PageLoader';
 import { apiError } from '../apiError';
+import NotificationPrefs from '../components/settings/NotificationPrefs';
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
@@ -19,6 +20,7 @@ const Profile = () => {
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaSetup, setMfaSetup] = useState(null); // { secret, provisioning_uri }
   const [mfaCode, setMfaCode] = useState('');
+  const [mfaPassword, setMfaPassword] = useState('');
   const [mfaStatus, setMfaStatus] = useState(null); // null | 'loading' | 'verifying' | 'ok' | 'error' | 'disabling'
   const [mfaError, setMfaError] = useState('');
   const [eraseConfirm, setEraseConfirm] = useState('');
@@ -165,9 +167,10 @@ const Profile = () => {
     setMfaStatus('disabling');
     setMfaError('');
     try {
-      await api.client.post('/auth/mfa/disable', { code: mfaCode });
+      await api.client.post('/auth/mfa/disable', { code: mfaCode, password: mfaPassword });
       setMfaEnabled(false);
       setMfaCode('');
+      setMfaPassword('');
       setMfaStatus(null);
     } catch (err) {
       setMfaError(apiError(err) || 'Invalid code. Try again.');
@@ -189,6 +192,8 @@ const Profile = () => {
       </header>
 
       {/* Account info */}
+      <NotificationPrefs />
+
       <section className="panel overflow-hidden">
         <div className="bg-border/20 px-6 py-4 border-b border-border flex items-center">
           <User className="w-4 h-4 mr-2 text-accent" />
@@ -333,7 +338,15 @@ const Profile = () => {
 
           {mfaEnabled && (
             <form onSubmit={handleMfaDisable} className="space-y-3">
-              <p className="text-xs text-muted">To disable MFA, enter a code from your authenticator app.</p>
+              <p className="text-xs text-muted">To disable MFA, enter your password and a code from your authenticator app.</p>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={mfaPassword}
+                onChange={e => setMfaPassword(e.target.value)}
+                placeholder="Password"
+                className="block w-64 bg-surface border border-border rounded-lg px-4 py-2 text-bright focus:outline-none focus:border-accent"
+              />
               <input
                 type="text"
                 inputMode="numeric"
@@ -346,7 +359,7 @@ const Profile = () => {
               />
               <button
                 type="submit"
-                disabled={mfaCode.length !== 6 || mfaStatus === 'disabling'}
+                disabled={mfaCode.length !== 6 || !mfaPassword || mfaStatus === 'disabling'}
                 className="bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30 disabled:opacity-50 text-xs font-bold px-4 py-2 rounded-lg transition-colors uppercase tracking-wider"
               >
                 {mfaStatus === 'disabling' ? 'Disabling…' : 'Disable MFA'}

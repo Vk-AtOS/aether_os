@@ -8,13 +8,13 @@ Routes
   POST /account/settings
   GET  /account/settings
   DELETE /org
-  POST /org/restore
 
 Split from account_router.py to keep that file under 400 lines.
 """
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime as _dt
 from typing import Any, Dict
 
@@ -29,7 +29,8 @@ from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["account"])
-_ALLOWED = {"autonomous_mode", "org_name", "data_region"}
+_ALLOWED = {"autonomous_mode", "org_name", "data_region", "require_admin_mfa"}
+_MFA_GRACE_DAYS = 7  # admins get this long to enrol after the policy is switched on
 
 
 def _current_user():
@@ -56,6 +57,13 @@ async def update_settings(
         raise HTTPException(status_code=400, detail=f"No valid fields to update; allowed: {sorted(_ALLOWED)}")
     if "autonomous_mode" in payload and not isinstance(payload["autonomous_mode"], bool):
         raise HTTPException(status_code=422, detail="autonomous_mode must be a boolean")
+    if "require_admin_mfa" in payload and not isinstance(payload["require_admin_mfa"], bool):
+        raise HTTPException(status_code=422, detail="require_admin_mfa must be a boolean")
+    if payload.get("require_admin_mfa"):
+        days = req.get("mfa_grace_days", _MFA_GRACE_DAYS)
+        if not (isinstance(days, int) and not isinstance(days, bool) and 0 <= days <= 30):
+            raise HTTPException(status_code=422, detail="mfa_grace_days must be 0-30")
+        payload["admin_mfa_grace_until"] = time.time() + days * 86400
     if "name" in payload and not (isinstance(payload["name"], str) and 1 <= len(payload["name"].strip()) <= 255):
         raise HTTPException(status_code=422, detail="org_name must be 1-255 characters")
     if "data_region" in payload and not (isinstance(payload["data_region"], str) and 1 <= len(payload["data_region"]) <= 20):
@@ -86,6 +94,8 @@ async def get_org_settings(
         "data_region": org.data_region,
         "plan": org.plan,
         "name": org.name,
+        "require_admin_mfa": bool(org.require_admin_mfa),
+        "admin_mfa_grace_until": org.admin_mfa_grace_until,
     }
 
 
@@ -93,7 +103,9 @@ async def get_org_settings(
 async def delete_organisation(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, str]:
-    """Soft-delete the current organisation and deactivate all its users (owner only)."""
+    """Delete the current organisation (owner only). This cannot be undone: users are anonymised, passwords
+    and sign-ins destroyed and ledger personal data erased, and a deleted organisation refuses every token
+    (gateway/dependencies.py), so there is no way to call a restore. The dashboard asks for the org name first."""
     if user.get("role") != "owner":
         raise HTTPException(status_code=403, detail="Only org owners can delete the organisation")
     org_id = user["org_id"]
@@ -159,29 +171,3 @@ async def get_org_usage_endpoint(
     except Exception as exc:
         logger.warning("get_org_usage_endpoint: DB query failed for org=%s: %s", org_id, exc)
         return {"api_calls": 0, "storage_gb": 0, "runs_this_month": 0, "cost_usd": 0.0}
-
-
-@router.post("/org/restore")
-async def restore_organisation(
-    user: Dict[str, Any] = _current_user(),
-) -> Dict[str, str]:
-    """Restore a soft-deleted organisation (owner only)."""
-    if user.get("role") != "owner":
-        raise HTTPException(status_code=403, detail="Only org owners can restore the organisation")
-
-    from aether_os.core.db import get_session_factory
-    from aether_os.core.models import Organisation
-
-    org_id = user["org_id"]
-    sf = get_session_factory()
-    async with sf() as session:
-        org = await session.get(Organisation, org_id)
-        if not org or not org.is_deleted:
-            return {"message": "Organisation is not deleted"}
-
-        org.is_deleted = False
-        org.deleted_at = None
-
-        await session.commit()
-
-    return {"message": "Organisation restored. Note: Users may need manual email restoration."}

@@ -5,9 +5,9 @@
 # Holds only toolchains: no platform code, no secrets. Containers from it run with a
 # read-only root filesystem as a non-root uid (docker_backend.docker_args), so nothing
 # below is writable at run time; each run's packages go into a venv in its run dir.
-FROM node:20-bookworm-slim AS node
+FROM node:20.20.1-bookworm-slim@sha256:17281e8d1dc4d671976c6b89a12f47a44c2f390b63a989e2e327631041f544fd AS node
 
-FROM python:3.11-slim-bookworm
+FROM python:3.11.14-slim-bookworm@sha256:65a93d69fa75478d554f4ad27c85c1e69fa184956261b4301ebaf6dbb0a3543d
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \

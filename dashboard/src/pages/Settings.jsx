@@ -10,6 +10,7 @@ import { ApiKeyPanel, PlanLimitsPanel, LLMStatusPanel, FactoryStatsPanel, Versio
 import { ModelConfigPanel, BedrockPanel, CouncilPanel, LangsmithPanel } from '../components/settings/LLMSettings';
 import { SSOPanel, SCIMPanel } from '../components/settings/SecuritySettings';
 import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components/settings/OrgSettings';
+import ModelProvidersPanel from '../components/settings/ModelProvidersPanel';
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { apiError } from '../apiError';
@@ -254,9 +255,7 @@ const Settings = () => {
     setBedrockTestStatus('testing');
     setBedrockTestResult(null);
     try {
-      const payload = { aws_region: bedrockConfig.aws_region, model_id: bedrockConfig.bedrock_model_heavy };
-      if (bedrockConfig.aws_access_key_id.trim()) payload.aws_access_key_id = bedrockConfig.aws_access_key_id.trim();
-      if (bedrockConfig.aws_secret_access_key.trim()) payload.aws_secret_access_key = bedrockConfig.aws_secret_access_key.trim();
+      // The server tests the platform's own Bedrock credentials only (typed keys are never used to dial out).
       const res = await api.client.post('/settings/test-provider', { provider: 'bedrock' });
       setBedrockTestResult(res.data);
       setBedrockTestStatus(res.data?.success ? 'ok' : 'fail');
@@ -363,7 +362,7 @@ const Settings = () => {
       if (auditFromDate) params.set('from_date', auditFromDate);
       if (auditToDate) params.set('to_date', auditToDate);
       if (auditActionFilter.trim()) params.set('action', auditActionFilter.trim());
-      const url = `/api/admin/audit-logs/export?${params.toString()}`;
+      const url = `/api/admin/audit/export.csv?${params.toString()}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); }
       const blob = await res.blob();
@@ -427,7 +426,14 @@ const Settings = () => {
       await api.deleteOrg();
       setTimeout(() => { api.clearToken(); window.location.href = appPath('/login'); }, 2000);
       setDeleteOrgStatus('done');
-    } catch {
+    } catch (e) {
+      // 503 "Organisation deleted, but ..." means the organisation IS gone (only the ledger erasure is pending),
+      // so the session is dead: sign out instead of reporting a plain failure.
+      if (e?.response?.status === 503 && /Organisation deleted/.test(apiError(e))) {
+        api.clearToken();
+        window.location.href = appPath('/login');
+        return;
+      }
       setDeleteOrgStatus('error');
       setTimeout(() => setDeleteOrgStatus(null), 3000);
     }
@@ -452,6 +458,7 @@ const Settings = () => {
             orgKeys={orgKeys}
             onUpdateKey={handleUpdateKey} onTestKey={handleTestKey}
           />
+          <ModelProvidersPanel isAdmin={isAdmin} />
           <PlanLimitsPanel
             usageLoading={usageLoading} usageError={usageError} usageData={usageData}
           />

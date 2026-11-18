@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { hr, useHr, when, btn } from '../velaris/velarisApi';
 import { LoadView, Card, Table, SpecForm } from '../velaris/shared';
 import { useAct } from '../velaris/useAct';
-import { ReqSelect, Detail } from './hrParts';
+import { ReqSelect, Detail, ScreenLink } from './hrParts';
 
 const REASONS = ['must_have_not_evidenced', 'interview_evaluation', 'work_sample_evaluation', 'position_closed', 'candidate_declined', 'no_response', 'other_documented'];
 
@@ -92,6 +92,7 @@ const Pipeline = () => {
   const [req, setReq] = useState('');
   return (
     <div className="space-y-4">
+      <ScreenLink to="candidates">Add a candidate or application by hand, record an offer outcome, a consent withdrawal, a data export or an erasure:</ScreenLink>
       <ReqSelect value={req} onChange={setReq} />
       {req ? <Board key={req} req={req} /> : <p className="text-sm text-muted">Choose a requisition to see its pipeline.</p>}
       <Duplicates />

@@ -11,9 +11,7 @@ Contains the background task logic for running a pipeline:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import pathlib
 from typing import Any, Dict, List, Optional
 
@@ -192,6 +190,7 @@ def run_compliance_precheck(
             uses_third_country_cloud=False,
             model_providers=[],
             repo_tags=[],
+            hosting_country=compliance_flags.get("hosting_country"),
         )
         _decision = ComplianceEngine().evaluate(_ctx)
         if _decision.denied:
@@ -269,7 +268,8 @@ async def run_pipeline_background(
             timeout=60.0,
         )
         if not _preflight.get("passed", True):
-            if os.environ.get("COUNCIL_STRICT_MODE", "false").lower() == "true":
+            from aether_os.core.council.council import _is_strict    # production defaults to strict (env override wins)
+            if _is_strict():
                 logger.warning(
                     "PreFlightCouncil STRICT: run %s rejected (score=%.2f): %s",
                     run_id, _preflight.get("score", 0.0), _preflight.get("reason", ""),

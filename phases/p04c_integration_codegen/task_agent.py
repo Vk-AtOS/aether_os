@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
-from aether_os.phases.p04c_integration_codegen.templates import NAMED_TEMPLATES
+from aether_os.phases.p04c_integration_codegen.templates import match_template
 
 logger = logging.getLogger(__name__)
 
@@ -215,12 +215,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         slug = _slugify(name)
 
         # Check if this is a named integration with a production-ready template
-        name_lower = name.lower().strip()
-        template_entry = None
-        for key in NAMED_TEMPLATES:
-            if key in name_lower or name_lower in key:
-                template_entry = NAMED_TEMPLATES[key]
-                break
+        template_entry = match_template(name)
 
         if template_entry:
             gen_fn, out_filename = template_entry

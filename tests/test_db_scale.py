@@ -45,9 +45,11 @@ def test_init_db_refuses_unmigrated_postgres(monkeypatch):
 
 
 def test_hot_filter_migration_and_init_db_define_the_same_indexes():
+    # Both now read core/schema_ddl.INDEXES (one definition); the migration only names which ones it creates.
+    from aether_os.core import schema_ddl
     mig = (ROOT / "alembic/versions/add_hot_filter_indexes.py").read_text()
-    src = (ROOT / "core/db.py").read_text()
-    for name in re.findall(r'"(ix_[a-z_]+)":', mig):
-        assert name in src
+    names = re.findall(r'"(ix_[a-z_]+)"', mig)
+    assert names and all(n in schema_ddl.INDEXES for n in names)
+    joined = " ".join(schema_ddl.INDEXES[n] for n in names)
     for needle in ("runs(org_id, status)", "runs(org_id, started_at)", "notifications(", "artifact_embeddings(", "marketplace_profiles("):
-        assert needle in mig
+        assert needle in joined

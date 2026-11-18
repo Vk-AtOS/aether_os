@@ -27,7 +27,7 @@ const DecisionsPanel = ({ runId }) => {
     try {
       await api.approveDecision(runId, decisionId, approve, '');
       setDecisions(prev =>
-        prev.map(x => x.id === decisionId ? { ...x, status: approve ? 'approved' : 'rejected' } : x)
+        prev.map(x => x.id === decisionId ? { ...x, status: approve ? 'approved' : 'denied' } : x)
       );
     } catch (e) {
       setDecisionsError(apiError(e) || 'Decision failed');
@@ -69,7 +69,7 @@ const DecisionsPanel = ({ runId }) => {
               <span className="text-xs font-bold text-bright">{d.title || d.decision_type || d.id}</span>
               <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                 d.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' :
-                d.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                d.status === 'denied' ? 'bg-red-500/20 text-red-400' :
                 'bg-amber-500/20 text-amber-400'
               }`}>{d.status}</span>
             </div>

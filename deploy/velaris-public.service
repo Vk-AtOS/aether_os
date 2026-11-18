@@ -1,0 +1,27 @@
+[Unit]
+Description=Velaris public app (careers, scheduling, interview participant, e-sign) - KAN-128
+After=network.target
+
+[Service]
+Type=simple
+User=velaris
+Group=velaris
+WorkingDirectory=/home/velaris_knackforge
+# VELARIS_DATA, VELARIS_PUBLIC_CORS_ORIGINS and the Velaris secrets live in this file (mode 0600, owner velaris).
+EnvironmentFile=/etc/velaris/public.env
+# Exactly one proxy (nginx) sits in front: the app trusts its X-Forwarded-For (velaris/api/public.py).
+Environment=VELARIS_PUBLIC_TRUST_PROXY=1
+ExecStart=/home/velaris_knackforge/venv/bin/python3.11 -m velaris.api.public
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=velaris-public
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/velaris
+
+[Install]
+WantedBy=multi-user.target

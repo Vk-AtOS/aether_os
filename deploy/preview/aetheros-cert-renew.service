@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew AetherOS TLS certificates (dashboard and wildcard preview)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet

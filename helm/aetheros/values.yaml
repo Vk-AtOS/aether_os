@@ -108,6 +108,10 @@ resources:
     memory: 2Gi
 
 # ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+# -- Schema job run after install/upgrade (scripts/db_migrate.py). Keep it on unless migrations are run by other means.
+migrate:
+  enabled: true
+
 autoscaling:
   # -- Enable HPA.
   enabled: true
@@ -215,6 +219,8 @@ extraVolumeMounts: []
 config:
   # -- Runtime environment name.
   ENVIRONMENT: production
+  # -- Council FAIL verdicts block delivery (review-only mode is for development).
+  COUNCIL_STRICT_MODE: "true"
   # -- Whether to require Redis (SSE / task queue). Keep true in production.
   REQUIRE_REDIS: "true"
 
@@ -349,7 +355,7 @@ secrets:
   AETHER_PREVIEW_SECRET: ""
   # -- Velaris (optional integration).
   VELARIS_API_SECRET: ""
-  VELARIS_IDENTITY_PRIVATE_KEY: ""
+  VELARIS_IDENTITY_PRIVATE_KEY_PEM: ""
 
   # -- SCIM 2.0 IdP provisioning bearer token (Okta / Azure AD).
   SCIM_BEARER_TOKEN: ""

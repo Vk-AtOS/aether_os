@@ -149,15 +149,24 @@ def test_generated_app_starts_without_platform_secrets(env, launched):
     assert child["DATABASE_URL"].endswith(f"{launched['run_id']}/preview.db")
     assert child["DATABASE_URL"] != os.environ["DATABASE_URL"]
     assert child["PYTHONPATH"].endswith("backend_codegen/src")
-    assert child["PATH"] == os.environ["PATH"]
-
+    # host backends pass the parent PATH; a container has the image's own PATH, which is the point of the isolation
+    assert child["PATH"] and (_in_container(launched) or child["PATH"] == os.environ["PATH"])
 
 # ── Item 4: the proxy is bound to the launched process ───────────────────────
+
+def _in_container(launched) -> bool:
+    return bool(json.loads(preview_state.state_path(launched["run_id"]).read_text()).get("container"))
+
 
 def test_state_records_pid_and_nonce_of_the_launched_process(env, launched):
     state = json.loads(preview_state.state_path(launched["run_id"]).read_text())
     assert state["pid"] == launched["pid"] and state["port"] == launched["port"]
     assert len(state["nonce"]) == 32
+    if state.get("container"):
+        # docker backend: the app is a container, not a host process, so there is no host pid start time to check
+        # (live_app asks `docker` about the container instead); the state must say so rather than record a host pid.
+        assert state["pid_start"] is None
+        return
     assert preview_state.is_launched_process(state["pid"], state["pid_start"])
     assert not preview_state.is_launched_process(state["pid"], "Thu Jan  1 00:00:00 1970")
     assert not preview_state.is_launched_process(os.getpid(), state["pid_start"])

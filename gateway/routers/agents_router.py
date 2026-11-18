@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
+from aether_os.gateway.policy_guard import enforce
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["agents"])
@@ -23,7 +24,6 @@ def _current_user():
 async def list_agents(user: Dict[str, Any] = _current_user()):
     """List all registered agents with their name, kind, and availability."""
     from aether_os.agents.implementations import get_agent_registry
-    from aether_os.agents.base import AgentKind
     registry = get_agent_registry()
     return {
         "agents": [
@@ -45,7 +45,8 @@ async def run_agent(
 ):
     """Run a specific agent with the provided metadata context."""
     from aether_os.agents.implementations import get_agent_registry
-    from aether_os.agents.base import AgentContext, AgentName
+    from aether_os.agents.base import AgentContext
+    await enforce("agent.run", user, agent_name)  # member and up, for every agent; denial is ledgered
     registry = get_agent_registry()
     # Lookup by value (e.g. "policy_agent")
     agent = next(

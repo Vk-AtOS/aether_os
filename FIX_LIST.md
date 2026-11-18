@@ -1,3 +1,5 @@
+> **HISTORICAL RECORD. Audit dated 2026-07-20. Superseded.** All numbers and findings below are as of that date, not today. Current state lives in Jira project KAN (owner register KAN-204) and in `SALE_READINESS.md` (measured numbers at commit `e5c23fd`, 15 Nov 2026). The checkboxes below were not updated after this date and do not show current status. Item 1 (history purge) is NOT done: pending owner approval (KAN-175).
+
 # AetherOS — Master Fix List
 **Compiled:** 2026-07-20 · Sources: AUDIT_OUTPUT_QUALITY.md + DUE_DILIGENCE_AUDIT.md
 Ordered by priority. One commit per item (per CLAUDE.md). Effort: S = hours, M = 1–3 days, L = 1+ week.
@@ -15,7 +17,7 @@ Ordered by priority. One commit per item (per CLAUDE.md). Effort: S = hours, M =
 
 - [ ] **5. Fix the Bedrock payment instrument / add a working frontier-model key** — `.env` shows Anthropic blocked by `INVALID_PAYMENT_INSTRUMENT`; production runs on Amazon Nova Pro/Lite + Llama-3.3. Wire Anthropic API (or fixed Bedrock Claude) as primary. *(S — admin, not engineering)*
 - [ ] **6. Kill silent model degradation** — `core/llm/client.py:87`: `PRIMARY_LLM` defaults to `"ollama"`. Make model tier an explicit per-run requirement; fail loudly or queue instead of silently dropping to local models; flag any codegen call that lands on a fallback tier in run metadata. *(M)*
-- [ ] **7. Raise token/time budgets** — `p04b_business_logic/task_agent.py:244` (`max_tokens=3000`), 30s router timeout in `core/model_router.py`, `PHASE_TIMEOUT_SECONDS=180` ("one LLM call per phase"). *(S)*
+- [ ] **7. Raise token/time budgets** — `p04b_business_logic/task_agent.py:244` (`max_tokens=3000`), router timeouts (now in `core/model_router_providers.py`; the 30s figure was wrong), `PHASE_TIMEOUT_SECONDS=180` ("one LLM call per phase"). *(S)*
 - [ ] **8. Fix the 3 failing model-router tests** — `tests/test_model_router.py`: provider-selection/fallback logic (`test_router_uses_anthropic_when_key_present`, `test_router_skips_anthropic_falls_back_to_gemini`, `test_fallback_count_increments_on_chain_advance`). The subsystem that picks the codegen model must have green tests. *(M)*
 
 ## P2 — Honest Gates (stop shipping failures as successes)

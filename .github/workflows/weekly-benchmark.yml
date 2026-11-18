@@ -1,0 +1,59 @@
+name: Weekly benchmark
+
+# KAN-178: the 10 golden prompts through a real pipeline, every Monday; results are kept (artifact + the
+# benchmark-results branch) so two consecutive weeks can be compared. It needs a stack WITH a model key:
+# set the repository secrets AETHEROS_BENCH_URL (a staging API, never production) and AETHEROS_BENCH_TOKEN.
+# Without them the job says so and ends green: no secrets is a setup state, not a regression.
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      BENCH_URL: ${{ secrets.AETHEROS_BENCH_URL }}
+      AETHER_TOKEN: ${{ secrets.AETHEROS_BENCH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$BENCH_URL" ] || [ -z "$AETHER_TOKEN" ]; then
+            echo "::notice::AETHEROS_BENCH_URL / AETHEROS_BENCH_TOKEN are not set: benchmark skipped"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run the 10 golden prompts
+        if: steps.cfg.outputs.run == 'true'
+        run: python scripts/benchmark_harness.py --api-url "$BENCH_URL"
+      - name: Summary
+        if: steps.cfg.outputs.run == 'true' && always()
+        run: cat benchmarks/results/*.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: steps.cfg.outputs.run == 'true' && always()
+        with:
+          name: benchmark-results
+          path: benchmarks/results/
+      - name: Keep the results on the benchmark-results branch
+        if: steps.cfg.outputs.run == 'true' && always()
+        run: |
+          git config user.name "aetheros-bench"; git config user.email "bench@users.noreply.github.com"
+          cp -r benchmarks/results "$RUNNER_TEMP/results"
+          git fetch origin benchmark-results 2>/dev/null && git checkout -B benchmark-results FETCH_HEAD || git checkout --orphan benchmark-results
+          git rm -rf -q . 2>/dev/null || true
+          mkdir -p results && cp -r "$RUNNER_TEMP"/results/. results/
+          git add results && git commit -m "benchmark results $(date -u +%F)" && git push origin benchmark-results

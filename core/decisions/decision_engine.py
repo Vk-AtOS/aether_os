@@ -51,6 +51,10 @@ class Decision:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+class AlreadyDecided(Exception):
+    """The decision is no longer pending."""
+
+
 class DecisionEngine:
     """
     Redis-backed decision store — works across multiple uvicorn workers.
@@ -67,6 +71,28 @@ class DecisionEngine:
 
     async def list_for_run(self, run_id: str, status: Optional[str] = None) -> List[Decision]:
         return await self._db_list(run_id=run_id, status=status)
+
+    async def list_for_org(self, org_id: str, status: Optional[str] = None,
+                           limit: int = 50, offset: int = 0) -> List[Decision]:
+        """Decisions of one organisation, newest first. A DB failure raises: an approver must not see an
+        empty inbox when the query actually failed (unlike the per-run list, which logs and returns [])."""
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Decision as DecisionModel
+        from sqlalchemy import select
+
+        q = select(DecisionModel).where(DecisionModel.org_id == org_id)
+        if status:
+            q = q.where(DecisionModel.status == status)
+        q = q.order_by(DecisionModel.created_at.desc()).limit(limit).offset(offset)
+        async with get_session_factory()() as session:
+            rows = (await session.execute(q)).scalars().all()
+        return [Decision(
+            id=r.id, run_id=r.run_id, org_id=r.org_id, decision_type=r.decision_type, title=r.title,
+            what=r.what, why=r.why, alternatives=r.alternatives or [], impact=r.impact or "",
+            phase=r.phase or "", status=r.status, human_choice=r.human_choice,
+            timeout_seconds=r.timeout_seconds,
+            created_at=r.created_at.timestamp() if r.created_at else time.time(),
+            decided_at=r.decided_at.timestamp() if r.decided_at else None) for r in rows]
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -110,18 +136,29 @@ class DecisionEngine:
         org_id: str,
         approved: bool,
         choice: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> Decision:
-        """Approve or deny a pending decision and publish to Redis."""
-        decision = await self._db_get(decision_id)
-        if not decision:
-            raise LookupError(f"Decision {decision_id} not found")
-        if decision.org_id and decision.org_id != org_id:
-            raise PermissionError("Decision belongs to a different org")
+        """Approve or deny a pending decision and publish to Redis.
 
-        decision.status = "approved" if approved else "denied"
-        decision.human_choice = choice
-        decision.decided_at = time.time()
-        await self._db_save(decision)
+        Raises LookupError (unknown, or not a decision of `run_id`), PermissionError (other org) and
+        AlreadyDecided: a second approver or a late click must not flip an outcome the pipeline already acted on.
+        """
+        decision = await self._db_get(decision_id)
+        if not decision or (run_id is not None and decision.run_id != run_id):
+            raise LookupError(f"Decision {decision_id} not found")
+        if not decision.org_id or decision.org_id != org_id:     # an unowned decision belongs to nobody (KAN-69 F12)
+            raise PermissionError("Decision belongs to a different org")
+        if decision.status != "pending":
+            raise AlreadyDecided(f"Decision {decision_id} is already {decision.status}")
+
+        new_status = "approved" if approved else "denied"
+        decided_at = time.time()
+        # The check above is only a fast path. THIS statement decides: UPDATE .. WHERE status='pending' changes a row
+        # for exactly one of two simultaneous clicks (or a click racing the timeout), the other changes none.
+        if not await self._db_claim(decision_id, new_status, choice, decided_at):
+            current = await self._db_get(decision_id)
+            raise AlreadyDecided(f"Decision {decision_id} is already {current.status if current else 'decided'}")
+        decision.status, decision.human_choice, decision.decided_at = new_status, choice, decided_at
 
         # Notify waiting workers via Redis pub/sub
         try:
@@ -187,6 +224,21 @@ class DecisionEngine:
         raise LookupError(f"Decision {decision_id} not found")
 
     # ── DB persistence ────────────────────────────────────────────────────────
+
+    async def _db_claim(self, decision_id: str, status: str, choice: Optional[str], decided_at: float) -> bool:
+        """Atomically move a decision from pending to `status`. True for the one caller that did it."""
+        from datetime import datetime
+        from sqlalchemy import update
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Decision as DecisionModel
+
+        async with get_session_factory()() as session:
+            res = await session.execute(
+                update(DecisionModel)
+                .where(DecisionModel.id == decision_id, DecisionModel.status == "pending")
+                .values(status=status, human_choice=choice, decided_at=datetime.fromtimestamp(decided_at)))
+            await session.commit()
+        return res.rowcount == 1
 
     async def _db_save(self, decision: Decision) -> None:
         try:

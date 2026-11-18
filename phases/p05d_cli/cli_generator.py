@@ -24,8 +24,9 @@ Go (Cobra):
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from aether_os.phases.p05d_cli.cli_templates import (
     gen_auth_commands_py,
@@ -70,13 +71,19 @@ dependencies = [
 """
 
 
-def gen_config_py() -> str:
+def gen_config_py(project_name: str = "app") -> str:
+    # One keyring service per generated CLI: a shared name made every CLI read and overwrite
+    # the same stored token and API URL.
+    service = "aetheros-" + (re.sub(r"[^a-z0-9]+", "-", project_name.lower()).strip("-") or "app")
     return """\
 \"\"\"Local config — API URL and token storage via keyring.\"\"\"
+import logging
 import os
 import keyring
 
-SERVICE = "aetheros-cli"
+logger = logging.getLogger(__name__)
+
+SERVICE = "__SERVICE__"
 _DEFAULT_API = "http://localhost:8000"
 
 def get_api_base() -> str:
@@ -111,7 +118,7 @@ def set_token(token: str) -> None:
 def auth_header() -> dict:
     t = get_token()
     return {"Authorization": f"Bearer {t}"} if t else {}
-"""
+""".replace("__SERVICE__", service)
 
 
 def gen_cli_main(project_name: str, entities: List[Dict]) -> str:
@@ -376,7 +383,7 @@ async def generate_python_cli(
 
     # Core project files
     (cli_dir / "pyproject.toml").write_text(gen_pyproject_toml(project_name))
-    (cli_dir / "config.py").write_text(gen_config_py())
+    (cli_dir / "config.py").write_text(gen_config_py(project_name))
     (cli_dir / "cli.py").write_text(gen_cli_main(project_name, entities))
     (cli_dir / "README.md").write_text(gen_python_readme(project_name))
     (commands_dir / "__init__.py").write_text("")

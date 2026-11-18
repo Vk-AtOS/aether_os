@@ -9,14 +9,11 @@ These tests continue from test_integration_pipeline.py and cover:
 """
 from __future__ import annotations
 
-import asyncio
-import os
 import sys
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

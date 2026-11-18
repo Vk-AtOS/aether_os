@@ -1,6 +1,5 @@
 """KAN-170: recovery restores the last good snapshot, not the forensic copy it just took (SQLite)."""
 import asyncio
-import os
 import sqlite3
 
 import pytest

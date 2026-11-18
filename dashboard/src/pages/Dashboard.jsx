@@ -226,16 +226,8 @@ const Dashboard = () => {
   const { isAdmin, isViewer, userId } = useRole();
   const [killing, setKilling] = useState(false);
   const [killResult, setKillResult] = useState(null);
-  const [hasApiKey, setHasApiKey] = useState(false);
   const [confirmKillAll, setConfirmKillAll] = useState(false);
   const [killOpen, setKillOpen] = useState(false);
-
-  useEffect(() => {
-    api.client.get('/settings/api-keys').then(res => {
-      const keys = res.data ?? {};
-      setHasApiKey(Object.values(keys).some(v => v));
-    }).catch(() => {});
-  }, []);
 
   const visibleRuns = isAdmin
     ? runs
@@ -282,7 +274,7 @@ const Dashboard = () => {
       <TrialBanner />
 
       {/* Onboarding banner */}
-      {!loading && runs.length === 0 && <OnboardingBanner hasRuns={false} hasApiKey={hasApiKey} />}
+      {!loading && <OnboardingBanner />}
 
       {/* Admin kill switch — collapsed by default, expand on demand */}
       {isAdmin && (

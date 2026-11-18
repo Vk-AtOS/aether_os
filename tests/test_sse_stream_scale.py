@@ -13,7 +13,6 @@ class FakeRedis:
         self.items = [json.dumps(i) for i in items]
 
     def pubsub(self):
-        outer = self
 
         class PS:
             async def subscribe(self, c):

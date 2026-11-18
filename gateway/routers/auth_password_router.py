@@ -25,7 +25,8 @@ from aether_os.core.pipeline_state import get_redis
 from aether_os.core.rate_limiter import get_client_ip, get_rate_limiter as _get_rl
 from aether_os.gateway.auth import verify_password, get_password_hash
 from aether_os.gateway.auth_refresh import revoke_user_sessions
-from sqlalchemy import select
+from aether_os.gateway import password_history
+from sqlalchemy import func, select
 import secrets
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -62,7 +63,7 @@ async def verify_email(token: str, request: Request) -> Dict[str, str]:
         raise
     except Exception as exc:
         logger.warning("Email verify token validation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal error during token validation")
+        raise HTTPException(status_code=500, detail="Internal error during token validation") from exc
     sf = get_session_factory()
     async with sf() as session:
         user = await session.get(User, user_id.decode() if isinstance(user_id, bytes) else user_id)
@@ -94,7 +95,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
         )
     session_factory = get_session_factory()
     async with session_factory() as session:
-        stmt = select(User).where(User.email == req.email)
+        stmt = select(User).where(func.lower(User.email) == req.email.strip().lower())
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
         if user:
@@ -172,7 +173,7 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         raise
     except Exception as exc:
         logger.warning("Password reset token validation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal error during token validation")
+        raise HTTPException(status_code=500, detail="Internal error during token validation") from exc
     # Password safety: complexity + HIBP breach check
     try:
         _pw_safe, _pw_reason = await check_password_safety(req.new_password)
@@ -188,6 +189,9 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
         if not user:
             raise HTTPException(status_code=400, detail="User no longer exists")
         loop = asyncio.get_running_loop()
+        if await password_history.is_reused(session, user, req.new_password):
+            raise HTTPException(status_code=422, detail=password_history.REUSED)
+        await password_history.remember(session, user, user.password_hash)
         user.password_hash = await loop.run_in_executor(None, get_password_hash, req.new_password)
         # A reset means the old password may be known to someone else: end every
         # session. Before commit, so a failed revocation (503) changes nothing.
@@ -228,6 +232,9 @@ async def change_password(req: Dict[str, Any], request: Request, user: Dict[str,
         pw_ok = await loop.run_in_executor(None, verify_password, current_pw, db_user.password_hash)
         if not pw_ok:
             raise HTTPException(status_code=401, detail="Current password is incorrect.")
+        if await password_history.is_reused(session, db_user, new_pw):
+            raise HTTPException(status_code=422, detail=password_history.REUSED)
+        await password_history.remember(session, db_user, db_user.password_hash)
         db_user.password_hash = await loop.run_in_executor(None, get_password_hash, new_pw)
         # FIX-15: clear forced password-change flag after successful rotation
         if getattr(db_user, "must_change_password", False):

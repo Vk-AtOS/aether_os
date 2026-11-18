@@ -1,3 +1,5 @@
+> **HISTORICAL RECORD. Audit dated 2026-07-22. Superseded.** All numbers and findings below are as of that date, not today. Current state lives in Jira project KAN (owner register KAN-204) and in `SALE_READINESS.md` (measured numbers at commit `e5c23fd`, 15 Nov 2026). Corrections to statements that claimed current truth: "all 51 items closed" is false (later audit `docs/AUDIT_2026_08_08.md` lists many OPEN items); "secrets scrubbed from history" is false (rewrite pending, KAN-175); "docs are truthful" was not true of the due-diligence documents of that date; "647 tests" is the count of that date (1954 collected on 15 Nov 2026).
+
 # AetherOS — Project State Audit (Post-Fix Verification)
 **Date:** 2026-07-22 · **HEAD:** 91e6200 · **Method:** line-level read of every new module, execution-path trace of the full generation chain, independent test runs
 
@@ -7,7 +9,7 @@ This is the "are the loops actually connected" audit. Every claim below was veri
 
 ## 1. Where the project stands
 
-All 51 items from plans2.md are closed. The delta items from the master history are closed (Sonnet's audit wrongly marked ABAC and domain-pack wiring as open — both were fixed July 10–11 in commits `3e6bee7` and `5bbcefc`). Sessions 1–4 verified commit-by-commit. Docs are truthful, secrets scrubbed from working tree and history, repo hygiene clean, 4/4 E2E smoke tests pass, 27/27 model-router tests pass, subset suites green in an independent environment (full 647-test run verified by the session's own 924s run).
+Per this audit, the 51 items from plans2.md were reported closed at the time (this was not accurate: see the banner above and `docs/AUDIT_2026_08_08.md`). The delta items from the master history are closed (Sonnet's audit wrongly marked ABAC and domain-pack wiring as open — both were fixed July 10–11 in commits `3e6bee7` and `5bbcefc`). Sessions 1–4 verified commit-by-commit. Secrets were removed from the working tree (history was NOT rewritten: pending KAN-175), repo hygiene was reported clean, 4/4 E2E smoke tests pass, 27/27 model-router tests pass, subset suites green in an independent environment (full 647-test run verified by the session's own 924s run).
 
 **Engineering completion: ~85%.** What remains is three newly discovered wiring defects (below), one small leftover (C8), the human-side items, and then proof (benchmark + gallery).
 
@@ -57,7 +59,7 @@ C8 (lazy `orchestrator.events` imports in model_router) remains open despite pla
 | Verification loops | B | Compile loop real; visual loop blind (W1) |
 | Model layer | D | Config-crippled (W3); fine code, wrong engine |
 | Tests | B | 647 green incl. E2E smoke; pipeline-path coverage still thin |
-| Docs / hygiene / history | A− | Truthful, scrubbed, disciplined commits |
+| Docs / hygiene / history | A− (as of 2026-07-22; history not scrubbed, see banner) | Disciplined commits |
 
 ## 6. Recommended next session (small, surgical)
 

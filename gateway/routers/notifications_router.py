@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from aether_os.core import notification_prefs
 from aether_os.gateway.dependencies import get_current_user
 
 router = APIRouter(tags=["notifications"])
@@ -21,7 +22,7 @@ def _current_user():
 @router.get("/notifications")
 async def get_notifications(
     unread_only: bool = False,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=100),
     user: Dict[str, Any] = _current_user(),
 ):
     from aether_os.core.db import get_session_factory as _gsf_n
@@ -30,7 +31,14 @@ async def get_notifications(
     async with _gsf_n()() as sess:
         stmt = _sel_n(_Notif).where(
             _or_n(_Notif.user_id == user["user_id"], _Notif.user_id == None)  # noqa: E711
-        ).where(_Notif.org_id == user["org_id"]).order_by(_Notif.created_at.desc()).limit(limit)
+        ).where(_Notif.org_id == user["org_id"])
+        # Events the user turned off (own setting, else the org default) stay hidden, old rows included.
+        off = await notification_prefs.disabled_events(user["org_id"], user.get("user_id"))
+        if off:
+            stmt = stmt.where(_Notif.type.not_in(off))
+            if "budget_alert" in off:   # the 80% notice carries the month in its type (llm_budget_80:<month>)
+                stmt = stmt.where(~_Notif.type.like("llm_budget_80%"))
+        stmt = stmt.order_by(_Notif.created_at.desc()).limit(limit)
         if unread_only:
             stmt = stmt.where(_Notif.is_read == False)  # noqa: E712
         rows = (await sess.execute(stmt)).scalars().all()

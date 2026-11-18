@@ -2,8 +2,7 @@
 Seed template for iot domain.
 """
 import random
-from sqlalchemy import select, func
-from models import User, Device, DeviceGroup, Reading, Alert
+from models import Device, DeviceGroup, Reading, Alert
 
 async def seed_iot(db_session):
     # 1. Device Groups (Minimum 5)

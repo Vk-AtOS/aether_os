@@ -7,7 +7,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -22,14 +21,10 @@ from aether_os.phases.p05_frontend.cloud_console_generator import (
     generate_cloud_console,
 )
 from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
+from aether_os.phases.p05_frontend.design_brief import apply_brand_to_tailwind
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
-from aether_os.phases.p05_frontend.safe_text import safe_display_name
-from aether_os.phases.p05_frontend.prompts import (
-    DOMAIN_FALLBACK_WIDGETS,
-    DOMAIN_COMPONENT_DESC,
-    DOMAIN_COLOR_HINTS,
-)
+from aether_os.phases.p05_frontend.safe_text import check_entity_names, safe_display_name
 from aether_os.phases.p05_frontend.scaffold import (
     detect_domain,
     read_architecture,
@@ -44,7 +39,6 @@ from aether_os.phases.p05_frontend.npm_runner import (
     pkg_hash,
     node_modules_fresh,
     stamp_node_modules,
-    _NPM_SHARED_CACHE,
     run_npm_build,
 )
 from aether_os.phases.p05_frontend.code_writer import (
@@ -68,7 +62,6 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_admin_layout,
     generate_customer_layout,
     generate_customer_home,
-    generate_layout,
     generate_data_table,
     generate_crud_modal,
     generate_toaster,
@@ -80,7 +73,6 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_not_found_page,
     generate_frontend_readme,
     generate_login_page,
-    generate_dashboard,
     generate_storefront_home,
     generate_entity_page,
     generate_product_grid_page,
@@ -95,7 +87,7 @@ from aether_os.phases.p05_frontend.preview import (
 )
 from aether_os.phases.p05_frontend.helpers import (
     _write_with_guard,
-    _generate_file,
+    _generate_file,  # noqa: F401  re-exported: tests patch it on this module
     _generate_domain_component,
     _derive_admin_features,
     _generate_customer_portal,
@@ -151,6 +143,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                     _cc_entities = _ir_data.get("entities", [])
                 except Exception as _cc_exc:
                     logger.warning("p05: cloud console IR load failed: %s", _cc_exc)
+            _bad_cc = check_entity_names(_cc_entities)
+            if _bad_cc:
+                return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=_bad_cc)
             _cc_services = data.get("services") or []
             _cc_project_name = safe_display_name(data.get("project_name", "Cloud Platform"), "Cloud Platform")
             _cc_dir = await generate_cloud_console(_cc_entities, _cc_services, _cc_project_name, output_dir)
@@ -227,6 +222,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
         entities = resolve_entity_p67_fallback(data, entities)
 
+    bad_names = check_entity_names(entities)      # fail closed before any file is written (KAN-69 G5)
+    if bad_names:
+        logger.error("p05: refusing the spec: %s", bad_names)
+        return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=bad_names)
+
     # Robust autonomous mode detection
     is_autonomous = (
         data.get("autonomous_mode") is True
@@ -260,6 +260,24 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     font_pairing       = _dg("font_pairing", "") or ""
     border_radius      = _dg("border_radius", "") or ""
     density            = _dg("density", "") or ""
+    # No designer spec: the model designs the look from the product (design_brief.py). Without a model
+    # or a valid answer the token system for the domain stays in charge.
+    brief_source = "designer_spec" if primary_hex else "token_system"
+    if not primary_hex:
+        from aether_os.core.llm.client import get_llm_client
+        from aether_os.phases.p05_frontend.design_brief import get_design_brief
+        try:
+            _llm = get_llm_client() if os.environ.get("ENVIRONMENT") != "test" else None
+        except Exception as _llm_exc:
+            logger.warning("p05_frontend: no model for the design brief: %s", _llm_exc)
+            _llm = None
+        _brief = await get_design_brief(_llm, project_name, data.get("raw_input", ""), domain, data.get("entities") or [])
+        if _brief:
+            primary_hex, secondary_hex = _brief["primary_hex"], _brief["secondary_hex"]
+            background_hex, surface_hex = _brief["background_hex"], _brief["surface_hex"]
+            font_pairing, border_radius, density = _brief["font_pairing"], _brief["border_radius"], _brief["density"]
+            data["widget_description"] = _brief["widget_description"]      # read by _generate_domain_component
+            brief_source = "llm"
     if not ui_theme or ui_theme == "default":
         ui_theme = _DOMAIN_THEME_MAP.get((data.get("domain", "") or domain or "").lower(), "default")
 
@@ -314,7 +332,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         generate_eslint_config_fn=generate_eslint_config,
         generate_vite_config_fn=generate_vite_config,
         generate_tsconfig_fn=generate_tsconfig,
-        generate_tailwind_config_fn=generate_tailwind_config,
+        generate_tailwind_config_fn=(
+            (lambda theme: apply_brand_to_tailwind(generate_tailwind_config(theme), primary_hex)) if brief_source == "llm"
+            else generate_tailwind_config),
         generate_postcss_config_fn=generate_postcss_config,
         generate_index_html_fn=generate_index_html,
         generate_nginx_conf_fn=generate_nginx_conf,
@@ -433,7 +453,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Gate 3: Admin Requirements Approval ──
     # Delegated to domain_assembler.run_gate3_approval to reduce task_agent lines.
-    admin_features = await run_gate3_approval(
+    await run_gate3_approval(
         domain_ir=_domain_ir,
         data=data,
         is_autonomous=is_autonomous,
@@ -456,7 +476,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             logger.warning("p05: copytree to canonical frontend failed: %s", _copy_exc)
 
     # 5. Write metadata
-    generated_files = ["frontend/package.json", "frontend/src/App.tsx", "frontend/src/pages/Dashboard.tsx"]
+    # The real list of shipped files (it was a hard-coded 3-file list whatever was generated).
+    generated_files = sorted(
+        p.relative_to(project_dir).as_posix() for p in _canonical_frontend.rglob("*")
+        if p.is_file() and not {"node_modules", "dist", "build", ".git"} & set(p.parts)
+    ) if _canonical_frontend.exists() else []
     # template_debt_pct: fraction of pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
     # denominator: entity pages + dashboard + customer portal (all LLM-authored files)
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
@@ -469,6 +493,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
         "files_generated": generated_files,
         "template_debt_pct": compute_template_debt(_llm_count, _template_count),
+        "design_brief_source": brief_source,
         "model_used": _model_used,
         "degraded": _degraded,
     }

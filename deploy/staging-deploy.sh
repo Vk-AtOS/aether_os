@@ -64,17 +64,11 @@ echo "-> Starting staging containers..."
 docker-compose -f "$COMPOSE_FILE" up -d --build
 echo "   Containers started"
 
-# ── Step 5: Run Alembic migrations against staging DB ───────────────────────
-echo "-> Waiting 10 seconds for containers to initialise..."
-sleep 10
-
-echo "-> Running Alembic migrations (main head)..."
-docker-compose -f "$COMPOSE_FILE" exec api_staging alembic upgrade revision_merge_guardian_heads \
-    || echo "WARNING: Alembic main-head migration failed — check container logs"
-
-echo "-> Running Alembic migration (add_org_scim_token)..."
-docker-compose -f "$COMPOSE_FILE" exec api_staging alembic upgrade add_org_scim_token \
-    || echo "WARNING: add_org_scim_token migration failed — may already be applied"
+# ── Step 5: schema ─────────────────────────────────────────────────────────
+# The migrate_staging service (docker-compose.staging.yml) ran scripts/db_migrate.py before the API started: an empty
+# database is created and stamped, an existing one is upgraded to head. The stale per-revision `alembic upgrade <name>`
+# calls that used to be here named revisions that no longer exist.
+echo "-> Schema migrated by the migrate_staging service"
 
 # ── Step 6: Health check ─────────────────────────────────────────────────────
 echo "-> Running health check..."

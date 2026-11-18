@@ -6,9 +6,10 @@ import {
   Shield, UserCircle, Webhook, LogOut, Layout, Database, MessageSquare, Store,
   ScrollText, CreditCard, Building2, GraduationCap, Search, Cpu, Rocket,
   Activity, Sparkles, Zap, Bot, ShieldAlert, Wand2, BrainCircuit, Briefcase,
-  Mail, UserSquare,
+  Mail, UserSquare, KeyRound, Inbox, Gauge,
 } from 'lucide-react';
 import { HR_TABS } from './hr/tabs';
+import { SCREENS } from './velaris/screens';
 import ProviderBadge from './ProviderBadge';
 import { api } from '../api';
 import { useRuns } from '../contexts/useRuns';
@@ -29,9 +30,9 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const { latestRunId } = useRuns();
   const { orgName } = useSettings();
-  // Identity for display only; the server enforces roles.
+  // Identity for display only; the server enforces roles. Same default as useRole (viewer: show least).
   const payload = useMemo(() => decodeToken(api.getToken() || '') || {}, []);
-  const userRole = payload.role || 'member';
+  const userRole = payload.role || 'viewer';
   const userEmail = payload.sub || '';
 
   // A section opens by itself on a page inside it; a click overrides that until the next navigation.
@@ -52,6 +53,7 @@ const Sidebar = () => {
   };
 
   const isAdmin = ['owner', 'admin'].includes(userRole);
+  const isSuperadmin = userRole === 'superadmin';
   const isViewer = userRole === 'viewer';
 
   const staticItems = [
@@ -60,6 +62,7 @@ const Sidebar = () => {
     { name: 'Projects',      path: '/projects',    icon: List },
     { name: 'Workspaces',    path: '/workspaces',  icon: Building2 },
     { name: 'Search',        path: '/search',      icon: Search },
+    { name: 'Decisions',     path: '/decisions',   icon: Inbox },
     { name: 'Deployments',   path: '/deployments', icon: Rocket },
     { name: 'Marketplace',   path: '/marketplace', icon: Store },
     { name: 'Settings',      path: '/settings',    icon: Settings },
@@ -78,7 +81,9 @@ const Sidebar = () => {
     { name: 'Chat', path: '/chat', icon: MessageSquare },
     { name: 'Mail', path: '/mail', icon: Mail },
   ];
-  const opsItems = isViewer ? [] : [{ name: 'Control', path: '/control', icon: Cpu }];
+  const opsItems = isViewer ? [] : [{ name: 'Control', path: '/control', icon: Cpu }, { name: 'Flows', path: '/flows', icon: Cpu }];
+  // KAN-129..151 screens (screens.js): self-service ones for every acting role, the rest for owners and admins.
+  const workItems = isViewer ? [] : SCREENS.filter((s) => s.role === 'member' || isAdmin).map((s) => ({ name: s.title, path: `/work/${s.id}`, icon: UserSquare }));
   const hrItems = isAdmin ? HR_TABS.map(([slug, name]) => ({ name, path: `/hr/${slug}`, icon: UserSquare })) : [];
 
   const platformItems = [
@@ -102,12 +107,13 @@ const Sidebar = () => {
     { name: 'Prompt',           path: '/prompt',            icon: MessageSquare },
   ];
 
-  const adminItems = isAdmin ? [
+  const adminItems = [...(isAdmin ? [
     { name: 'Users',        path: '/admin/users',        icon: Users },
     { name: 'Audit Logs',   path: '/audit',              icon: ScrollText },
     { name: 'Billing',      path: '/admin/billing',      icon: CreditCard },
+    { name: 'API Keys',     path: '/settings/api-keys',  icon: KeyRound },
     { name: 'Intelligence', path: '/admin/intelligence', icon: Sparkles },
-  ] : [];
+  ] : []), ...(isSuperadmin ? [{ name: 'Operator', path: '/operator', icon: Gauge }] : [])];
 
   const isActiveRoute = (path) => {
     if (path === '/') return location.pathname === '/';
@@ -175,7 +181,7 @@ const Sidebar = () => {
           })}
         </div>
 
-        {[['Workplace', workplaceItems], ['Operations', opsItems], ['HR', hrItems]].filter(([, items]) => items.length > 0).map(([title, items]) => (
+        {[['Workplace', workplaceItems], ['Operations', opsItems], ['HR', hrItems], ['Velaris work', workItems]].filter(([, items]) => items.length > 0).map(([title, items]) => (
           <div key={title} className="pt-2" role="group" aria-label={title}>
             <p className="px-3 pb-1 text-[10px] font-bold text-slate-600 uppercase tracking-widest">{title}</p>
             {items.map((item) => {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Paperclip, Pin, MessageSquare, Pencil, Trash2, Smile, Bot } from 'lucide-react';
+import { Paperclip, Pin, MessageSquare, Pencil, Trash2, Smile, Bot, ShieldX } from 'lucide-react';
 import { when, btn } from '../velaris/velarisApi';
+import { inputClass } from '../prime/parts';
 
 const EMOJI = ['👍', '❤️', '😄', '🎉', '👀'];
 
@@ -15,10 +16,12 @@ const Reactions = ({ message, me, onReact }) => (
   </div>
 );
 
-const MessageItem = ({ m, me, pinned, canAdmin, onReact, onEdit, onDelete, onPin, onThread, onDownload, onTopic }) => {
+const MessageItem = ({ m, me, pinned, canAdmin, canErase, onReact, onEdit, onDelete, onErase, onPin, onThread, onDownload, onTopic }) => {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(m.body || '');
   const [picker, setPicker] = useState(false);
+  const [erasing, setErasing] = useState(false);
+  const [word, setWord] = useState('');
   if (m.deleted) {
     return <div className="text-xs text-muted italic px-3 py-1">Message {m.erased ? 'erased' : 'deleted'}</div>;
   }
@@ -59,7 +62,17 @@ const MessageItem = ({ m, me, pinned, canAdmin, onReact, onEdit, onDelete, onPin
           <button aria-label={pinned ? 'Unpin' : 'Pin'} onClick={() => onPin(m, pinned)}><Pin className="w-3.5 h-3.5" /></button>
           {mine && <button aria-label="Edit message" onClick={() => setEditing(true)}><Pencil className="w-3.5 h-3.5" /></button>}
           {(mine || canAdmin) && <button aria-label="Delete message" onClick={() => onDelete(m)}><Trash2 className="w-3.5 h-3.5" /></button>}
+          {canErase && <button aria-label="Erase message (compliance)" onClick={() => setErasing(true)}><ShieldX className="w-3.5 h-3.5 text-danger" /></button>}
         </div>
+      )}
+      {erasing && (
+        <form className="mt-2 flex flex-wrap items-center gap-2 border border-danger/40 rounded p-2" aria-label="Erase this message"
+          onSubmit={async (e) => { e.preventDefault(); if (await onErase(m, word)) { setErasing(false); setWord(''); } }}>
+          <span className="text-xs text-muted">Erasing removes the text for good (a channel on legal hold keeps it). It is recorded in the audit log. Type <b className="text-bright">ERASE</b> to continue.</span>
+          <input aria-label="Type ERASE" className={`${inputClass} max-w-[8rem]`} value={word} onChange={(e) => setWord(e.target.value)} autoFocus />
+          <button type="submit" className={btn('danger')} disabled={word !== 'ERASE'}>Erase permanently</button>
+          <button type="button" className={btn('ghost')} onClick={() => { setErasing(false); setWord(''); }}>Cancel</button>
+        </form>
       )}
       {picker && (
         <div className="flex gap-1 mt-1">

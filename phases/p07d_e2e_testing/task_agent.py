@@ -1,6 +1,5 @@
 """P07d E2E Testing — generates and runs Playwright end-to-end tests."""
 from __future__ import annotations
-import asyncio
 import json
 import logging
 import re
@@ -8,9 +7,16 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.run_app import safe_fs
 from aether_os.core.sandbox import phase_exec
-from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.core.sandbox.browser_job import run_browser_job
+from aether_os.core.sandbox.runner import SandboxUnavailable, sandbox_dirs
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p07c_accessibility_testing.task_agent import dist_dir_for
+
+# Inside the browser sandbox "localhost" is only what the job itself starts: the built frontend on 5173 and,
+# when there is one, the generated backend on 8000 (both on the container's loopback, no network).
+FRONTEND_PORT, BACKEND_PORT = 5173, 8000
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +48,38 @@ def _build_fallback_e2e(project_name: str, frontend_url: str, entities: list) ->
     """)
 
 
+def _backend_spec(data: Dict[str, Any], root: Path):
+    """How to start the generated backend inside the sandbox, or None when there is none to start."""
+    raw = data.get("backend_output_path")
+    if not raw:
+        return None
+    backend = Path(raw)
+    try:
+        rel = backend.relative_to(root)
+    except ValueError:
+        return None
+    for sub, ref in (("src/main.py", "src.main:app"), ("main.py", "main:app")):
+        if safe_fs.stat_or_none(root, rel / sub) is not None:
+            db = Path(sandbox_dirs(root)["TMPDIR"]) / "e2e.db"
+            return {"cwd": str(backend), "port": BACKEND_PORT,
+                    "argv": ["python3", "-m", "uvicorn", ref, "--host", "127.0.0.1", "--port", str(BACKEND_PORT)],
+                    "env": {"DATABASE_URL": f"sqlite+aiosqlite:///{db}", "ENVIRONMENT": "test"}}
+    return None
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
 
-    # Defer: this phase requires a running frontend, which is not available during pipeline build.
-    if not data.get("frontend_url") and not data.get("app_url"):
+    # Defer: the specs need a built frontend to serve in the browser sandbox (a URL on the host is not
+    # reachable from it: the sandbox has no network).
+    dist = dist_dir_for(data)
+    if dist is None:
         result = {
             "success": True,
             "skipped": True,
-            "reason": "deferred: requires running app — re-run after app start",
+            "reason": "deferred: needs a built frontend (dist/) — nothing to serve in the browser sandbox",
         }
         (output_dir / "e2e_results.json").write_text(json.dumps(result, indent=2))
         return TaskResult(
@@ -63,8 +90,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     project_name: str = data.get("project_name", "App")
     entities: list = data.get("entities", [])
-    frontend_port: int = data.get("frontend_port", 5173)
-    frontend_url = data.get("frontend_url") or f"http://localhost:{frontend_port}"
+    frontend_url = f"http://127.0.0.1:{FRONTEND_PORT}"
 
     # ── Generate e2e tests via LLM ────────────────────────────────────────────
     test_code = ""
@@ -112,17 +138,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     run_results: Dict = {"test_file": str(test_file), "passed": 0, "failed": 0, "skipped": False}
 
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.get(frontend_url)
-
-        # The generated e2e spec is untrusted code: sandbox only (no network, so it can only
-        # pass against what runs inside the sandbox; otherwise it is reported as failed).
-        done = await phase_exec.run(
-            ["npx", "playwright", "test", str(test_file), "--reporter=json"],
-            cwd=output_dir, timeout=120, text=True)
-        output_text = done.stdout
-        (output_dir / "playwright_output.json").write_text(output_text or done.stderr)
+        # The generated e2e spec is untrusted code and so is the app it drives: both run in the browser
+        # sandbox, which serves the build and the backend on its own loopback (no network at all).
+        root = phase_exec.project_root(output_dir)
+        out_json = Path(sandbox_dirs(root)["TMPDIR"]) / "playwright_output.json"
+        job = {"action": "playwright_test", "spec": str(test_file), "cwd": str(output_dir), "out": str(out_json),
+               "timeout": 100, "serve": {"dir": str(dist), "port": FRONTEND_PORT}}
+        backend = _backend_spec(data, root)
+        if backend:
+            job["backend"] = backend
+        reply = await run_browser_job(job, project=output_dir, timeout=150)
+        if not reply.get("ok"):
+            raise RuntimeError(reply.get("error") or "the browser job failed")
+        output_text = safe_fs.read_text_or_none(root, out_json) or ""
+        (output_dir / "playwright_output.json").write_text(output_text)
 
         try:
             report = json.loads(output_text)
@@ -139,7 +168,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     except Exception as exc:
         logger.info("[p07d] playwright skipped: %s", exc)
         run_results["skipped"] = True
-        run_results["reason"] = "frontend not running or playwright not installed"
+        run_results["reason"] = "the browser sandbox could not run the specs (see log)"
 
     (output_dir / "e2e_summary.json").write_text(json.dumps(run_results, indent=2))
 

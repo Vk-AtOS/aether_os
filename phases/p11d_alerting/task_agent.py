@@ -1,6 +1,5 @@
 """P11d Alerting — generate Alertmanager config, Prometheus alert rules, and runbooks."""
 from __future__ import annotations
-import json
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List
@@ -17,13 +16,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
     project_name = data.get("project_name", "app")
-    domain = data.get("domain", "general")
 
     # ── Alertmanager config ───────────────────────────────────────────────────
     alertmanager_yml = textwrap.dedent("""\
         global:
           resolve_timeout: 5m
-          slack_api_url: "${SLACK_WEBHOOK_URL}"
+          # Alertmanager does not expand environment variables in its config (the literal text was used as the URL):
+          # the webhook is read from a mounted secret file instead.
+          slack_api_url_file: /etc/alertmanager/secrets/slack_webhook_url
 
         route:
           receiver: default
@@ -51,7 +51,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             slack_configs:
               - channel: "#alerts"
                 send_resolved: true
-                title: "[{{ .Status | toUpper }}{{ if eq .Status \"firing\" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}"
+                title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
                 text: >-
                   {{ range .Alerts }}
                   *Alert:* {{ .Annotations.summary }}
@@ -61,7 +61,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
           - name: pagerduty
             pagerduty_configs:
-              - service_key: "${PAGERDUTY_SERVICE_KEY}"
+              - service_key_file: /etc/alertmanager/secrets/pagerduty_service_key
                 send_resolved: true
 
         inhibit_rules:
@@ -185,7 +185,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
             If not resolved in 15 minutes, escalate to on-call engineer.
         """),
-        "HighLatency.md": textwrap.dedent(f"""\
+        "HighLatency.md": textwrap.dedent("""\
             # Runbook: High P95 Latency
 
             **Alert:** P95 response time > 2 seconds for 3 minutes
@@ -390,14 +390,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── .env template ─────────────────────────────────────────────────────────
     env_template = textwrap.dedent("""\
-        # Alertmanager environment variables
-        # Copy this to .env and fill in your values
-
-        # Slack incoming webhook URL
-        SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-
-        # PagerDuty integration key (Events API v2)
-        PAGERDUTY_SERVICE_KEY=your-pagerduty-service-key
+        # Alertmanager reads secrets from FILES (it cannot expand environment variables in its config).
+        # Create these two files next to alertmanager.yml, one value per file, no trailing text:
+        #   secrets/slack_webhook_url         the Slack incoming webhook URL
+        #   secrets/pagerduty_service_key     the PagerDuty Events API v2 integration key
+        # and mount ./alerting/secrets at /etc/alertmanager/secrets (see INTEGRATION.md). Never commit them.
 
         # Alertmanager address (for alert_test_script.py)
         ALERTMANAGER_URL=http://localhost:9093
@@ -405,7 +402,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (alerting_dir / ".env.alerting.example").write_text(env_template)
 
     # ── Integration guide ─────────────────────────────────────────────────────
-    integration_md = textwrap.dedent(f"""\
+    integration_md = textwrap.dedent("""\
         # Alerting Integration Guide
 
         ## Files Generated
@@ -423,8 +420,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         ### 1. Configure Alertmanager
 
         ```bash
-        cp .env.alerting.example .env.alerting
-        # Edit .env.alerting with your Slack webhook URL and PagerDuty key
+        mkdir -p alerting/secrets
+        printf '%s' "$SLACK_WEBHOOK_URL" > alerting/secrets/slack_webhook_url
+        printf '%s' "$PAGERDUTY_SERVICE_KEY" > alerting/secrets/pagerduty_service_key
+        chmod 600 alerting/secrets/*   # never commit this directory
 
         # Add to docker-compose.yml:
         # alertmanager:
@@ -432,6 +431,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         #   ports: ["9093:9093"]
         #   volumes:
         #     - ./alerting/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+        #     - ./alerting/secrets:/etc/alertmanager/secrets:ro
         ```
 
         ### 2. Load Alert Rules into Prometheus

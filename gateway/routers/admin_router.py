@@ -85,6 +85,18 @@ async def list_users(
     }
 
 
+async def _forbid_admin_touching_owner(user: Dict[str, Any], target_id: str) -> None:
+    """An admin must not reset, deactivate or take over an owner (privilege escalation)."""
+    if user.get("role") == "owner":
+        return
+    from aether_os.core.db import get_session_factory
+    from aether_os.core.models import User
+    async with get_session_factory()() as session:
+        target = await session.get(User, target_id)
+        if target and target.org_id == user["org_id"] and target.role == "owner":
+            raise HTTPException(status_code=403, detail="Only an owner can manage an owner")
+
+
 @router.post("/admin/users/invite")
 async def invite_user(req: Dict[str, Any], user: Dict[str, Any] = _current_user()):
     if user.get("role") not in ["owner", "admin"]:
@@ -95,6 +107,8 @@ async def invite_user(req: Dict[str, Any], user: Dict[str, Any] = _current_user(
         raise HTTPException(status_code=422, detail="Valid email required")
     if role not in ("owner", "admin", "member", "viewer"):
         raise HTTPException(status_code=422, detail="Invalid role")
+    if role == "owner" and user.get("role") != "owner":
+        raise HTTPException(status_code=403, detail="Only an owner can invite an owner")
 
     # M10/L3: Organisation import removed (was unused); logic moved to admin_service
     return await invite_user_service(
@@ -138,6 +152,7 @@ async def admin_reset_password(user_id: str, user: Dict[str, Any] = _current_use
     """
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
+    await _forbid_admin_touching_owner(user, user_id)
     return await reset_user_password_service(
         user_id=user_id,
         org_id=user["org_id"],
@@ -149,6 +164,7 @@ async def admin_reset_password(user_id: str, user: Dict[str, Any] = _current_use
 async def deactivate_user(user_id: str, user: Dict[str, Any] = _current_user()):
     if user.get("role") not in ["owner", "admin"]:
         raise HTTPException(status_code=403)
+    await _forbid_admin_touching_owner(user, user_id)
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import User
     sf = get_session_factory()
@@ -220,7 +236,7 @@ async def export_audit_csv(
                 hour=23, minute=59, second=59, microsecond=999999
             ).timestamp()
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}")
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {exc}") from exc
 
     from aether_os.core.db import get_session_factory
     from aether_os.core.models import AuditLog, User as UserModel
@@ -303,9 +319,9 @@ def _require_registry():
 async def list_error_registry(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return all entries from the error registry. Admin/owner only."""
-    if user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Return all entries from the error registry. Platform operator (superadmin) only: the registry is platform-wide, not per organisation."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     _require_registry()
     try:
         registry = get_registry()
@@ -313,23 +329,23 @@ async def list_error_registry(
         return {"entries": entries, "total": len(entries)}
     except Exception as exc:
         logger.warning("admin: error-registry list failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to load error registry")
+        raise HTTPException(status_code=500, detail="Failed to load error registry") from exc
 
 
 @router.get("/admin/error-registry/summary")
 async def error_registry_summary(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Return per-category counts, last-seen dates, and fix status. Admin/owner only."""
-    if user.get("role") not in ("owner", "admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Return per-category counts, last-seen dates, and fix status. Platform operator (superadmin) only: the registry is platform-wide, not per organisation."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     _require_registry()
     try:
         registry = get_registry()
         return registry.get_summary()
     except Exception as exc:
         logger.warning("admin: error-registry summary failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to summarize error registry")
+        raise HTTPException(status_code=500, detail="Failed to summarize error registry") from exc
 
 
 @router.post("/admin/error-registry/{category}/mark-fixed")
@@ -357,4 +373,4 @@ async def mark_error_fixed(
         return {"ok": True, "category": category, "fix_description": fix_description}
     except Exception as exc:
         logger.warning("admin: mark-fixed failed for category %r: %s", category, exc)
-        raise HTTPException(status_code=500, detail="Failed to record fix")
+        raise HTTPException(status_code=500, detail="Failed to record fix") from exc

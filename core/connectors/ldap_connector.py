@@ -19,6 +19,7 @@ import logging
 from typing import Any, Dict, List
 
 from aether_os.core.plugins.connectors import BaseConnector, ConnectorError
+from aether_os.core.security.safe_http import UnsafeURL, resolve_public
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,16 @@ class LDAPConnector(BaseConnector):
             raise ConnectorError("LDAP connector requires 'server' in config")
         port = int(self.config.get("port", 636 if self.config.get("use_ssl") else 389))
         use_ssl = bool(self.config.get("use_ssl", False))
-        return {"server": server, "port": port, "use_ssl": use_ssl}
+        if not 0 < port < 65536 or any(c in str(server) for c in "/@ \t"):
+            raise ConnectorError("LDAP server must be a host name and port a valid port")
+        # The server is typed in by the org: it must not be an address on the platform's own network (SSRF).
+        # ldap3 is handed the CHECKED address, never the name, so DNS cannot change between check and connect
+        # (KAN-69 SC-06). No certificate check is configured here, so connecting by address loses no host check.
+        try:
+            _, addresses = resolve_public(f"https://{server}:{port}")
+        except UnsafeURL as exc:
+            raise ConnectorError(f"LDAP server rejected: {exc}") from exc
+        return {"server": server, "address": addresses[0].split("%", 1)[0], "port": port, "use_ssl": use_ssl}
 
     def _make_connection(self, bind_dn: str | None = None, bind_password: str | None = None):
         """
@@ -70,7 +80,7 @@ class LDAPConnector(BaseConnector):
         Raises ConnectorError on failure.
         """
         try:
-            from ldap3 import Server, Connection, ALL, NTLM, SAFE_SYNC  # type: ignore
+            from ldap3 import Server, Connection, ALL  # type: ignore
         except ImportError as exc:
             raise ConnectorError(
                 "ldap3 is not installed. Add it to requirements.txt: ldap3>=2.9"
@@ -88,7 +98,7 @@ class LDAPConnector(BaseConnector):
         try:
             from ldap3 import Server, Connection, ALL
             srv = Server(
-                info["server"],
+                info["address"],
                 port=info["port"],
                 use_ssl=info["use_ssl"],
                 get_info=ALL,
@@ -115,7 +125,7 @@ class LDAPConnector(BaseConnector):
         def _sync():
             try:
                 info = self._get_server_info()
-                _server = server or info["server"]
+                _server = info["server"]      # the caller's `server` argument is ignored: only the checked address is dialled
                 _bind_dn = bind_dn or self.config.get("bind_dn", "")
                 _bind_password = bind_password or self.config.get("bind_password", "")
 
@@ -131,7 +141,7 @@ class LDAPConnector(BaseConnector):
                     }
 
                 srv = Server(
-                    _server,
+                    info["address"],
                     port=info["port"],
                     use_ssl=info["use_ssl"],
                     get_info=ALL,
@@ -271,7 +281,7 @@ class LDAPConnector(BaseConnector):
                 from ldap3 import Server, Connection, ALL
                 info = self._get_server_info()
                 srv = Server(
-                    server or info["server"],
+                    info["address"],
                     port=info["port"],
                     use_ssl=info["use_ssl"],
                     get_info=ALL,

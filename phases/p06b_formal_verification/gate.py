@@ -81,6 +81,6 @@ def validate(result: TaskResult) -> GateOutcome:
 
     verified_count = len(payload.get("invariants_verified", []))
     if verified_count:
-        issues.insert(0, f"Formal verification: {verified_count} invariant(s) proven VERIFIED by Z3")
+        issues.insert(0, f"Formal verification: {verified_count} invariant(s) VERIFIED (see the report's scope: INV-001..007 are consistency checks, INV-008/009 proofs)")
 
     return GateOutcome(passed=True, confidence=confidence, issues=issues)

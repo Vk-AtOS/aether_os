@@ -7,8 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import re
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List
@@ -17,6 +16,8 @@ from aether_os.core.compliance.code_scanner import scan_file
 from aether_os.core.compliance.pdf_report import generate_pdf
 from aether_os.core.domain_knowledge.loader import build_compliance_summary, load_pack
 from aether_os.core.llm.client import get_llm_client
+from aether_os.core.run_app import safe_fs
+from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p06_review_security.manifest import write_compliance_manifest
 from aether_os.phases.p06_review_security.patcher import ASTSecurityPatcher
@@ -26,6 +27,33 @@ from aether_os.phases.utils import memory_hint
 logger = logging.getLogger(__name__)
 
 _SUBTASK_TIMEOUT = 150.0
+
+
+def _rel_under(root: Any, path: Any):
+    """path relative to the run directory, or None when it is not under it (or either is empty)."""
+    if not root or not path or str(root) in ("", "."):
+        return None
+    try:
+        return Path(path).relative_to(root)
+    except ValueError:
+        return None
+
+
+def _file_under(root: Any, path: Any) -> bool:
+    """A regular file under the run directory reached without following a link (the AST patcher
+    writes to what this returns, so a planted link must never pass)."""
+    rel = _rel_under(root, path)
+    return rel is not None and safe_fs.stat_or_none(root, rel) is not None
+
+
+def _read_under(root: Any, path: Any):
+    rel = _rel_under(root, path)
+    return None if rel is None else safe_fs.read_text_or_none(root, rel)
+
+
+def _real_dir_under(root: Any, path: Any) -> bool:
+    rel = _rel_under(root, path)
+    return rel is not None and safe_fs.is_real_dir(root, rel)
 
 
 async def run_code_review(
@@ -48,8 +76,9 @@ async def run_code_review(
             Path(backend_path) / "src" / "main.py" if backend_path else None,
             Path(backend_path) / "main.py" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
-                code_to_review = candidate.read_text(encoding="utf-8")[:6000]
+            text = _read_under(project_dir, candidate)
+            if text is not None:
+                code_to_review = text[:6000]
                 break
 
         if not code_to_review:
@@ -136,65 +165,63 @@ async def run_bandit_scan(
             project_dir / "src",
             Path(backend_path) / "src" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
+            if _real_dir_under(project_dir, candidate):
                 src_path = candidate
                 break
 
         bandit_findings: list = []
         if src_path:
-            _pip = await asyncio.create_subprocess_exec(
-                "pip", "install", "bandit", "-q",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(_pip.wait(), timeout=60)
+            # bandit is a pinned platform dependency (requirements.txt): installing "latest"
+            # from the network on the host at run time was a supply-chain hole.
             _proc = await asyncio.create_subprocess_exec(
-                "bandit", "-r", "-f", "json", "-ll", str(src_path),
+                sys.executable, "-m", "bandit", *bandit_args(src_path, "-ll"),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             _stdout_bytes, _ = await asyncio.wait_for(_proc.communicate(), timeout=60)
             _stdout = _stdout_bytes.decode("utf-8", errors="replace") if _stdout_bytes else ""
-            if _stdout:
-                try:
-                    data_json = json.loads(_stdout)
-                    bandit_findings = data_json.get("results", [])
-                    _errors_section = data_json.get("errors", [])
-                    _skipped_files = [
-                        _err.get("filename") or _err.get("file") or ""
-                        for _err in _errors_section
-                        if _err.get("filename") or _err.get("file")
-                    ]
-                    _metrics = data_json.get("metrics", {}).get("_totals", {})
-                    _skipped_count_metric = int(_metrics.get("skipped_tests", 0))
-                    if _skipped_files or _skipped_count_metric > 0:
-                        _skip_n = len(_skipped_files) or _skipped_count_metric
-                        _skip_names = (
-                            ", ".join([Path(f).name for f in _skipped_files[:5]])
-                            or "unknown files"
-                        )
-                        bandit_findings = [
-                            {
-                                "issue_text": (
-                                    f"Security scan incomplete — {_skip_n} file(s) skipped "
-                                    f"due to parse errors: {_skip_names}. "
-                                    "Fix syntax errors in p04a before trusting this scan."
-                                ),
-                                "issue_severity": "HIGH",
-                                "issue_confidence": "LOW",
-                                "filename": _skip_names,
-                                "skipped_due_to_parse_error": True,
-                            }
-                        ] + bandit_findings
-                        logger.warning(
-                            "[p06] bandit skipped %d file(s) due to parse errors: %s",
-                            _skip_n,
-                            _skip_names,
-                        )
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        "[p06] failed to parse bandit JSON output: %s", e
+            try:
+                data_json = parse_bandit(_stdout)
+                bandit_findings = data_json.get("results", [])
+                _errors_section = data_json.get("errors", [])
+                _skipped_files = [
+                    _err.get("filename") or _err.get("file") or ""
+                    for _err in _errors_section
+                    if _err.get("filename") or _err.get("file")
+                ]
+                _metrics = data_json.get("metrics", {}).get("_totals", {})
+                _skipped_count_metric = int(_metrics.get("skipped_tests", 0))
+                if _skipped_files or _skipped_count_metric > 0:
+                    _skip_n = len(_skipped_files) or _skipped_count_metric
+                    _skip_names = (
+                        ", ".join([Path(f).name for f in _skipped_files[:5]])
+                        or "unknown files"
                     )
+                    bandit_findings = [
+                        {
+                            "issue_text": (
+                                f"Security scan incomplete — {_skip_n} file(s) skipped "
+                                f"due to parse errors: {_skip_names}. "
+                                "Fix syntax errors in p04a before trusting this scan."
+                            ),
+                            "issue_severity": "HIGH",
+                            "issue_confidence": "LOW",
+                            "filename": _skip_names,
+                            "skipped_due_to_parse_error": True,
+                        }
+                    ] + bandit_findings
+                    logger.warning(
+                        "[p06] bandit skipped %d file(s) due to parse errors: %s",
+                        _skip_n,
+                        _skip_names,
+                    )
+            except BanditScanError as e:     # no report is an incomplete scan, not a clean one (KAN-69 SC-04)
+                logger.warning("[p06] bandit gave no usable report: %s", e)
+                bandit_findings = [{
+                    "issue_text": f"Security scan incomplete: {e}",
+                    "issue_severity": "HIGH", "issue_confidence": "LOW",
+                    "filename": str(src_path), "skipped_due_to_parse_error": True,
+                }]
 
         sub_dir = output_dir / "security"
         sub_dir.mkdir(parents=True, exist_ok=True)
@@ -244,7 +271,7 @@ async def run_bandit_scan(
             for finding in bandit_findings:
                 if finding.get("issue_severity") == "HIGH":
                     fname = finding.get("filename")
-                    if fname and os.path.exists(fname) and fname not in patched_files:
+                    if fname and _file_under(project_dir, Path(fname)) and fname not in patched_files:
                         patcher.patch_file(fname)
                         patched_files.add(fname)
                         logger.info(
@@ -259,7 +286,7 @@ async def run_bandit_scan(
                         else None
                     ),
                 ]:
-                    if candidate and candidate.exists():
+                    if _file_under(project_dir, candidate):
                         patcher.patch_file(str(candidate))
                         break
 
@@ -303,7 +330,7 @@ async def run_compliance_scan(
             Path(backend_path) / "src" / "main.py" if backend_path else None,
             Path(backend_path) / "main.py" if backend_path else None,
         ]:
-            if candidate and candidate.exists():
+            if _file_under(project_dir, candidate):
                 main_py = candidate
                 break
 
@@ -322,7 +349,7 @@ async def run_compliance_scan(
 
         domain = data.get("domain", "general")
         project_name = data.get("project_name", "")
-        scan_result = scan_file(main_py, project_name=project_name, domain=domain)
+        scan_result = scan_file(main_py, project_name=project_name, domain=domain, root=project_dir)
 
         scan_dir = output_dir / "compliance"
         scan_dir.mkdir(parents=True, exist_ok=True)

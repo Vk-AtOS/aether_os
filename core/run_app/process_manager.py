@@ -103,7 +103,7 @@ class RunAppManager:
             runner = await asyncio.to_thread(get_runner)
         except SandboxUnavailable as exc:
             logger.error("RunAppManager: refusing to run generated code for %s: %s", run_id, exc)
-            raise HTTPException(status_code=503, detail=f"Sandbox unavailable: {exc}")
+            raise HTTPException(status_code=503, detail=f"Sandbox unavailable: {exc}") from exc
         port = await acquire_free_port()
 
         # ── Locate backend entry point ─────────────────────────────────────────
@@ -166,7 +166,6 @@ class RunAppManager:
         node_bin = runner.tool("node")
         npm_bin = runner.tool("npm")
         if node_bin and npm_bin and frontend_dir and frontend_dir.is_dir():
-            import re as _re_cfg
             for _cfg_name in ("vite.config.ts", "vite.config.js"):
                 _cfg_path = frontend_dir / _cfg_name
                 if _cfg_path.exists():
@@ -360,6 +359,7 @@ class RunAppManager:
         _env = child_env(
             DATABASE_URL=f"sqlite+aiosqlite:///{root_dir}/preview.db",
             PYTHONPATH=str(backend_dir / "src"),
+            ADMIN_PASSWORD=_PREVIEW_PASSWORD,
             **sandbox_dirs(root_dir),
         )
         # Per-launch marker, passed in the environment (UVICORN_HEADERS), never on the command
@@ -492,5 +492,5 @@ class RunAppManager:
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start app: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to start app: {e}") from e
 

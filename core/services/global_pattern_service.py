@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -115,7 +114,6 @@ def _derive_pattern_types(quality_details: Dict[str, Any]) -> list:
     """
     types = []
 
-    route_count = quality_details.get("routes", 0) or 0
     write_routes = quality_details.get("total_write_routes", 0) or 0
     auth_total = quality_details.get("auth_total", 0) or 0
 

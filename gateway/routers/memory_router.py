@@ -60,7 +60,6 @@ async def memory_graph(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Return memory store data in graph format for visualisation (nodes + edges)."""
-    org_id = user.get("org_id", "default")
     try:
         from aether_os.core.memory.store import get_memory_store
         store = get_memory_store()

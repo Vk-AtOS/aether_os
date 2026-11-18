@@ -1,4 +1,5 @@
 import React from 'react';
+import { confirmAction } from '../confirmAction';
 import { Settings as SettingsIcon, Server, FileText, Download } from 'lucide-react';
 
 // ── Audit Log Export Panel ─────────────────────────────────────────────────────
@@ -92,7 +93,11 @@ export const OrgConfigPanel = ({
         <p className="text-xs text-muted">When enabled, AetherOS runs pipelines without requesting human approval gates.</p>
         <div className="flex items-center gap-3 mt-1">
           <button
-            onClick={() => setOrgConfig(c => ({ ...c, autonomous_mode: !c.autonomous_mode }))}
+            onClick={async () => {
+              // Turning it on skips the spec review gate for every run in the organisation.
+              if (!orgConfig.autonomous_mode && !(await confirmAction('Autonomous mode skips the spec review step for every run in this organisation. Turn it on?', 'Enable autonomous mode'))) return;
+              setOrgConfig(c => ({ ...c, autonomous_mode: !c.autonomous_mode }));
+            }}
             role="switch"
             aria-checked={orgConfig.autonomous_mode}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${orgConfig.autonomous_mode ? 'bg-accent' : 'bg-border'}`}
@@ -116,7 +121,7 @@ export const OrgConfigPanel = ({
       {/* Danger Zone */}
       <div className="border border-danger/30 rounded-xl p-5 space-y-4 mt-4">
         <h4 className="text-xs font-bold text-danger uppercase tracking-widest">Danger Zone</h4>
-        <p className="text-xs text-muted">Delete this organisation and all associated data. This will deactivate all users and schedule data for permanent deletion in 30 days.</p>
+        <p className="text-xs text-muted">Delete this organisation. This cannot be undone and there is no grace period: all users are signed out and anonymised, passwords are destroyed, and personal data in the audit ledger is erased. Only an owner can do this.</p>
         {deleteOrgStatus !== 'confirming' ? (
           <button
             onClick={() => setDeleteOrgStatus('confirming')}
@@ -136,11 +141,11 @@ export const OrgConfigPanel = ({
             />
             <div className="flex gap-3">
               <button
-                disabled={deleteOrgInput !== orgName || deleteOrgStatus === 'deleting'}
+                disabled={!orgName || deleteOrgInput !== orgName || deleteOrgStatus === 'deleting'}
                 onClick={onDeleteOrg}
                 className="text-[10px] font-bold bg-danger text-white px-4 py-1.5 rounded uppercase tracking-wider hover:bg-danger/90 transition-colors disabled:opacity-40"
               >
-                {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'done' ? 'Scheduled' : deleteOrgStatus === 'error' ? '✗ Error' : 'Confirm Delete'}
+                {deleteOrgStatus === 'deleting' ? 'Deleting…' : deleteOrgStatus === 'done' ? 'Deleted' : deleteOrgStatus === 'error' ? '✗ Error' : 'Confirm Delete'}
               </button>
               <button
                 onClick={() => { setDeleteOrgStatus(null); setDeleteOrgInput(''); }}

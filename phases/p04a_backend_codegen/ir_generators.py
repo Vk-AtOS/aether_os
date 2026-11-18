@@ -17,15 +17,18 @@ from __future__ import annotations
 
 import re as _re
 
-from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, SA_TYPE_MAP
+from aether_os.phases.p04a_backend_codegen.rule_grammar import parse_rule
+from aether_os.core.domain_ir import AetherType, DomainIR, IRField, SA_TYPE_MAP
 
 # Re-export crud/seed/stats generators so callers can import from here unchanged.
-from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (
+from aether_os.phases.p04a_backend_codegen.ir_generator_helpers import (  # noqa: F401
     generate_crud_py,
     generate_seed_py,
     generate_stats_router,
     validate_seed_dependencies,
 )
+
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields, is_user_entity
 
 # ---------------------------------------------------------------------------
 # models.py generator
@@ -85,7 +88,6 @@ def _sa_column(field: IRField, domain: str = "") -> str:
         _is_healthcare,
         _MONEY_FIELDS,
         _PHI_FIELDS,
-        _needs_audit_annotation,
     )
 
     atype = field.type
@@ -153,29 +155,25 @@ def _relationship_line(field: IRField) -> str | None:
     return f"    {field.ref_entity.lower()} = relationship('{field.ref_entity}', foreign_keys=[{field.name}], lazy='selectin')"
 
 
-_SAFE_RULE_RE = _re.compile(r"^([A-Za-z_]\w*)\s*(>=|<=|!=|>|<|=)\s*(-?\d+(?:\.\d+)?|[A-Za-z_]\w*)$")
-
-
 def _sql_check_constraints(entity_name: str, rules: list, columns: set | None = None) -> list:
     """
     Convert IRBusinessRule expressions to SQLAlchemy CheckConstraint strings.
 
-    Only `column op number` and `column op column` are accepted (the pattern below is the whole grammar);
-    anything else is skipped and never pasted into the source: the expression is model-written text, and a
-    quote in it used to become code and SQL (KAN-169). Every identifier must be a column of the entity,
-    otherwise CREATE TABLE fails. The expression is emitted with repr(), the name is reduced to \\w.
+    Only the grammar of rule_grammar.parse_rule is accepted; anything else is skipped and never pasted into
+    the source: the expression is model-written text, and a quote in it used to become code and SQL (KAN-169).
+    Every identifier must be a column of the entity, otherwise CREATE TABLE fails. The SQL is rebuilt from the
+    parsed parts and emitted with repr(), the name is reduced to \\w.
     """
     constraints = []
     for rule in rules:
         if rule.entity != entity_name:
             continue
-        m = _SAFE_RULE_RE.match(str(rule.expression).strip())
-        if not m:
+        terms = parse_rule(rule.expression)
+        if not terms:
             continue
-        idents = [m.group(1)] + ([m.group(3)] if not m.group(3).lstrip("-")[0].isdigit() else [])
-        if columns is not None and any(i not in columns for i in idents):
+        if columns is not None and any(i not in columns for t in terms for i in t.identifiers()):
             continue
-        expr = f"{m.group(1)} {m.group(2)} {m.group(3)}"
+        expr = " AND ".join(t.sql() for t in terms)
         cname = _re.sub(r"\W", "_", f"ck_{entity_name.lower()}_{rule.name}")[:63]
         constraints.append(f"        CheckConstraint({expr!r}, name={cname!r})")
     return constraints
@@ -220,7 +218,7 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
 
     for entity in ir.entities:
         # Skip User — always emitted above from _USER_MODEL to avoid duplicate table
-        if entity.name == "User" or getattr(entity, "table", "") == "users":
+        if is_user_entity(entity):
             continue
         constraints = _sql_check_constraints(
             entity.name, ir.business_rules, {f.name for f in entity.fields} | {'id', 'created_at', 'updated_at'})
@@ -228,7 +226,8 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
         # Build performance indexes for commonly-queried field patterns
         perf_indexes = []
         table = entity.table
-        field_names = {f.name for f in entity.fields}
+        fields = client_fields(entity, multi_tenancy)
+        field_names = {f.name for f in fields}
         # created_at index — every time-range query benefits from this
         perf_indexes.append(
             f"        Index('ix_{table}_created_at', 'created_at')"
@@ -250,12 +249,12 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
             lines.append("    )")
         lines.append("")
         lines.append("    id = Column(Integer, primary_key=True, index=True)")
-        for f in entity.fields:
+        for f in fields:
             # Pass domain so column types respect domain pack constraints
             lines.append(_sa_column(f, domain=domain))
 
         # FIX 6: Add relationship fields
-        for f in entity.fields:
+        for f in fields:
             rel = _relationship_line(f)
             if rel:
                 lines.append(rel)
@@ -285,8 +284,6 @@ from typing import Optional, List, Any
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 """
 
-_VALIDATOR_OP_MAP = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "!=": "!=", "=": "=="}
-_VALIDATOR_EXPR_RE = _re.compile(r'^(\w+)\s*(>=|<=|!=|>|<|=)\s*([0-9.]+)$')
 
 
 def _pydantic_type(field: IRField, domain: str = "") -> str:
@@ -335,37 +332,34 @@ def _pydantic_type(field: IRField, domain: str = "") -> str:
 
 def _pydantic_validators(entity_name: str, rules: list) -> list:
     """
-    Generate @field_validator methods for simple scalar constraints
-    (e.g. 'salary > 0', 'age >= 18') on numeric fields.
+    Generate @field_validator methods for the single-field terms of a rule ('salary > 0',
+    'age >= 18 and age <= 65', "status in ('open','closed')"). Field-vs-field terms
+    ('end_date > start_date') are enforced by the database CheckConstraint only.
     """
     validators = []
     for rule in rules:
         if rule.entity != entity_name:
             continue
-        m = _VALIDATOR_EXPR_RE.match(rule.expression.strip())
-        if not m:
-            continue
-        field_name, op, raw_val = m.group(1), m.group(2), m.group(3)
-        py_op = _VALIDATOR_OP_MAP.get(op, op)
-        try:
-            val = int(raw_val) if "." not in raw_val else float(raw_val)
-        except ValueError:
-            continue
-        msg = rule.error_message or f"{field_name} must be {op} {val}"
-        vname = "check_" + _re.sub(r"\W", "_", str(rule.name))
-        validators += [
-            f"    @field_validator('{field_name}', mode='before', check_fields=False)",
-            f"    @classmethod",
-            f"    def {vname}(cls, v):",
-            f"        if v is not None and not (v {py_op} {val}):",
-            f"            raise ValueError({msg!r})",
-            f"        return v",
-            "",
-        ]
+        terms = parse_rule(rule.expression)
+        for n, term in enumerate(terms or []):
+            check = term.python_check("v")
+            if check is None:
+                continue
+            msg = rule.error_message or f"{term.column} violates rule {rule.name}: {term.sql()}"
+            vname = "check_" + _re.sub(r"\W", "_", str(rule.name)) + f"_{n}"
+            validators += [
+                f"    @field_validator({term.column!r}, mode='before', check_fields=False)",
+                "    @classmethod",
+                f"    def {vname}(cls, v):",
+                f"        if v is not None and not ({check}):",
+                f"            raise ValueError({msg!r})",
+                "        return v",
+                "",
+            ]
     return validators
 
 
-def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
+def generate_schemas_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Generate complete schemas.py from DomainIR.
 
     domain: when set to a money domain (fintech/marketplace/erp), DECIMAL and
@@ -397,12 +391,14 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     ])
 
     for entity in ir.entities:
+        if is_user_entity(entity):      # accounts are created by /auth/register only (role, password_hash)
+            continue
         name = entity.name
 
         fields_block_base = []
         fields_block_update = []
 
-        for f in entity.fields:
+        for f in client_fields(entity, multi_tenancy):
             ptype = _pydantic_type(f, domain=domain)
             if f.nullable:
                 default = " = None"
@@ -460,6 +456,6 @@ def generate_schemas_py(ir: DomainIR, domain: str = "") -> str:
     return "\n".join(lines)
 
 
-def ir_to_schemas(ir: DomainIR, domain: str = "") -> str:
+def ir_to_schemas(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) -> str:
     """Alias for generate_schemas_py to match v2 directive."""
-    return generate_schemas_py(ir, domain=domain)
+    return generate_schemas_py(ir, domain=domain, multi_tenancy=multi_tenancy)

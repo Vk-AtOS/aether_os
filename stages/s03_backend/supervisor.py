@@ -21,7 +21,7 @@ from typing import Any, List
 
 from aether_os.phases.base import PhaseBase, TaskResult, GateOutcome
 from aether_os.phases.utils import get_domain_ir
-from aether_os.stages.s03_backend.helpers import validate_backend_output, get_entity_count
+from aether_os.stages.s03_backend.helpers import get_entity_count
 
 logger = logging.getLogger(__name__)
 

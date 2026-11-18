@@ -185,7 +185,7 @@ export default function App() {
           <div
             style={{ width: 32, height: 32, borderRadius: '50%', background: '#4a5568', display: 'flex',
                      alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
-            onClick={() => { localStorage.removeItem('access_token'); localStorage.removeItem('refresh_token'); navigate('/login'); }}
+            onClick={() => { localStorage.removeItem('access_token'); navigate('/login'); }}
             title="Logout"
           >
             👤
@@ -234,7 +234,6 @@ export default function Login() {
       if (!res.ok) throw new Error('bad credentials');
       const body = await res.json();
       localStorage.setItem('access_token', body.access_token);
-      localStorage.setItem('refresh_token', body.refresh_token || '');
       navigate('/');
     } catch (err) {
       setError('Invalid email or password');

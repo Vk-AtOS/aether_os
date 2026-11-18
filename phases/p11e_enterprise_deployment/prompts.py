@@ -5,7 +5,6 @@ fallback AWS Terraform template string.
 """
 from __future__ import annotations
 import json
-import re
 
 
 def build_aws_terraform_prompt(

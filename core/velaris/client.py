@@ -7,7 +7,8 @@ Every request carries
      VELARIS_IDENTITY_PRIVATE_KEY (PEM path). Claims: iss aetheros, aud velaris, sub, org,
      roles, employee_id, iat, exp (ttl <= 300 s) and nonce (= the request's nonce).
 
-Environment: VELARIS_API_URL, VELARIS_API_SECRET, VELARIS_IDENTITY_PRIVATE_KEY.
+Environment: VELARIS_API_URL, VELARIS_API_SECRET, and the key as VELARIS_IDENTITY_PRIVATE_KEY (a path)
+or VELARIS_IDENTITY_PRIVATE_KEY_PEM (the PEM itself, for platforms that inject env, not files; the path wins).
 Velaris holds only the public key and VELARIS_ORG must equal the AetherOS org id.
 
 Owner setup (once, on the AetherOS side; never created automatically):
@@ -35,11 +36,14 @@ import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from aether_os.core.resilience import BulkheadFull, CircuitOpen, get_breaker, get_bulkhead
+from aether_os.core.telemetry.trace_context import TRACE_HEADER, current_trace_id
 from aether_os.core.velaris.roles import velaris_roles
 
 logger = logging.getLogger(__name__)
 
 MIN_SECRET_BYTES = 32
+MAX_RESPONSE = 4 * 1024 * 1024  # a JSON answer larger than this is refused instead of relayed to the browser
 ASSERTION_TTL_S = 60            # Velaris accepts at most 300
 DEFAULT_TIMEOUT_S = 30.0        # a Velaris call may itself take up to 60 s; callers may pass less
 
@@ -48,13 +52,31 @@ class VelarisUnavailable(Exception):
     """Velaris is not configured, not reachable, or answered garbage. Maps to HTTP 503."""
 
 
+async def _guarded(call):
+    """Run one upstream call behind the 'velaris' breaker and bulkhead (KAN-49).
+
+    Only VelarisUnavailable (transport failure, 502/503/504, non-JSON) counts as a failure, so Velaris's own 4xx answers
+    never open the breaker. After 5 failures calls fail at once for 30 s instead of each holding a connection for the
+    full timeout; at most VELARIS_MAX_INFLIGHT calls wait on Velaris at once, so a stuck Velaris cannot absorb every
+    request handler of this worker.
+    """
+    try:
+        async with get_bulkhead("velaris", limit=int(os.environ.get("VELARIS_MAX_INFLIGHT", "32"))):
+            return await get_breaker("velaris", failure_threshold=5, reset_after_s=30.0).call(
+                call, is_failure=lambda e: isinstance(e, VelarisUnavailable))
+    except CircuitOpen:
+        raise VelarisUnavailable("Velaris is unavailable (circuit open)") from None
+    except BulkheadFull:
+        raise VelarisUnavailable("Velaris is busy") from None
+
+
 @dataclass(frozen=True)
 class Identity:
     """Who the call is for. Built from the user's DB row (org role), never from a request."""
     user_id: str
     org_id: str
     org_role: Optional[str]
-    employee_id: Optional[str] = None   # ponytail: AetherOS users have no linked employee record yet
+    employee_id: Optional[str] = None   # users.velaris_employee_id, set by an organisation admin (PUT /hr/links)
 
 
 def _b64(raw: bytes) -> str:
@@ -85,8 +107,12 @@ def sign_request(secret: bytes, key: Ed25519PrivateKey, who: Identity, method: s
     ts = str(int(time.time() if now is None else now))
     identity = make_assertion(key, who, nonce, now=now)
     mac = hmac.new(secret, canonical(method, path, ts, nonce, body, identity), hashlib.sha256).hexdigest()
-    return {"X-Velaris-Timestamp": ts, "X-Velaris-Nonce": nonce, "X-Velaris-Signature": mac,
-            "X-Velaris-Identity": identity}
+    headers = {"X-Velaris-Timestamp": ts, "X-Velaris-Nonce": nonce, "X-Velaris-Signature": mac,
+               "X-Velaris-Identity": identity}
+    trace_id = current_trace_id()
+    if trace_id:                 # correlation only: not covered by the signature, Velaris validates its shape (KAN-50)
+        headers[TRACE_HEADER] = trace_id
+    return headers
 
 
 def generate_identity_key(path: str) -> None:
@@ -99,15 +125,23 @@ def generate_identity_key(path: str) -> None:
         f.write(pem)
 
 
-def _load_key(path: str) -> Ed25519PrivateKey:
+def _parse_key(pem: bytes) -> Ed25519PrivateKey:
     try:
-        key = serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
-    except (OSError, ValueError, TypeError) as e:
+        key = serialization.load_pem_private_key(pem, password=None)
+    except (ValueError, TypeError) as e:
         logger.warning("velaris identity key unreadable: %s", type(e).__name__)
         raise VelarisUnavailable("the Velaris identity key could not be read") from None
     if not isinstance(key, Ed25519PrivateKey):
         raise VelarisUnavailable("the Velaris identity key is not an Ed25519 key")
     return key
+
+
+def _load_key(path: str) -> Ed25519PrivateKey:
+    try:
+        return _parse_key(Path(path).read_bytes())
+    except OSError as e:
+        logger.warning("velaris identity key unreadable: %s", type(e).__name__)
+        raise VelarisUnavailable("the Velaris identity key could not be read") from None
 
 
 class VelarisClient:
@@ -122,11 +156,13 @@ class VelarisClient:
         url = os.environ.get("VELARIS_API_URL", "").strip()
         secret = os.environ.get("VELARIS_API_SECRET", "").encode()
         key_path = os.environ.get("VELARIS_IDENTITY_PRIVATE_KEY", "").strip()
-        if not (url and secret and key_path):
+        key_pem = os.environ.get("VELARIS_IDENTITY_PRIVATE_KEY_PEM", "").strip()
+        if not (url and secret and (key_path or key_pem)):
             raise VelarisUnavailable("Velaris is not connected")
         if len(secret) < MIN_SECRET_BYTES:
             raise VelarisUnavailable("VELARIS_API_SECRET is shorter than 32 bytes")
-        return cls(url, secret, _load_key(key_path), timeout=timeout, transport=transport)
+        key = _load_key(key_path) if key_path else _parse_key(key_pem.encode())
+        return cls(url, secret, key, timeout=timeout, transport=transport)
 
     def _signed(self, who: Identity, method: str, path: str, query: str, body: bytes,
                 content_type: Optional[str]) -> Tuple[str, Dict[str, str]]:
@@ -141,35 +177,41 @@ class VelarisClient:
         """The Velaris response as it is (bytes, any content type): for raw uploads/downloads and
         pre-serialised JSON. Raises VelarisUnavailable when Velaris cannot be reached or answers 502/503/504."""
         target, headers = self._signed(who, method, path, query, body, content_type)
-        try:
-            async with httpx.AsyncClient(base_url=self._base, timeout=timeout or self._timeout,
-                                         transport=self._transport, follow_redirects=False) as http:
-                resp = await http.request(method, target, content=body or None, headers=headers)
-        except httpx.HTTPError as e:
-            logger.warning("velaris unreachable: %s", type(e).__name__)
-            raise VelarisUnavailable("Velaris could not be reached") from None
-        if resp.status_code in (502, 503, 504):
-            raise VelarisUnavailable("Velaris is not available")
-        return resp
+
+        async def call() -> httpx.Response:
+            try:
+                async with httpx.AsyncClient(base_url=self._base, timeout=timeout or self._timeout,
+                                             transport=self._transport, follow_redirects=False) as http:
+                    resp = await http.request(method, target, content=body or None, headers=headers)
+            except httpx.HTTPError as e:
+                logger.warning("velaris unreachable: %s", type(e).__name__)
+                raise VelarisUnavailable("Velaris could not be reached") from None
+            if resp.status_code in (502, 503, 504):
+                raise VelarisUnavailable("Velaris is not available")
+            return resp
+        return await _guarded(call)
 
     async def open_stream(self, who: Identity, path: str, *, query: str = "",
                           read_timeout: float = 60.0) -> Tuple[httpx.AsyncClient, httpx.Response]:
         """GET that is read as it arrives (Server-Sent Events). The caller must `await resp.aclose()` and
         `await http.aclose()`; cancelling the reader and closing drops the upstream connection."""
         target, headers = self._signed(who, "GET", path, query, b"", None)
-        http = httpx.AsyncClient(base_url=self._base, transport=self._transport, follow_redirects=False,
-                                 timeout=httpx.Timeout(10.0, read=read_timeout))
-        try:
-            resp = await http.send(http.build_request("GET", target, headers=headers), stream=True)
-        except httpx.HTTPError as e:
-            await http.aclose()
-            logger.warning("velaris unreachable: %s", type(e).__name__)
-            raise VelarisUnavailable("Velaris could not be reached") from None
-        if resp.status_code in (502, 503, 504):
-            await resp.aclose()
-            await http.aclose()
-            raise VelarisUnavailable("Velaris is not available")
-        return http, resp
+
+        async def call() -> Tuple[httpx.AsyncClient, httpx.Response]:
+            http = httpx.AsyncClient(base_url=self._base, transport=self._transport, follow_redirects=False,
+                                     timeout=httpx.Timeout(10.0, read=read_timeout))
+            try:
+                resp = await http.send(http.build_request("GET", target, headers=headers), stream=True)
+            except httpx.HTTPError as e:
+                await http.aclose()
+                logger.warning("velaris unreachable: %s", type(e).__name__)
+                raise VelarisUnavailable("Velaris could not be reached") from None
+            if resp.status_code in (502, 503, 504):
+                await resp.aclose()
+                await http.aclose()
+                raise VelarisUnavailable("Velaris is not available")
+            return http, resp
+        return await _guarded(call)
 
     async def request(self, who: Identity, method: str, path: str, *, json_body: Any = None,
                       query: str = "") -> Tuple[int, Any]:
@@ -180,18 +222,24 @@ class VelarisClient:
         headers = sign_request(self._secret, self._key, who, method, target, body)
         if body:
             headers["Content-Type"] = "application/json"
-        try:
-            async with httpx.AsyncClient(base_url=self._base, timeout=self._timeout, transport=self._transport,
-                                         follow_redirects=False) as http:
-                resp = await http.request(method, target, content=body or None, headers=headers)
-        except httpx.HTTPError as e:
-            logger.warning("velaris unreachable: %s", type(e).__name__)
-            raise VelarisUnavailable("Velaris could not be reached") from None
-        try:
-            data = resp.json()
-        except ValueError:
-            logger.warning("velaris answered HTTP %s without JSON", resp.status_code)
-            raise VelarisUnavailable("Velaris answered with something that is not JSON") from None
-        if resp.status_code in (502, 503, 504):
-            raise VelarisUnavailable("Velaris is not available")
-        return resp.status_code, data
+
+        async def call() -> Tuple[int, Any]:
+            try:
+                async with httpx.AsyncClient(base_url=self._base, timeout=self._timeout, transport=self._transport,
+                                             follow_redirects=False) as http:
+                    resp = await http.request(method, target, content=body or None, headers=headers)
+            except httpx.HTTPError as e:
+                logger.warning("velaris unreachable: %s", type(e).__name__)
+                raise VelarisUnavailable("Velaris could not be reached") from None
+            if len(resp.content) > MAX_RESPONSE:     # the generic routes relay this to a browser: bounded (KAN-69 VP-7)
+                logger.warning("velaris answer of %d bytes refused", len(resp.content))
+                raise VelarisUnavailable("Velaris answered with more than the gateway relays")
+            try:
+                data = resp.json()
+            except ValueError:
+                logger.warning("velaris answered HTTP %s without JSON", resp.status_code)
+                raise VelarisUnavailable("Velaris answered with something that is not JSON") from None
+            if resp.status_code in (502, 503, 504):
+                raise VelarisUnavailable("Velaris is not available")
+            return resp.status_code, data
+        return await _guarded(call)

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { hr, useHr, when, btn } from '../velaris/velarisApi';
 import { LoadView, Card, Table } from '../velaris/shared';
 import { useAct } from '../velaris/useAct';
-import { ReqSelect, Detail, StateBadge } from './hrParts';
+import { ReqSelect, Detail, StateBadge, ScreenLink } from './hrParts';
 import { inputClass, labelClass } from '../prime/parts';
 
 const TYPES = ['text', 'longtext', 'email', 'phone', 'number', 'choice', 'url', 'checkbox', 'file'];
@@ -73,6 +73,7 @@ const Forms = () => {
     { title: f.status === 'published' ? 'Unpublish this form?' : 'Publish this form?', message: f.status === 'published' ? 'Candidates can no longer apply through it.' : 'A public application page becomes available to candidates, with the consent text you wrote.' });
   return (
     <div className="space-y-4">
+      <ScreenLink to="hiring-admin">Withdrawal requests, candidate links and sweeping expired submissions are under Hiring intake admin.</ScreenLink>
       <Card title="Forms">
         {act.view}
         <LoadView q={q} isEmpty={(d) => (d.forms || []).length === 0} emptyText="No forms yet.">

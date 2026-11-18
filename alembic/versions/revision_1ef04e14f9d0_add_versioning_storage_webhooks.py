@@ -8,12 +8,13 @@ Create Date: 2026-05-05 00:00:00.000000
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
-import uuid
 
 revision: str = 'revision_1ef04e14f9d0'
 down_revision: Union[str, None] = 'revision_09ddf4a23dc0'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+# organisations is created on the sibling branch 4688c33ff6e8; without this an empty database replays this
+# revision first and the ALTER below fails (UndefinedTable).
+depends_on: Union[str, Sequence[str], None] = '4688c33ff6e8'
 
 def upgrade() -> None:
     # Add run_version to runs

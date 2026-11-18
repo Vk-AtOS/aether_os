@@ -3,8 +3,9 @@ import uuid
 import time
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, ForeignKey, Float, Boolean, Text, DateTime, JSON, Integer, Index, UniqueConstraint, false, func
+from sqlalchemy import event
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from .db import Base
 from .encryption import EncryptedText
 
@@ -27,6 +28,9 @@ class Organisation(Base):
     data_region: Mapped[str] = mapped_column(String(20), default="global")
     scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
+    # sha256 of the SCIM token (a 256-bit random value, so a plain digest is enough): lets a request find its org
+    # with one indexed lookup instead of bcrypt-checking every org that has a token.
+    scim_token_lookup: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Unix time the paid period ends (core.billing.payments). NULL = no period on record
     # (trial/free, or a plan not bought through a one-off payment).
@@ -34,6 +38,13 @@ class Organisation(Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
+    # LLM spend control (KAN-116): per-org USD cap overriding the plan default, and an org-level kill switch.
+    llm_monthly_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Admin MFA policy (KAN-186): when on, owners/admins without MFA are locked to MFA enrolment
+    # once the grace period (unix time, NULL = none) has passed.
+    require_admin_mfa: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    admin_mfa_grace_until: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     users: Mapped[List["User"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
     api_keys: Mapped[List["APIKey"]] = relationship(back_populates="organisation", cascade="all, delete-orphan")
@@ -57,8 +68,23 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)  # SEC-H1/FIX15: set on admin password reset
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
+    # The Velaris employee record this sign-in IS (own leave, payslips, policies). Set by an org admin only; one
+    # employee record per sign-in per organisation (uq_users_org_velaris_employee).
+    velaris_employee_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     organisation: Mapped["Organisation"] = relationship(back_populates="users")
+    __table_args__ = (Index("uq_users_org_velaris_employee", "org_id", "velaris_employee_id", unique=True),)
+
+class PasswordHistory(Base):
+    """Hashes of a user's previous passwords, so a change or reset cannot go back to a recent one."""
+    __tablename__ = "password_history"
+    __table_args__ = (Index("ix_password_history_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
 
 class APIKey(Base):
     __tablename__ = "api_keys"
@@ -67,6 +93,7 @@ class APIKey(Base):
     org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id"), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    scopes: Mapped[str] = mapped_column(String(100), nullable=False, default="read,write", server_default="read,write")  # comma list of read|write
     last_used_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -114,6 +141,7 @@ class Event(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     agent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -126,6 +154,7 @@ class Snapshot(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -136,6 +165,7 @@ class PhaseCompletion(Base):
     __tablename__ = "phase_completions"
 
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     phase_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     duration_s: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -156,6 +186,7 @@ class RunMetadata(Base):
     __tablename__ = "run_metadata"
 
     run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     priority: Mapped[str] = mapped_column(String(50), default="normal")
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
@@ -177,6 +208,9 @@ class Decision(Base):
     timeout_seconds: Mapped[int] = mapped_column(default=300)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # The org-wide pending-decisions inbox filters by org and status, newest first.
+    __table_args__ = (Index("ix_decisions_org_status_created", "org_id", "status", "created_at"),)
 
 class Webhook(Base):
     __tablename__ = "webhooks"
@@ -353,6 +387,8 @@ class InstalledPluginRecord(Base):
     installed_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_tested_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     test_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # ok | fail
+    __table_args__ = (UniqueConstraint("org_id", "plugin_id", name="uq_installed_plugin_org_plugin"),)
+
 
 
 class LlmConfig(Base):
@@ -379,45 +415,12 @@ class LlmConfig(Base):
     updated_at: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=time.time)
 
 
-class UserLearningPattern(Base):
-    """Per-user isolated learning patterns. Every query MUST filter by org_id AND user_id."""
-    __tablename__ = "user_learning_patterns"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(50), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    pattern_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    pattern_key: Mapped[str] = mapped_column(String(256), nullable=False)
-    pattern_value: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    confidence: Mapped[float] = mapped_column(Float, default=0.5)
-    occurrence_count: Mapped[int] = mapped_column(default=1)
-    source_run_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of run IDs
-    last_updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
-class LearningClarificationPending(Base):
-    """Project-scoped clarification questions pending user answer."""
-    __tablename__ = "learning_clarifications_pending"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
-    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)
-    question: Mapped[str] = mapped_column(Text, nullable=False)
-    question_type: Mapped[str] = mapped_column(String(32), nullable=False, default="clarification")
-    context: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    answer: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
-
 class RunSpec(Base):
     """Stores frontend/backend spec JSON attached to a run (from Builder tabs)."""
     __tablename__ = "run_specs"
 
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     spec_type: Mapped[str] = mapped_column(String(32), primary_key=True)  # 'frontend' | 'backend'
     spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -437,6 +440,20 @@ class Notification(Base):
     link: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class NotificationPref(Base):
+    """Which notification events reach whom, per channel. user_id '' is the organisation default; a user's
+    row overrides it. No row = the built-in default (everything on), so existing behaviour is unchanged."""
+    __tablename__ = "notification_prefs"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", "event_type", name="uq_notification_prefs"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, default="")
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    in_app: Mapped[bool] = mapped_column(Boolean, default=True)
+    email: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class CodebaseProfile(Base):
@@ -465,6 +482,8 @@ class BuildFeedback(Base):
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # e.g. ["great-ui", "fast-api", "clean-models"]
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    # one rating per user per run (NULL user ids stay unconstrained: SQL NULLs are distinct)
+    __table_args__ = (UniqueConstraint("run_id", "user_id", name="uq_build_feedback_run_user"),)
 
 
 class GoldenBuild(Base):
@@ -485,6 +504,7 @@ class GoldenBuild(Base):
     domain_ir_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # entity names + fields summary
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    __table_args__ = (UniqueConstraint("run_id", name="uq_golden_build_run"),)
 
 
 class PipelineEvent(Base):
@@ -493,6 +513,7 @@ class PipelineEvent(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
@@ -504,6 +525,7 @@ class LLMTrace(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     phase: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     task_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -524,6 +546,7 @@ class QuestionnaireSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     stage_id: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending|sent|completed|expired
     access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
@@ -536,3 +559,32 @@ class QuestionnaireSession(Base):
     answers: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── org_id of the run-owned tables ────────────────────────────────────────────
+# These rows belong to a run, and the run to an organisation. org_id is repeated on them so that
+# per-organisation queries, retention and row-level security do not need a join. Every write path
+# goes through the ORM, so the column is filled once, here, from the run (one lookup per run and
+# flush, the run is usually in the identity map already) instead of in each of the ~15 writers.
+_RUN_OWNED = (Event, Snapshot, PhaseCompletion, RunMetadata, RunSpec, PipelineEvent, LLMTrace, QuestionnaireSession)
+
+
+@event.listens_for(Session, "before_flush")
+def _fill_org_id_from_run(session: Session, flush_context, instances) -> None:
+    pending = [o for o in session.new if isinstance(o, _RUN_OWNED) and o.org_id is None and o.run_id]
+    if not pending:
+        return
+    orgs: dict = {}
+    with session.no_autoflush:
+        for obj in pending:
+            if obj.run_id not in orgs:
+                run = session.get(Run, obj.run_id)
+                orgs[obj.run_id] = run.org_id if run is not None else None
+            obj.org_id = orgs[obj.run_id]
+
+
+from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group_members with Base
+
+from . import models_ops  # noqa: E402,F401  (registers webhook_outbox / notification_quiet_hours on Base.metadata)
+
+from .models_learning import LearningClarificationPending, UserLearningPattern  # noqa: E402,F401  (split out: line limit)

@@ -15,7 +15,7 @@ import logging
 import secrets
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from aether_os.core.domain_ir import DomainIR
 from aether_os.core.domain_knowledge.loader import load_pack
@@ -304,7 +304,7 @@ def run_ir_fastpath(
 
         # Pass domain so money/PHI constraints flow into generated column types.
         models_code = _ir_to_models(_ir, domain=domain, multi_tenancy=multi_tenancy)
-        schemas_code = _ir_to_schemas(_ir, domain=domain)
+        schemas_code = _ir_to_schemas(_ir, domain=domain, multi_tenancy=multi_tenancy)
         stats_code = _gen_stats(_ir, multi_tenancy=multi_tenancy)
         seed_code = _gen_seed(
             _ir,

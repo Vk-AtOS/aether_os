@@ -2,7 +2,6 @@
 Vision Analysis Service for P00 Domain Research.
 Uses Claude/Bedrock vision capabilities to extract design patterns from screenshots.
 """
-import json
 import logging
 from typing import Dict, Any
 from aether_os.core.llm.client import get_llm_client

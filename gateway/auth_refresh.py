@@ -18,6 +18,7 @@ accepted (503), and nothing is reported as revoked.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -28,6 +29,7 @@ import redis.asyncio as aioredis
 from fastapi import HTTPException
 
 from aether_os.core.pipeline_state import REDIS_URL, get_redis
+from aether_os.core.resilience.redis_breaker import breaker_connection_class
 from aether_os.gateway.auth import create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,7 @@ async def _redis():
         return r
     loop = asyncio.get_running_loop()
     if _own_client is None or _own_client[0] is not loop:  # a client is bound to the loop that made it
-        _own_client = (loop, aioredis.from_url(REDIS_URL, decode_responses=True))
+        _own_client = (loop, aioredis.from_url(REDIS_URL, decode_responses=True, connection_class=breaker_connection_class()))
     return _own_client[1]
 
 
@@ -128,7 +130,7 @@ async def assert_access_token_live(claims: Dict[str, Any]) -> None:
         values = await r.mget(keys)
     except Exception as exc:
         logger.warning("Token revocation check failed (Redis unavailable) — denying request: %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     exp = claims.get("exp") if isinstance(claims.get("exp"), (int, float)) else time.time() + 3600
     if values[0] or values[1] or (user_id and _before_cutoff(values[2], claims, family)):
         _remember(jti, False, exp)
@@ -164,7 +166,7 @@ async def consume_refresh_token(claims: Dict[str, Any]) -> str:
         raise
     except Exception as exc:
         logger.warning("Refresh token state check failed — denying refresh: %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
     return family
 
 
@@ -180,7 +182,7 @@ async def revoke_session(claims: Dict[str, Any]) -> None:
             await r.set(family_key(family), "1", ex=_REFRESH_TTL_SECONDS)
     except Exception as exc:
         logger.warning("Logout could not revoke tokens (jti=%s): %s", jti, exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) -> None:
@@ -196,7 +198,7 @@ async def revoke_user_sessions(user_id: str, keep_family: Optional[str] = None) 
         await r.set(_cutoff_key(user_id), f"{int(time.time())}:{keep_family or ''}", ex=_REFRESH_TTL_SECONDS)
     except Exception as exc:
         logger.warning("Could not revoke sessions for user %s: %s", user_id, exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 # ── SSE exchange tokens ──────────────────────────────────────────────────────
@@ -212,7 +214,7 @@ async def sse_token_set(token: str, org_id: str, run_id: str) -> None:
         await r.set(f"sse:{token}", json.dumps({"org_id": org_id, "run_id": run_id}), ex=_SSE_TTL_SECONDS)
     except Exception as exc:
         logger.warning("SSE token could not be stored (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
 
 
 async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
@@ -226,5 +228,68 @@ async def sse_token_pop(token: str) -> Optional[Dict[str, Any]]:
             value, _ = await pipe.execute()
     except Exception as exc:
         logger.warning("SSE token could not be checked (Redis unavailable): %s", exc)
-        raise _UNAVAILABLE
+        raise _UNAVAILABLE from exc
+    return json.loads(value) if value else None
+
+
+# ── OAuth CSRF state ─────────────────────────────────────────────────────────
+# Single-use, 10 minutes. Redis only for the same reason as the SSE tokens: the callback
+# lands on any worker, and an in-process dict makes it fail on 3 of 4.
+_OAUTH_STATE_TTL_SECONDS = 600
+
+
+async def oauth_state_set(state: str, provider: str) -> None:
+    try:
+        r = await _redis()
+        await r.set(f"oauthstate:{state}", provider, ex=_OAUTH_STATE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("OAuth state could not be stored (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
+
+
+async def oauth_state_pop(state: str, provider: str) -> bool:
+    """True once for a state issued for `provider` (atomic GET+DELETE), False otherwise."""
+    try:
+        r = await _redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.get(f"oauthstate:{state}")
+            await pipe.delete(f"oauthstate:{state}")
+            value, _ = await pipe.execute()
+    except Exception as exc:
+        logger.warning("OAuth state could not be checked (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
+    return value == provider
+
+
+# ── OAuth sign-in codes ──────────────────────────────────────────────────────
+# The OAuth callback must not put a JWT (or an MFA challenge token) in a URL: URLs reach browser history, proxy and
+# access logs and Referer headers. It redirects with a random single-use code; the dashboard exchanges it once
+# (POST /auth/oauth/exchange). Stored hashed in Redis for 60 s so any worker can serve the exchange.
+_OAUTH_CODE_TTL_SECONDS = 60
+
+
+def _code_key(code: str) -> str:
+    return "oauthcode:" + hashlib.sha256(code.encode()).hexdigest()
+
+
+async def oauth_code_set(code: str, payload: dict) -> None:
+    try:
+        r = await _redis()
+        await r.set(_code_key(code), json.dumps(payload), ex=_OAUTH_CODE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("OAuth sign-in code could not be stored (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
+
+
+async def oauth_code_pop(code: str) -> Optional[dict]:
+    """The payload stored for `code`, once (atomic GET+DELETE); None for an unknown, spent or expired code."""
+    try:
+        r = await _redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.get(_code_key(code))
+            await pipe.delete(_code_key(code))
+            value, _ = await pipe.execute()
+    except Exception as exc:
+        logger.warning("OAuth sign-in code could not be checked (Redis unavailable): %s", exc)
+        raise _UNAVAILABLE from exc
     return json.loads(value) if value else None

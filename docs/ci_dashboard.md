@@ -1,26 +1,17 @@
-# CI for the dashboard (snippet for A7, who owns .github/workflows)
+# Dashboard CI
 
-The dashboard has `npm test` (vitest) and `npm run lint`; CI has no dashboard job yet.
+`.github/workflows/ci.yml` job `dashboard` runs, in `dashboard/`: `npm ci --no-audit --no-fund`, `npm run lint`
+(eslint), `npm test` (`vitest run`; tests in `dashboard/src/__tests__`), `npm audit --omit=dev --audit-level=high`
+and `npm run build` (`vite build`). Every step is blocking.
 
-```yaml
-  dashboard:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: dashboard } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: npm install --no-audit --no-fund
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-        env:
-          # frame-src of the meta CSP; the preview origin of the target environment
-          VITE_PREVIEW_FRAME_SRC: https://*.preview.example.com
-      - run: npm audit --audit-level=high --omit=dev   # fails the job on high+ in runtime deps
-```
+`npm ci` needs the committed `dashboard/package-lock.json` (tracked in git). The `Dockerfile` (line 9),
+`deploy/deploy.sh` (line 72) and `deploy/setup_vps.sh` (line 77) use the same `npm ci`. After changing
+`package.json`, run `npm install` and commit both files.
 
-Notes
-- `VITE_PREVIEW_FRAME_SRC` is read by `dashboard/vite.config.js` at build time. Unset means previews are blocked by the meta CSP (fails closed).
-- `package-lock.json` is git-ignored (.gitignore:98), so CI uses `npm install`; un-ignore and commit it to get `npm ci`, caching and a reproducible audit.
-- `npm run build:ci` runs lint, tests and build in one go for local use.
+- `VITE_PREVIEW_FRAME_SRC` (build time) is the preview origin put into the meta CSP `frame-src` of
+  `dashboard/index.html` (`dashboard/vite.config.js:6-13`). Unset means `frame-src 'self'` only, so previews
+  are blocked.
+- Browser click-through specs: `npm run test:e2e` (Playwright, specs in `dashboard/e2e`). They are not in the CI
+  job. Whether they need a running backend or only `npx playwright install chromium`: not verified here.
+- The `npm audit` step needs network access; run it locally where the network is available.
+- Whether the job has ever run on GitHub: not verified.

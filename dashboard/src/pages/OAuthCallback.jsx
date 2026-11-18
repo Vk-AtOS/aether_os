@@ -1,20 +1,38 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { parseCallback, fromExchange } from '../oauthCallback';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 const OAuthCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get('token');
-  const err = searchParams.get('error');
-  const error = err ? decodeURIComponent(err) : (!token ? 'No authentication token received.' : '');
+  const parsed = parseCallback(searchParams);
+  const [exchanged, setExchanged] = useState(null);
+  const result = parsed.kind === 'code' ? (exchanged || { kind: 'pending' }) : parsed;
+  const error = result.kind === 'error' ? result.message : '';
+  const code = parsed.kind === 'code' ? parsed.code : '';
+
+  // The code is single use: take it out of the address bar at once, then trade it for the session.
+  useEffect(() => {
+    if (!code) return undefined;
+    let alive = true;
+    window.history.replaceState(null, '', window.location.pathname);
+    api.client.post('/auth/oauth/exchange', { code })
+      .then((res) => { if (alive) setExchanged(fromExchange(res.data)); })
+      .catch((e) => { if (alive) setExchanged({ kind: 'error', message: e?.response?.data?.detail || 'The sign-in link expired. Sign in again.' }); });
+    return () => { alive = false; };
+  }, [code]);
 
   useEffect(() => {
-    if (error) return;
-    api.setToken(token, searchParams.get('refresh_token'));
-    navigate('/', { replace: true });
-  }, [error, token, searchParams, navigate]);
+    if (result.kind === 'mfa') {
+      // Hand the challenge to the login page's code step (route state keeps it out of history/URL).
+      navigate('/login', { replace: true, state: { mfaToken: result.mfaToken } });
+    } else if (result.kind === 'session') {
+      api.setToken(result.token, result.refreshToken);
+      navigate('/', { replace: true });
+    }
+  }, [result.kind, result.mfaToken, result.token, result.refreshToken, navigate]);
 
   if (error) {
     return (

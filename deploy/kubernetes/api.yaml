@@ -38,6 +38,9 @@ spec:
     metadata:
       labels:
         app: aetheros-api
+        # Velaris's NetworkPolicy admits only pods with these labels (KAN-112)
+        app.kubernetes.io/name: aetheros-api
+        app.kubernetes.io/component: api
     spec:
       containers:
         - name: api
@@ -114,11 +117,11 @@ spec:
                   name: aetheros-secrets
                   key: VELARIS_API_SECRET
                   optional: true
-            - name: VELARIS_IDENTITY_PRIVATE_KEY
+            - name: VELARIS_IDENTITY_PRIVATE_KEY_PEM
               valueFrom:
                 secretKeyRef:
                   name: aetheros-secrets
-                  key: VELARIS_IDENTITY_PRIVATE_KEY
+                  key: VELARIS_IDENTITY_PRIVATE_KEY_PEM
                   optional: true
           resources:
             requests:

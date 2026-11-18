@@ -8,18 +8,18 @@ live in writers.py.
 """
 from __future__ import annotations
 import asyncio
-import builtins
-import importlib.util
 import json
 import logging
 import os
 import random
 import socket
 import subprocess
-import sys
-import types
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.build_runner import build_image
+from aether_os.core.sandbox.runner import SandboxUnavailable
 
 # Re-export writers so callers can import everything from helpers
 from .writers import (  # noqa: F401
@@ -86,64 +86,6 @@ def find_main_py(project_dir: Path, canonical_src_dir: Optional[str] = None) -> 
     # Last resort: any main.py (including scaffolding stub)
     found_all = list(project_dir.rglob("main.py"))
     return found_all[0] if found_all else None
-
-
-def generate_fallback_app(
-    target_dir: Path,
-    raw_input: str,
-    dest: Optional[Path] = None,
-) -> Optional[Path]:
-    """
-    Generate a domain-specific app from raw_input when p04_backend timed out.
-    Writes to dest (or target_dir/main.py) and returns the path.
-    """
-    try:
-        # Import domain templates from p04a
-        ta_path = Path(__file__).parent.parent / "p04a_backend_codegen" / "task_agent.py"
-        if not ta_path.exists():
-            return None
-        # Load the module without triggering package __init__
-        real_import = builtins.__import__
-
-        def _stub_import(name, *args, **kwargs):
-            if "aether_os" in name:
-                m = sys.modules.get(name)
-                if m is None:
-                    m = types.ModuleType(name)
-                    sys.modules[name] = m
-                return m
-            return real_import(name, *args, **kwargs)
-
-        builtins.__import__ = _stub_import
-        try:
-            spec = importlib.util.spec_from_file_location("_p04a_ta", ta_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        finally:
-            builtins.__import__ = real_import
-
-        import ast
-        code = mod._generate_from_requirement(raw_input)
-        ast.parse(code)  # validate
-
-        if dest is None:
-            dest = target_dir / "main.py"
-        dest.write_text(code)
-
-        # Also write httpx to requirements.txt if missing
-        req = dest.parent / "requirements.txt"
-        if req.exists():
-            if "httpx" not in req.read_text():
-                req.write_text(req.read_text() + "\nhttpx>=0.27.0\n")
-        else:
-            req.write_text(
-                "fastapi>=0.111.0\nuvicorn[standard]>=0.29.0\n"
-                "pydantic>=2.0.0\nhttpx>=0.27.0\npython-dotenv\n"
-            )
-        return dest
-    except Exception as exc:
-        logger.warning("[p11] fallback app generation failed: %s", exc)
-        return None
 
 
 # ── Port allocation ───────────────────────────────────────────────────────────
@@ -322,23 +264,24 @@ async def deploy_to_railway(project_dir: Path, run_id: str) -> Dict[str, Any]:
 # ── Docker low-level helpers ──────────────────────────────────────────────────
 
 async def docker_build(app_dir: Path, image_name: str) -> Dict[str, Any]:
+    """Build the generated Dockerfile in the builder sandbox (core/sandbox/build_runner.py), never with a
+    host `docker build`: its RUN steps are generated code. No sandbox means no build."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "build", "-t", image_name, str(app_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-        if proc.returncode != 0:
+        done = await asyncio.wait_for(
+            asyncio.to_thread(build_image, app_dir, image_name, run_dir=phase_exec.project_root(app_dir),
+                              timeout=600),
+            timeout=660)
+        if done.returncode != 0:
             return {
                 "success": False,
-                "error": f"Docker build failed: {stderr.decode()[:500]}",
+                "error": f"Docker build failed: {(done.stderr or b'').decode(errors='replace')[-500:]}",
             }
         return {"success": True}
-    except asyncio.TimeoutError:
+    except SandboxUnavailable as exc:
+        logger.error("p11_deployment: generated Dockerfile NOT built: %s", exc)
+        return {"success": False, "error": f"Docker build refused, builder sandbox unavailable: {exc}"}
+    except (asyncio.TimeoutError, subprocess.TimeoutExpired):
         return {"success": False, "error": "Docker build timed out (600s)"}
-    except FileNotFoundError:
-        return {"success": False, "error": "Docker not found — is Docker installed?"}
     except Exception as exc:
         logger.warning("p11_deployment: docker_build failed: %s", exc)
         return {"success": False, "error": str(exc)}

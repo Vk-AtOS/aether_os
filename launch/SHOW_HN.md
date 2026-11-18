@@ -42,7 +42,7 @@ For "Build a SaaS CRM with contact management and a deal pipeline", the output i
 - **MessageBus**: phases communicate exclusively through Redis RPUSH/BLPOP. The orchestrator never calls phase logic directly — it only reads and writes to the bus. This makes phases independently testable and swappable.
 - **Multi-tenancy**: every DB query filters by `org_id`. An `X-Org-ID` header is enforced in middleware. A failing row-level check is a 403, not a data leak.
 - **LLM routing**: Anthropic Claude primary → Google Gemini secondary → OpenRouter → Ollama. Each tier is gated behind an env var. Failover is automatic within a phase; the system doesn't retry across phases.
-- **Sandbox**: generated code that runs (in p07 testing and FDE run-app) goes through a sandbox guard that strips dangerous imports and blocks filesystem writes outside the project directory.
+- **Sandbox**: generated code that runs (in p07 testing and FDE run-app) runs in a Docker container (non-root, capabilities dropped, read-only root, no network for builds and tests).
 - **Self-healing loop**: p07b runs a patch agent that reads the failing test output, generates a targeted fix, applies it, and re-runs the test. It has a configurable iteration limit to prevent infinite loops.
 
 **Limitations I want to be honest about**
@@ -57,7 +57,7 @@ For "Build a SaaS CRM with contact management and a deal pipeline", the output i
 
 FastAPI + SQLAlchemy async 2.0 + PostgreSQL + Redis + React 18 + TypeScript + Vite + Tailwind. Full list in README.
 
-The live demo is at https://REDACTED_IP (demo@aetheros.ai / demo1234). The VPS is a 4-core/8GB DigitalOcean droplet. It will fall over under heavy concurrent load — this is a demo, not a production cluster.
+The live demo is at <demo URL; owner to fill in before posting>. The VPS is a 4-core/8GB DigitalOcean droplet. It will fall over under heavy concurrent load — this is a demo, not a production cluster.
 
 Source is proprietary for now but I'm happy to open-source specific components (the MessageBus, the gate evaluation framework, the sandbox guard) if there's interest.
 

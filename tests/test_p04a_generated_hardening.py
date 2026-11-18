@@ -399,3 +399,52 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["too_big"] = c.get("/api/customers?page_size=201", headers=h).status_code
 ''')
     assert r["ok"] == 200 and r["size"] == 200 and r["small"] == 2 and r["too_big"] == 422, r
+
+
+def test_user_entity_and_tenant_fields_are_never_client_writable(tmp_path, monkeypatch):
+    # KAN-69 G1/G2: a spec entity named User got a CRUD router whose schemas carried role and password_hash,
+    # so a signed-up user PATCHed itself to admin; org_id could be mass-assigned across tenants.
+    ir = {**IR, "entities": IR["entities"] + [
+        {"name": "User", "table": "users", "fields": [
+            {"name": "email", "type": "email"}, {"name": "role", "type": "string"},
+            {"name": "password_hash", "type": "string"}]},
+        {"name": "Note", "table": "notes", "fields": [
+            {"name": "body", "type": "string"}, {"name": "org_id", "type": "string"},
+            {"name": "password_hash", "type": "string"}]}]}
+    from aether_os.core.domain_ir import DomainIR
+    from aether_os.phases.p04a_backend_codegen import ir_generators as g
+    import tempfile, pathlib
+    path = pathlib.Path(tempfile.mkdtemp()) / "domain_ir.json"
+    path.write_text(json.dumps(ir))
+    d = DomainIR.load(path)
+    schemas = g.ir_to_schemas(d, "crm", multi_tenancy=True)
+    crud = g.generate_crud_py(d, multi_tenancy=True)
+    models = g.ir_to_models(d, "crm", multi_tenancy=True)
+    assert "UserCreate" not in schemas and "UserUpdate" not in schemas and "users_router" not in crud
+    assert "role:" not in schemas and "password_hash" not in schemas and "org_id" not in schemas
+    assert models.count("org_id = Column") == 4          # users + three entities, no duplicate column
+    compile(models, "m", "exec"); compile(schemas, "s", "exec"); compile(crud, "c", "exec")
+    run = _crm(tmp_path, monkeypatch, ir_override=ir, tenancy=True)
+    assert "users_router" not in (run / "src/routers/crud.py").read_text()
+
+
+def test_refresh_token_is_an_httponly_cookie_and_logout_clears_it(tmp_path, monkeypatch):
+    # KAN-69 G10: the browser kept the 7-day refresh token in localStorage. The API now also sets it as an
+    # HttpOnly SameSite=Strict cookie on /api/auth, refresh works from the cookie alone, logout clears it.
+    app = _crm(tmp_path, monkeypatch)
+    r = run_script(app, r'''
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=False) as c:
+    reg = c.post("/api/auth/register", json={"email": "ck@x.io", "password": "Passw0rd!xyz1", "name": "N"})
+    out["register"] = reg.status_code
+    cookie = reg.headers.get("set-cookie", "").lower()
+    out["flags"] = [f in cookie for f in ("refresh_token=", "httponly", "samesite=strict", "path=/api/auth")]
+    out["refresh_from_cookie"] = c.post("/api/auth/refresh").status_code          # no body: the cookie client sends it
+    out["refresh_from_body"] = c.post("/api/auth/refresh", json={"refresh_token": reg.json()["refresh_token"]}).status_code
+    out["logout"] = c.post("/api/auth/logout").status_code
+    c.cookies.clear()
+    out["refresh_without_anything"] = c.post("/api/auth/refresh").status_code
+''')
+    assert r == {"register": 201, "flags": [True] * 4, "refresh_from_cookie": 200, "refresh_from_body": 200,
+                 "logout": 204, "refresh_without_anything": 401}, r

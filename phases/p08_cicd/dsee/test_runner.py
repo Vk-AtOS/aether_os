@@ -15,8 +15,14 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
 from typing import Optional
+
+from aether_os.core.sandbox.phase_exec import run_sync
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
+logger = logging.getLogger(__name__)
+
+_TEST_TIMEOUT_S = 600
 
 
 @dataclass
@@ -38,17 +44,20 @@ class TieredTestRunner:
         self._tier3_thread: Optional[threading.Thread] = None
 
     def _run_pytest(self, args: list[str]) -> tuple[bool, str]:
-        """Run pytest in a subprocess and return (passed, output)."""
-        cmd = ["pytest"] + args
+        """Run pytest on the repo through the sandbox and return (passed, output).
+
+        The repo content comes from a webhook, i.e. it is untrusted code: it must never run
+        on the platform host. No sandbox available means the tests did not run (fail closed).
+        """
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=self.root_dir,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+            result = run_sync(["python3", "-m", "pytest", *args], cwd=self.root_dir,
+                              timeout=_TEST_TIMEOUT_S, text=True)
             return result.returncode == 0, result.stdout + result.stderr
+        except SandboxUnavailable as e:
+            logger.error("p08_cicd dsee test_runner: tests not run, %s", e)
+            return False, str(e)
+        except subprocess.TimeoutExpired:
+            return False, f"pytest timed out after {_TEST_TIMEOUT_S}s"
         except Exception as e:
             logger.warning("p08_cicd dsee test_runner: pytest execution failed: %s", e)
             return False, str(e)

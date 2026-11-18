@@ -8,9 +8,8 @@ Observability, SLA, costs, pricing, and feature-flags live in system_info_router
 from __future__ import annotations
 import logging
 import os
-import asyncio
 from typing import Any, Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.db import get_engine as _ge
 from aether_os.core.db import get_session_factory as _gsf
@@ -37,16 +36,20 @@ router = APIRouter(tags=["system"])
 def _current_user():
     return Depends(get_current_user)
 @router.get("/system/metrics")
-async def system_metrics() -> Dict[str, Any]:
-    """System resource metrics — CPU, memory, disk, Redis, DB, pipeline."""
+async def system_metrics(user: Dict[str, Any] = _current_user()) -> Dict[str, Any]:
+    """Service health. Signed-in callers only (KAN-69 F15). Host load and the platform-wide run count describe
+    the whole platform, so only a superadmin sees them; everyone else gets db/redis health and their own org's runs."""
     result: Dict[str, Any] = {"timestamp": _time.time()}
+    platform = user.get("role") == "superadmin"
     # System resources
     try:
+        if not platform:
+            raise PermissionError("host load is for superadmin")
         result["cpu_percent"] = _psu.cpu_percent(interval=0.1)
         result["memory_percent"] = _psu.virtual_memory().percent
         result["disk_percent"] = _psu.disk_usage("/").percent
     except Exception as exc:
-        logger.debug("system_metrics: psutil unavailable: %s", exc)
+        logger.debug("system_metrics: host load not reported: %s", exc)
         result["cpu_percent"] = None
         result["memory_percent"] = None
         result["disk_percent"] = None
@@ -72,9 +75,10 @@ async def system_metrics() -> Dict[str, Any]:
     # Active pipeline runs
     try:
         async with _gsf2()() as _s2:
-            active_count = (await _s2.execute(
-                _sel(_func.count()).select_from(_Run).where(_Run.status == "running")
-            )).scalar_one_or_none() or 0
+            q = _sel(_func.count()).select_from(_Run).where(_Run.status == "running")
+            if not platform:
+                q = q.where(_Run.org_id == user.get("org_id"))
+            active_count = (await _s2.execute(q)).scalar_one_or_none() or 0
         result["active_runs"] = active_count
     except Exception as exc:
         logger.debug("system_metrics: active runs count failed: %s", exc)
@@ -241,7 +245,9 @@ async def system_health(
 async def workloop_status(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Detailed workloop monitor status — failure patterns, findings, auto-fixes applied."""
+    """Detailed workloop monitor status: failure patterns, findings, auto-fixes (platform-wide, operator only)."""
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Platform operator access required")
     try:
         return get_workloop_monitor().get_status()
     except Exception as exc:

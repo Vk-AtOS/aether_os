@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import time
 import io
 import json
 import logging
@@ -10,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from aether_os.core import vector_store
 from aether_os.core.run_app import safe_fs
 
 try:
@@ -25,6 +27,10 @@ _SKIP_DIRS = {"node_modules", ".git", "__pycache__", "dist", "build", ".venv", "
 _UPLOAD_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".md", ".sql", ".yml", ".yaml", ".sh", ".txt"}
 
 
+SNAPSHOT_MAX_BYTES = 200_000
+SNAPSHOT_MAX_PER_RUN = 500
+
+
 class ArtifactStore:
     """
     Semantic store for generated artifacts backed by PostgreSQL (artifact_embeddings table).
@@ -38,7 +44,8 @@ class ArtifactStore:
         content: str,
         org_id: Optional[str] = None,
     ) -> None:
-        """Embed and upsert a file's content into artifact_embeddings."""
+        """Record a snapshot of the file, then embed and upsert its content into artifact_embeddings."""
+        await self.record_snapshot(run_id, file_path, content)     # independent of the embedder being up
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         try:
             client = get_llm_client()
@@ -73,18 +80,51 @@ class ArtifactStore:
                 if existing:
                     existing.content_hash = content_hash
                     existing.embedding = embedding
+                    row_id = existing.id
                 else:
+                    row_id = str(uuid.uuid4())
                     session.add(ArtifactEmbedding(
-                        id=str(uuid.uuid4()),
+                        id=row_id,
                         run_id=run_id,
                         org_id=resolved_org_id,
                         file_path=file_path,
                         content_hash=content_hash,
                         embedding=embedding,
                     ))
+                await session.flush()
+                # The JSON column stays the source of truth; the vector copy is what SQL search ranks.
+                await vector_store.write_vector(session, row_id, embedding)
                 await session.commit()
         except Exception as exc:
             logger.error("Failed to store artifact %s: %s", file_path, exc)
+
+    async def record_snapshot(self, run_id: str, file_path: str, content: str) -> bool:
+        """Append a Snapshot row (the run's file history) unless the newest one for this path is identical.
+
+        Root cause of the always-empty Snapshots tab: nothing ever wrote Snapshot rows. Bounded: files over
+        SNAPSHOT_MAX_BYTES are not kept and a run keeps at most SNAPSHOT_MAX_PER_RUN rows.
+        """
+        if not content or len(content.encode()) > SNAPSHOT_MAX_BYTES:
+            return False
+        try:
+            from aether_os.core.db import get_session_factory
+            from aether_os.core.models import Snapshot
+            from sqlalchemy import func, select
+            async with get_session_factory()() as session:
+                last = (await session.execute(
+                    select(Snapshot.content).where(Snapshot.run_id == run_id, Snapshot.file_path == file_path)
+                    .order_by(Snapshot.created_at.desc()).limit(1))).scalar_one_or_none()
+                if last == content:
+                    return False
+                n = (await session.execute(select(func.count()).select_from(Snapshot).where(Snapshot.run_id == run_id))).scalar_one()
+                if n >= SNAPSHOT_MAX_PER_RUN:
+                    return False
+                session.add(Snapshot(run_id=run_id, file_path=file_path, content=content, created_at=time.time()))
+                await session.commit()
+            return True
+        except Exception as exc:
+            logger.warning("record_snapshot failed for %s: %s", file_path, exc)
+            return False
 
     async def _lookup_org_id(self, run_id: str) -> Optional[str]:
         try:
@@ -125,10 +165,15 @@ class ArtifactStore:
 
         sf = get_session_factory()
         async with sf() as session:
+            nearest = await vector_store.search(session, org_id, [float(x) for x in query_np], fetch_limit)
+            if nearest is not None:
+                return nearest
+            # JSON fallback: rank the newest rows (it used to rank an arbitrary few, with no ORDER BY).
             rows = (await session.execute(
                 select(ArtifactEmbedding.run_id, ArtifactEmbedding.file_path, ArtifactEmbedding.embedding)
                 .where(ArtifactEmbedding.org_id == org_id)
-                .limit(fetch_limit)
+                .order_by(ArtifactEmbedding.created_at.desc())
+                .limit(max(fetch_limit, vector_store.JSON_SCAN_LIMIT))
             )).all()
 
         results = []
@@ -247,7 +292,6 @@ class ArtifactStore:
 
     def _s3_download_text(self, run_id: str, file_path: str) -> Optional[str]:
         try:
-            import boto3
             s3 = self._s3_client()
             obj = s3.get_object(Bucket=_S3_BUCKET, Key=self._s3_key(run_id, file_path))
             return obj["Body"].read().decode("utf-8", errors="replace")
@@ -264,7 +308,6 @@ class ArtifactStore:
 
     def _upload_run_sync(self, run_id: str, project_dir: Path) -> int:
         try:
-            import boto3
             s3 = self._s3_client()
             count = 0
             for f in safe_fs.walk_files(project_dir, skip_dirs=_SKIP_DIRS):

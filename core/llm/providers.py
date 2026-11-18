@@ -14,7 +14,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Optional
+from typing import Optional
 
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.errors import LLMCallError
@@ -240,7 +240,7 @@ async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> st
 
     # Check if there's an active pipeline run to stream into
     try:
-        from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE
+        from aether_os.core.run_context import ACTIVE_RUN_ID, ACTIVE_PHASE
         run_id = ACTIVE_RUN_ID.get()
         phase  = ACTIVE_PHASE.get()
     except Exception as exc:
@@ -383,7 +383,7 @@ async def _call_bedrock(
             # Record per-call LLM usage in DB (best-effort)
             try:
                 from aether_os.core.billing import get_billing_tracker as _gbt
-                from aether_os.orchestrator.events import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP, ACTIVE_ORG_ID as _AOID
+                from aether_os.core.run_context import ACTIVE_RUN_ID as _ARID, ACTIVE_PHASE as _AP, ACTIVE_ORG_ID as _AOID
                 _run_id = _ARID.get("") or os.environ.get("ACTIVE_RUN_ID", "unknown")
                 _phase  = _AP.get("") or os.environ.get("ACTIVE_PHASE", "unknown")
 

@@ -13,8 +13,9 @@ import logging
 import os
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from aether_os.core.resilience.redis_breaker import breaker_connection_class
 from aether_os.core.security.redact import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ async def get_redis():
         client = aioredis.from_url(
             REDIS_URL, decode_responses=True,
             socket_connect_timeout=2, socket_timeout=5, health_check_interval=30,
+            connection_class=breaker_connection_class(),
         )
         await client.ping()
         _redis, _redis_available, _redis_warned = client, True, False

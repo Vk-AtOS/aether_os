@@ -13,7 +13,6 @@ import urllib.error
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
-from typing import Optional
 
 
 @dataclass

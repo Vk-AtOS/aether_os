@@ -10,7 +10,6 @@ HIPAA note: this file generates FAKE data only — never use real patient info.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from datetime import datetime, date, timedelta
 
 logger = logging.getLogger(__name__)
