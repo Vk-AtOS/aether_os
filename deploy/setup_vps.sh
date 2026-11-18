@@ -71,7 +71,8 @@ rsync -a --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
 # ── 6. Python venv ────────────────────────────────────────────────────────────
 python3.11 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip wheel
-"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
+# The lock (tested and audited versions), not the floors in requirements.txt.
+"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.lock"
 
 # ── 7. Dashboard build ────────────────────────────────────────────────────────
 (cd "$INSTALL_DIR/dashboard" && npm ci && npm run build)
