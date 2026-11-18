@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
 from aether_os.core.run_app import safe_fs
 from typing import List
 
@@ -57,11 +59,13 @@ def scan_file(
     main_py_path: Path,
     project_name: str = "",
     domain: str = "general",
-    root: Optional[Path] = None,
+    *,
+    root: Optional[Path],
 ) -> ComplianceScanResult:
     """
-    root: the run directory main_py_path lives in (default: its folder); nothing below it is
-    read through a symlink.
+    root: the run directory main_py_path lives in. Required, no fallback: a missing, relative or
+    symlinked root, or a main.py outside it, is reported as "source not found" (SCAN-001);
+    nothing below root is read through a symlink.
 
     Main entry point. Scans a FastAPI main.py and returns compliance results.
     Handles missing files gracefully — always returns a ComplianceScanResult,
@@ -71,8 +75,12 @@ def scan_file(
 
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    root = root or main_py_path.parent
-    source = safe_fs.read_text_or_none(root, main_py_path)
+    try:
+        root = require_project_root(root)
+        source = safe_fs.read_text_or_none(root, relative_to_root(root, main_py_path))
+    except SandboxViolation as exc:
+        logger.warning("code_scanner: %s", exc)
+        source = None
     if source is None:
         return ComplianceScanResult(
             project_name=project_name,
@@ -100,10 +108,7 @@ def scan_file(
     # including routers/crud.py and any other modules — CRUD routes live there,
     # not in main.py.
     src_dir = main_py_path.parent
-    try:
-        _under = src_dir.relative_to(root)
-    except ValueError:
-        _under = Path()
+    _under = relative_to_root(root, src_dir)
     for _rel in safe_fs.walk_files(root, _under, skip_dirs=("__pycache__",)):
         _router_file = root / _rel
         if _router_file == main_py_path or _router_file.suffix != ".py":

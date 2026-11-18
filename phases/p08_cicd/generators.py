@@ -96,7 +96,7 @@ def _generate_compliance_checker(project_dir: Path, results: dict) -> None:
             '            from aether_os.core.compliance.code_scanner import scan_file\n'
             '            main_py = ROOT / "src" / "main.py"\n'
             '            if main_py.exists():\n'
-            '                result = scan_file(main_py)\n'
+            '                result = scan_file(main_py, root=ROOT)\n'
             '                current_score = result.score\n'
             '                score_dropped = current_score < baseline_score\n'
             '    except Exception as scan_err:\n'

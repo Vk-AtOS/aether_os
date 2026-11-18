@@ -112,7 +112,7 @@ async def get_run_compliance(
         _snap = pathlib.Path(_tmp) / "src" / "main.py"
         _snap.parent.mkdir()
         _snap.write_text(main_src, encoding="utf-8")
-        scan_result = scan_file(_snap, project_name=_project_name, domain=_domain)
+        scan_result = scan_file(_snap, project_name=_project_name, domain=_domain, root=pathlib.Path(_tmp))
 
     # Persist the result so subsequent calls are fast (links in project_dir are never followed)
     pdf_path = None

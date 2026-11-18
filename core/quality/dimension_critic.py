@@ -19,6 +19,8 @@ import logging
 import re
 from pathlib import Path
 
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
 from aether_os.core.run_app import safe_fs
 from typing import Optional
 
@@ -120,15 +122,18 @@ def _detect_artifact_type(file_path: str, content: str) -> str:
 # ---------------------------------------------------------------------------
 
 def critique_artifact(file_path: str, artifact_type: str = "", tools: Optional[FrontendToolReport] = None,
-                      root: Optional[str] = None) -> CritiqueReport:
+                      *, root: str) -> CritiqueReport:
     """Read *file_path*, run all 8 dimension scorers, return a CritiqueReport.
 
-    Fail-open: if the file cannot be read, returns a report with overall_score=0.0
-    and passed=False so the pipeline can still gate on it.
+    root: the run directory (required, no default). The file is read relative to it with no
+    link followed. A file that cannot be read this way (missing, a link, outside root, bad root)
+    gets overall_score=0.0 and passed=False so the pipeline still gates on it.
     """
     try:
-        # root = the run directory: no link below it is followed (KAN-63)
-        content = safe_fs.safe_read_text(root or Path(file_path).parent, file_path)
+        project_root = require_project_root(root)
+        content = safe_fs.read_text_or_none(project_root, relative_to_root(project_root, file_path))
+        if content is None:
+            raise SandboxViolation(f"{file_path} is not a regular file under {project_root}")
     except Exception as e:
         logger.warning("[dimension_critic] Cannot read %s: %s", file_path, e)
         return CritiqueReport(
@@ -201,23 +206,29 @@ def critique_artifact(file_path: str, artifact_type: str = "", tools: Optional[F
     return report
 
 
-def critique_directory(output_dir: str, tools: Optional[FrontendToolReport] = None) -> list[CritiqueReport]:
+def critique_directory(output_dir: str, tools: Optional[FrontendToolReport] = None,
+                       *, root: Optional[str] = None) -> list[CritiqueReport]:
     """Walk *output_dir*, auto-detect artifact types, critique each .py file.
 
-    Returns one CritiqueReport per file. Non-Python files are skipped.
+    root: the run directory output_dir sits in (default: output_dir itself, which must be a real,
+    absolute directory). Returns one CritiqueReport per file. Non-Python files are skipped.
     __pycache__, .venv, and node_modules directories are excluded.
     """
     reports: list[CritiqueReport] = []
     base = Path(output_dir)
-
-    if not safe_fs.is_real_dir(base, ""):
-        logger.warning("[dimension_critic] critique_directory: not a real directory: %s", output_dir)
+    try:
+        project_root = require_project_root(root or output_dir)
+        under = relative_to_root(project_root, base)
+        if not safe_fs.is_real_dir(project_root, under):
+            raise SandboxViolation(f"{output_dir} is not a real directory under {project_root}")
+    except SandboxViolation as exc:
+        logger.warning("[dimension_critic] critique_directory refused: %s", exc)
         return reports
 
     _exclude_dirs = {"__pycache__", ".venv", "node_modules"}
 
     # walk_files never enters or lists a link, and skips the excluded directories
-    found = [base / rel for rel in safe_fs.walk_files(base, skip_dirs=_exclude_dirs)]
+    found = [project_root / rel for rel in safe_fs.walk_files(project_root, under, skip_dirs=_exclude_dirs)]
     py_files = [p for p in found if p.suffix == ".py"]
     fe_files = [p for p in found if p.suffix in _FRONTEND_EXTENSIONS]
     all_files = sorted(set(py_files + fe_files))
@@ -229,7 +240,7 @@ def critique_directory(output_dir: str, tools: Optional[FrontendToolReport] = No
 
     for source_file in all_files:
         try:
-            report = critique_artifact(str(source_file), tools=tools, root=str(base))
+            report = critique_artifact(str(source_file), tools=tools, root=str(project_root))
             reports.append(report)
         except Exception as e:
             logger.warning("[dimension_critic] Failed to critique %s: %s", source_file, e)
