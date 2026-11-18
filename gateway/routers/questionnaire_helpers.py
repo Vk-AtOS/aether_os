@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+from html import escape
 from datetime import datetime
 
 import httpx
@@ -82,9 +83,9 @@ async def _send_email_via_sendgrid(
             {
                 "type": "text/html",
                 "value": (
-                    f"<p>Hi {to_name},</p>"
-                    f"<p>{brand} needs your input for the <strong>{stage_label}</strong> stage.</p>"
-                    f"<p><a href='{share_url}' style='padding:12px 24px;background:#6d28d9;"
+                    f"<p>Hi {escape(to_name or '')},</p>"
+                    f"<p>{escape(brand)} needs your input for the <strong>{escape(stage_label)}</strong> stage.</p>"
+                    f"<p><a href='{escape(share_url)}' style='padding:12px 24px;background:#6d28d9;"
                     f"color:#fff;border-radius:8px;text-decoration:none;font-weight:bold'>"
                     f"Open questionnaire</a></p>"
                     f"<p>This link expires on {expires_str}.</p>"

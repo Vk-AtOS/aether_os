@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from html import escape
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -123,11 +124,11 @@ async def _send_invite_email(email: str, temp_password: str, inviter_name: str) 
         login_url = f"{frontend_url}/login"
         notifier = get_email_notifier()
         body_html = (
-            f"<p>You've been invited to join <strong>AetherOS</strong> by {inviter_name}.</p>"
+            f"<p>You've been invited to join <strong>AetherOS</strong> by {escape(inviter_name)}.</p>"
             f"<p>Your temporary credentials:</p>"
-            f"<ul><li><strong>Email:</strong> {email}</li>"
-            f"<li><strong>Temporary password:</strong> <code>{temp_password}</code></li></ul>"
-            f"<p><a href='{login_url}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
+            f"<ul><li><strong>Email:</strong> {escape(email)}</li>"
+            f"<li><strong>Temporary password:</strong> <code>{escape(temp_password)}</code></li></ul>"
+            f"<p><a href='{escape(login_url)}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
             f"border-radius:6px;text-decoration:none;display:inline-block'>Sign in to AetherOS</a></p>"
             f"<p>Please change your password after your first login.</p>"
             f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
@@ -151,9 +152,9 @@ async def _send_password_reset_email(target_email: str, temp_password: str) -> b
         notifier = get_email_notifier()
         body_html = (
             f"<p>An administrator has reset your AetherOS password.</p>"
-            f"<p>Your temporary password is: <code>{temp_password}</code></p>"
+            f"<p>Your temporary password is: <code>{escape(temp_password)}</code></p>"
             f"<p>You will be required to change it on your next login.</p>"
-            f"<p><a href='{frontend_url}/login' style='background:#7c3aed;color:#fff;"
+            f"<p><a href='{escape(frontend_url)}/login' style='background:#7c3aed;color:#fff;"
             f"padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block'>Sign In</a></p>"
             f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
         )
