@@ -1,5 +1,5 @@
 """
-AetherOS — 29-Phase Factory Pipeline
+AetherOS — 12-Stage Factory Pipeline (orchestrator/phase_sequence.py is the list)
 
 Each phase is a completely independent module.
 All inter-phase communication goes through the MessageBus only.
@@ -108,9 +108,15 @@ from aether_os.orchestrator.pipeline_completion import (
 
 logger = logging.getLogger(__name__)
 
+def _slots_in_use(sem: asyncio.Semaphore, limit: int) -> int:
+    """Slots held right now. (The old log line computed `value ^ limit - value`: ^ binds looser
+    than -, so it printed an XOR, not the count.)"""
+    return max(0, limit - sem._value)
+
+
 class FactoryPipeline:
     """
-    26-phase factory pipeline.
+    12-stage factory pipeline (s01_intake .. s12_specialist; each stage runs one or more phase agents).
     Routes entirely via the message bus.
     No phase imports another phase.
     """
@@ -156,7 +162,8 @@ class FactoryPipeline:
 
         timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
         sem = _get_pipeline_semaphore()
-        logger.info("Pipeline %s waiting for concurrency slot (%d/%d in use)", run_id, sem._value ^ int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")) - sem._value, int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2")))
+        _limit = int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2"))
+        logger.info("Pipeline %s waiting for concurrency slot (%d/%d in use)", run_id, _slots_in_use(sem, _limit), _limit)
         async with sem:
             logger.info("Pipeline %s acquired concurrency slot", run_id)
             # Store sem on the instance so _pause_for_questionnaire can release it
