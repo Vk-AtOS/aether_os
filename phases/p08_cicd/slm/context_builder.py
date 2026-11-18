@@ -6,13 +6,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Any, Union
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from src.repo.indexer import UniversalIndexer
-    from src.knowledge.graph import KnowledgeGraph
 
 # Alias as requested by prompt
 from aether_os.phases.p08_cicd.dfle.log_parser import ParsedLog as ParsedFailure
@@ -63,15 +59,13 @@ class ContextBuilder:
         snippet = lines[start_line - 1 : end_line]
         return "\n".join(snippet)
 
-    def build(self, failure: ParsedFailure, index: Union[ASTIndex, 'UniversalIndexer'], 
-              graph: 'KnowledgeGraph' | None = None, language: str = "python") -> str:
+    def build(self, failure: ParsedFailure, index: ASTIndex, language: str = "python") -> str:
         """
         Build a context string containing relevant code snippets.
 
         Args:
             failure: The parsed CI log/failure information.
-            index: The current AST index or UniversalIndexer.
-            graph: Optional KnowledgeGraph for additional context.
+            index: The current AST index (from dfle.ast_index.build_index).
             language: The detected language of the failure.
 
         Returns:
@@ -84,56 +78,6 @@ class ContextBuilder:
         current_char_count = 0
         max_chars = self.MAX_TOKENS * self.CHARS_PER_TOKEN
 
-        # 1. Use UniversalIndexer if provided
-        from src.repo.indexer import UniversalIndexer
-        if isinstance(index, UniversalIndexer):
-            primary_trace = failure.primary_trace
-            if primary_trace and primary_trace.frames:
-                # Find the most relevant frame (usually the last one in our code)
-                last_frame = primary_trace.frames[-1]
-                repo_context = index.get_context(
-                    language=language,
-                    failing_file=last_frame.filename,
-                    failing_function=last_frame.function,
-                    line_number=last_frame.line,
-                    max_tokens=2000
-                )
-                if repo_context:
-                    context_parts.append("SOURCE CODE CONTEXT FROM REPOSITORY:\n")
-                    context_parts.append(repo_context)
-                    current_char_count += len(repo_context) + 40
-
-        # 2. Use Knowledge Graph context if available
-        if graph and current_char_count < max_chars:
-            graph_parts = []
-            seen_entities = set()
-            
-            function_names = []
-            for trace in failure.stack_traces:
-                for frame in trace.frames:
-                    function_names.append(frame.function)
-
-            for func_name in function_names:
-                related = graph.get_related_entities(func_name, depth=1)
-                for entity in related:
-                    eid = entity["id"]
-                    if eid not in seen_entities:
-                        etype = entity["type"]
-                        part = f"- {eid} ({etype})\n"
-                        if current_char_count + len(part) < max_chars:
-                            graph_parts.append(part)
-                            current_char_count += len(part)
-                            seen_entities.add(eid)
-                        else:
-                            break
-                if current_char_count >= max_chars:
-                    break
-            
-            if graph_parts:
-                context_parts.append("\nRELATED ENTITIES FROM KNOWLEDGE GRAPH:\n")
-                context_parts.extend(graph_parts)
-
-        # 3. Fallback to existing dict-based indexing if room permits
         if current_char_count < max_chars and isinstance(index, dict):
             # Track seen (file, function) to avoid duplicates
             seen_functions = set()
