@@ -88,7 +88,7 @@ def test_the_gateway_answers_with_a_trace_id_and_velaris_calls_carry_it(tmp_path
 
     from aether_os.core.telemetry.trace_context import bind_trace_id, reset_trace_id
     from aether_os.core.velaris.client import Identity, sign_request
-    from tests.gateway_env import gateway_env
+    from aether_os.tests.gateway_env import gateway_env
 
     with gateway_env(tmp_path) as gw:
         r = gw.client.get("/healthz", headers={"X-Trace-Id": "browser-trace-0001"})

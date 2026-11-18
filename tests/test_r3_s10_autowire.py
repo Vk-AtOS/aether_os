@@ -12,7 +12,7 @@ from aether_os.phases.p12a_feature_flags import task_agent as p12a
 from aether_os.phases.p12b_ab_testing import task_agent as p12b
 from aether_os.phases.p18_billing_metering import task_agent as p18
 from aether_os.stages.s10_enterprise.supervisor import _autowire_enterprise_extensions
-from tests.test_p04a_generated_backend import generate
+from aether_os.tests.test_p04a_generated_backend import generate
 
 _RUNNER = r'''
 import json, os, sys

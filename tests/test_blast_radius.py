@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError
 
 import aether_os.gateway.auth_refresh as auth_refresh
 from aether_os.core.resilience import health, reset_all
-from tests.gateway_env import gateway_env
+from aether_os.tests.gateway_env import gateway_env
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("fault_injection", ROOT / "scripts/fault_injection.py")
