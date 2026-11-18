@@ -9,16 +9,19 @@ from aether_os.phases.p04a_backend_codegen.templates_auth import _AUTH_PY
 from aether_os.phases.patterns.websocket import WEBSOCKET_CODE
 
 _RUN = r'''
-import json, os, sys
+import base64, hashlib, hmac, json, os, sys
 sys.path.insert(0, os.getcwd())
 os.environ["RSA_PRIVATE_KEY_PATH"] = os.path.join(os.getcwd(), "k.pem")
-import jwt, auth, ws
+import auth, ws
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 app = FastAPI(); app.include_router(ws.router)
 out = {}
 with TestClient(app) as c:
-    forged = jwt.encode({"sub": "1"}, "", algorithm="HS256")
+    # HS256 signed with the EMPTY key, built by hand: PyJWT >= 2.13 refuses to sign with an empty key.
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+    body = b64(b'{"alg":"HS256","typ":"JWT"}') + "." + b64(b'{"sub":"1"}')
+    forged = body + "." + b64(hmac.new(b"", body.encode(), hashlib.sha256).digest())
     out["no_token"] = c.post("/ws/r/broadcast", json={}).status_code
     out["forged"] = c.post("/ws/r/broadcast", json={}, headers={"Authorization": "Bearer " + forged}).status_code
     ta = auth.create_access_token(1, "a@x.io", "user", org_id="A")
