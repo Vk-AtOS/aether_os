@@ -34,7 +34,10 @@ SUB-STEPS:
 
   2. [SEQUENTIAL] Consolidation — aggregate pass rates into test_quality_flag
 
-CRITICAL: No — pipeline continues even on test failures (self-healing handles them)
+CRITICAL: No — a crash or timeout of this stage does not end the run.
+GATE: blocks (ends the run after the retries) when NO unit test ran: healing would then have no
+      test summary to work from. Failing unit tests do NOT block (Stage 7 repairs them); that, and
+      everything this stage does not check, is written into the result under "gate".
 """
 from __future__ import annotations
 
@@ -62,6 +65,12 @@ LIVE_TEST_PHASES = [
     ("performance_testing",   "aether_os.phases.p07b_performance_testing.task_agent",   "run"),
     ("accessibility_testing", "aether_os.phases.p07c_accessibility_testing.task_agent", "run"),
     ("e2e_testing",           "aether_os.phases.p07d_e2e_testing.task_agent",           "run"),
+]
+
+# What this stage never checks; stated in every result so "s06 passed" is not read as more than it is.
+_NOT_CHECKED = [
+    *[f"{key}: not run here, deferred to s07_healing (needs the running app)" for key, _, _ in LIVE_TEST_PHASES],
+    "frontend unit tests: none are generated or run (p07a tests the backend API only)",
 ]
 
 STAGE_CONTRACT = {
@@ -163,6 +172,7 @@ class TestingStageSupervisor(PhaseBase):
         # ── Step 5: Consolidate results into test_quality_flag ─────────────────
         consolidated = _consolidate_results(results, issues)
 
+        consolidated["gate"] = _gate_report(consolidated)
         _cached.write_text(json.dumps(consolidated, indent=2, default=str))
 
         quality_flag = consolidated["test_quality_flag"]
@@ -181,15 +191,31 @@ class TestingStageSupervisor(PhaseBase):
     async def validate_gate(
         self, result: TaskResult, phase_input: Any
     ) -> GateOutcome:
-        # Gate always passes — failures are non-critical and handled by Stage 7.
-        return GateOutcome(
-            passed=True,
-            confidence=result.confidence,
-            issues=result.issues,
-        )
+        # Blocks when no unit test ran. Failing tests pass the gate on purpose (Stage 7 repairs
+        # them) and are disclosed in metadata["gate"], not hidden.
+        meta = result.metadata or {}
+        gate = meta.get("gate") or _gate_report(meta)   # a cached result from before the field existed
+        if gate["passed"]:
+            return GateOutcome(passed=True, confidence=result.confidence, issues=result.issues)
+        why = "; ".join(str(i) for i in meta.get("skipped_phases") or []) or "pytest collected or ran nothing"
+        return GateOutcome(passed=False, confidence=result.confidence, issues=[f"no unit test ran: {why}"])
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+def _gate_report(consolidated: Dict[str, Any]) -> Dict[str, Any]:
+    """The stage gate's verdict plus what it did not check (stored as consolidated["gate"])."""
+    total = int(consolidated.get("total_tests") or 0)
+    failed = total - int(consolidated.get("passed_tests") or 0)
+    return {
+        "passed": total > 0,
+        "rule": "blocks when no unit test ran; failing unit tests do not block (s07_healing repairs them)",
+        "tests_ran": total,
+        "tests_failed": failed,
+        "tests_failed_but_did_not_block": total > 0 and failed > 0,
+        "not_checked": _NOT_CHECKED + [f"layer did not run: {i}" for i in consolidated.get("skipped_phases") or []],
+    }
 
 
 def _consolidate_results(
@@ -202,9 +228,10 @@ def _consolidate_results(
       "pass" — all layers that ran report no failures (pass_rate >= 0.7 or
                pytest_actually_passed=True and no unit failures)
       "warn" — some layers skipped OR pass_rate is 0.4–0.7 OR >20% failed
-      "fail" — unit tests failed AND performance tests also failed (both layers
-               must fail before we escalate to "fail"; a single layer failing
-               is only a "warn" so self-healing still runs)
+      "fail" — pass_rate below 0.4, or unit AND performance layers both failed.
+               (It used to need both layers to fail; s06 runs the unit layer only, so
+               its verdict could never be "fail" while tests ran: 0 of 10 was a "warn".)
+               A "fail" marks the stage failed in the run result; it does not stop healing.
     """
     total_tests = 0
     passed_tests = 0
@@ -268,8 +295,7 @@ def _consolidate_results(
         elif pass_rate >= 0.40:
             quality_flag = "warn"
         else:
-            # Low pass rate — only "fail" if BOTH unit AND perf layers failed
-            quality_flag = "fail" if (unit_failed and perf_failed) else "warn"
+            quality_flag = "fail"
     elif pytest_actually_passed:
         quality_flag = "pass"
     elif test_code_found:
