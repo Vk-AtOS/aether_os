@@ -12,7 +12,7 @@ from aether_os.phases.p19_service_catalog.catalog_generator import generate_cata
 
 def _load(tmp_path, with_auth):
     if with_auth:
-        from jose import jwt
+        import jwt
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -68,7 +68,7 @@ def test_unsigned_token_and_no_token_are_rejected(tmp_path):
 
 
 def test_launch_db_failure_is_not_a_200(tmp_path):
-    from jose import jwt
+    import jwt
     m, priv = _load(tmp_path, True)
     tok = jwt.encode({"sub": "u1", "org_id": "o1", "type": "access"}, priv, algorithm="RS256")
     r = _client(m).post("/api/services/vm/launch", json={}, headers={"Authorization": f"Bearer {tok}"})
