@@ -71,3 +71,16 @@ def test_critical_stage_timeout_path_writes_the_message(gw):
     out = gw.client.portal.call(go)
     status, message = _row(gw, run_id)
     assert status == "failed" and "did not finish within 300 seconds" in message and out["error"] == message
+
+
+def test_slots_in_use_is_a_count_not_an_xor():
+    """KAN-98: the concurrency log printed `value ^ limit - value`."""
+    from aether_os.orchestrator.factory_pipeline import _slots_in_use
+    sem = asyncio.Semaphore(4)
+    assert _slots_in_use(sem, 4) == 0
+
+    async def hold(n):
+        for _ in range(n):
+            await sem.acquire()
+    asyncio.run(hold(3))
+    assert _slots_in_use(sem, 4) == 3       # the old expression gave 1 ^ 3 = 2
