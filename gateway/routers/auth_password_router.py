@@ -37,6 +37,16 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+_RESET_SENT = "If an account exists for that email, a reset link has been sent."
+
+
+def configured_frontend_url() -> str:
+    """The dashboard address for links in e-mail: configuration only, never the request. The Host and X-Forwarded-Host
+    headers are chosen by whoever sends the request, so a link built from them could point a victim's reset token at an
+    attacker's host. Same fallback order as the OAuth and SAML redirects."""
+    return (os.environ.get("FRONTEND_URL") or os.environ.get("OAUTH_REDIRECT_BASE") or "").rstrip("/")
+
+
 def reset_link_for(frontend_url: str, token: str) -> str:
     """The dashboard is served under /dashboard (vite base), so the link must carry it."""
     base = frontend_url.rstrip("/")
@@ -136,12 +146,10 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
             ))
             # Send email — token is persisted, safe to deliver the link now.
             notifier = get_email_notifier()
-            frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+            frontend_url = configured_frontend_url()
             if not frontend_url:
-                # Derive from the request host when FRONTEND_URL is not set
-                scheme = request.headers.get("x-forwarded-proto", "https")
-                host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
-                frontend_url = f"{scheme}://{host}" if host else "https://app.aetheros.ai"
+                logger.error("password reset e-mail not sent: set FRONTEND_URL (or OAUTH_REDIRECT_BASE) to the dashboard address")
+                return {"message": _RESET_SENT}
             reset_link = reset_link_for(frontend_url, token)
             subject = "AetherOS: Password Reset Request"
             body_html = (
@@ -155,7 +163,7 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
             body_text = f"Click here to reset your password: {reset_link}\n\nThis link expires in 1 hour.\n\nIf you did not request this, ignore this email."
             await notifier.send(user.email, subject, body_html, body_text)
     # Always return success to prevent email enumeration
-    return {"message": "If an account exists for that email, a reset link has been sent."}
+    return {"message": _RESET_SENT}
 @router.post("/password-reset-confirm")
 async def password_reset_confirm(req: PasswordResetConfirm, request: Request) -> Dict[str, str]:
     """Confirm password reset using the token."""
