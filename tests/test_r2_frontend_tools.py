@@ -58,3 +58,23 @@ def test_collect_reports_tools_that_did_not_run(tmp_path, monkeypatch):
     monkeypatch.setattr(ft, "run_sync", unavailable)
     rep = ft.collect(str(tmp_path))
     assert not rep.tsc_ran and not rep.eslint_ran
+
+
+def test_the_scorer_itself_uses_the_tool_results(tmp_path):
+    """KAN-188: the scorers (not only critique_artifact) deduct real tsc/eslint/axe findings."""
+    from aether_os.core.quality import dimension_scorer_frontend as sf
+    tools = ft.FrontendToolReport(
+        tsc_ran=True, eslint_ran=True, axe_violations=2,
+        tsc={"src/A.tsx": ["L2 TS2322: bad"]},
+        eslint={"src/A.tsx": [{"rule": "jsx-a11y/alt-text", "severity": 2, "message": "m", "line": 1},
+                              {"rule": "no-unused-vars", "severity": 2, "message": "m", "line": 1}]},
+    )
+    path = str(tmp_path / "src" / "A.tsx")
+    types = sf.score_typescript_types(CLEAN, path, tools)
+    assert types.score == 0.85 and types.findings == ["tsc: 1 error(s), first: L2 TS2322: bad"]
+    a11y = sf.score_frontend_a11y(CLEAN, path, tools)
+    assert a11y.score < 1.0 and any("jsx-a11y" in f for f in a11y.findings) and any("axe-core" in f for f in a11y.findings)
+    assert sf.score_frontend_correctness(CLEAN, path, tools).score == 0.95
+    # another file of the same project, and a call without a report, keep the pattern-matching score
+    assert sf.score_typescript_types(CLEAN, str(tmp_path / "src" / "B.tsx"), tools).score == 1.0
+    assert sf.score_typescript_types(CLEAN, path).score == 1.0

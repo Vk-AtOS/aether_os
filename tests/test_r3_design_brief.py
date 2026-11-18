@@ -101,3 +101,18 @@ def test_generation_with_a_brief_themes_the_app_and_without_one_keeps_the_token_
     monkeypatch.setattr(db, "get_design_brief", none)
     plain = build_frontend(tmp_path / "without", domain, monkeypatch)
     assert f"600: '{brief['primary_hex']}'" not in (plain / "tailwind.config.js").read_text()
+
+
+def test_template_debt_counts_the_login_layout_and_router_shell(tmp_path, monkeypatch):
+    """KAN-176: these are fixed templates; the measure counted pages only, so 'all pages model-written' read as 0.0."""
+    import aether_os.phases.p05_frontend.domain_assembler as da
+
+    async def page(**kw):
+        return "export default function P() { return <div>model-written page</div> }\n"
+    monkeypatch.setattr(da, "write_dashboard_llm", page)
+    monkeypatch.setattr(da, "write_entity_page_llm", page)
+    root = build_frontend(tmp_path, "crm", monkeypatch)
+    meta = json.loads((tmp_path / "p05_frontend" / "frontend_meta.json").read_text())
+    assert 0.0 < meta["template_debt_pct"] < 1.0        # every page came from the (fake) model, the shell did not
+    assert {"App.tsx", "pages/LoginPage.tsx", "components/Layout.tsx"} <= set(meta["template_surfaces"])
+    assert all((root / "src" / s).is_file() for s in meta["template_surfaces"])

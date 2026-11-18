@@ -42,7 +42,7 @@ from aether_os.core.quality.dimension_scorer import (
     score_security,
     score_testing,
 )
-from aether_os.core.quality.frontend_tools import FrontendToolReport, apply_tools
+from aether_os.core.quality.frontend_tools import FrontendToolReport
 from aether_os.core.quality.dimension_scorer_frontend import (
     score_frontend_a11y,
     score_frontend_correctness,
@@ -153,7 +153,8 @@ def critique_artifact(file_path: str, artifact_type: str = "", tools: Optional[F
     dimension_scores: list[DimensionScore] = []
     for scorer in scorers:
         try:
-            ds = scorer(content, file_path) if is_frontend else scorer(content)
+            # the frontend scorers apply the real tsc/eslint/axe findings of this file themselves
+            ds = scorer(content, file_path, tools) if is_frontend else scorer(content)
         except Exception as e:
             logger.warning(
                 "[dimension_critic] scorer %s crashed on %s: %s",
@@ -166,10 +167,6 @@ def critique_artifact(file_path: str, artifact_type: str = "", tools: Optional[F
                 passed=True,
             )
         dimension_scores.append(ds)
-
-    if is_frontend and tools is not None:
-        tsc_msgs, eslint_msgs = tools.for_file(file_path)
-        apply_tools(dimension_scores, tsc_msgs, eslint_msgs, tools.axe_violations)
 
     # Weighted overall score
     weights = FRONTEND_DIMENSION_WEIGHTS if is_frontend else DIMENSION_WEIGHTS
