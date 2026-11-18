@@ -92,7 +92,6 @@ diagrams>=0.23.0
 fpdf2>=2.8.8                # PDF compliance report generation
 
 # ── Factory Pipeline — Memory ─────────────────────────────────────────────────
-mem0ai>=0.0.20
 chromadb>=0.4.0
 
 # ── Factory Pipeline — Feature Flags / A/B Testing ───────────────────────────
