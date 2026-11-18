@@ -82,7 +82,7 @@ def test_nginx_accepts_the_config(tmp_path):
     site = re.sub(r"ssl_certificate\s+\S+;|ssl_certificate_key\s+\S+;|access_log /var/log\S+ velaris_public;|error_log\s+\S+ crit;", "", site)
     site = site.replace("listen 443 ssl http2;", "listen 8443;").replace("listen [::]:443 ssl http2;", "")
     main = tmp_path / "nginx.conf"
-    main.write_text(f"events {{}} http {{ {site} }}")
+    main.write_text(f"events {{}} http {{ access_log off; {site} }}")   # the built-in default log path is not writable either
     # pid and error log inside tmp_path: the default /run/nginx.pid is not writable without root (failed on the CI runner)
     out = subprocess.run(["nginx", "-t", "-c", str(main), "-p", str(tmp_path), "-g", f"pid {tmp_path}/nginx.pid; error_log {tmp_path}/error.log;"],
                          capture_output=True, text=True)

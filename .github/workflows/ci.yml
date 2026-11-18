@@ -73,6 +73,10 @@ jobs:
         # Without it every test that runs generated code failed with 'sandbox backend docker is not available'.
         run: docker build -f core/sandbox/Dockerfile -t aether-sandbox:1 core/sandbox
 
+      - name: Apply the sandbox host firewall (the runner refuses generated code unless the isolation probe passes)
+        # docker_backend verifies host_firewall.sh is really applied; this is the documented host setup, run as root.
+        run: sudo bash core/sandbox/host_firewall.sh
+
       - name: Lint with ruff (blocking)
         # Pyflakes (F), syntax errors (E9) and B904 (raise ... from) are clean (KAN-59): zero tolerance.
         run: ruff check . --select F,E9,B904
