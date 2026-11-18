@@ -14,30 +14,34 @@ AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`)
 
 ## How these numbers were measured
 
-All numbers below were recomputed on 17 Nov 2026 at r3/int `88659af` with `python scripts/ci/repo_stats.py` (file, line, commit and migration counts; test counts are carried over from the r2/int run and not re-run), from the repo root.
+The table is generated: no figure in it is typed by hand, and `python scripts/ci/repo_stats.py --check` (part of the CI step "Docs match code") fails when it drifts from the repository.
 
-| Metric | Value | Command |
+<!-- repo_stats:begin (written by `python scripts/ci/repo_stats.py --write`; do not edit by hand) -->
+Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `da44e50` (2026-11-19). Counts are over git-tracked files.
+
+| Metric | Value | How it is counted |
 |---|---|---|
-| Git commits | 1308 | `git rev-list --count HEAD` |
-| Tracked Python files | 1190 | `git ls-files '*.py' \| wc -l` |
-| Python lines (tracked files) | 185698 | `git ls-files '*.py' \| xargs wc -l \| tail -1` |
-| Alembic migration files | 84 | `ls alembic/versions/*.py \| wc -l` |
-| Gateway router files named `*_router.py` | 72 | `ls gateway/routers/*_router.py \| wc -l` |
-| All `.py` files in `gateway/routers/` | 76 | `ls gateway/routers/*.py \| wc -l` |
-| Route decorators in `gateway/routers/*.py` | 333 | `cat gateway/routers/*.py \| grep -cE "^\s*@\w*router\.(get\|post\|put\|patch\|delete\|websocket\|api_route)\("` |
-| Pipeline stages | 12 | `ls stages` (`s01` to `s12`) |
-| Phase directories | 50 | `ls -d phases/p*/ \| wc -l` |
-| Tracked Python files under `phases/` | 381 | `git ls-files 'phases/*.py' \| wc -l` |
-| Test files | 246 | `git ls-files tests \| grep -cE "test_.*\.py$"` |
-| Tests collected by pytest | 1954 | `PYTHONPATH=/Users/apple/Desktop/wt3/a_docs python3.11 -m pytest --collect-only -q tests` (collection only) |
-| `def test_` lines in `tests/` | 1641 | `grep -rhoE "^\s*(async )?def test_" tests \| wc -l` (lower than 1954 because parametrized tests expand) |
-| Frontend source files in `dashboard/src` | 209 | `git ls-files dashboard/src \| grep -cE "\.(tsx\|jsx\|ts\|js)$"` |
-| Benchmark prompt files | 10 | `ls benchmarks/prompts \| wc -l` |
-| Python files over 600 lines | 3 | `git ls-files '*.py' \| xargs wc -l \| awk '$1>600 && $2!="total"'` (`orchestrator/factory_pipeline.py` 1202, `phases/p05_frontend/code_writer.py` 5788 (both pre-approved), `core/models.py` 621; `scripts/ci/repo_stats.py` prints this list) |
+| Git commits | 1415 | `git rev-list --count HEAD` |
+| Tracked Python files | 1263 | `git ls-files '*.py'` |
+| Python lines (tracked files) | 190720 | lines of those files |
+| Alembic migration files | 86 | `alembic/versions/*.py` |
+| Gateway router files named `*_router.py` | 73 | `gateway/routers/*_router.py` |
+| All `.py` files in `gateway/routers/` | 77 | `gateway/routers/*.py` |
+| Route decorators in `gateway/routers/*.py` | 339 | lines starting `@...router.<method>(` |
+| Pipeline stages | 12 | `stages/s<digit>*/` |
+| Phase directories | 49 | `phases/p<digit>*/` (`phases/patterns/` is not a phase) |
+| Tracked Python files under `phases/` | 399 | `git ls-files 'phases/*.py'` |
+| Test files | 281 | `tests/**/test_*.py` |
+| `def test_` lines in `tests/` | 1920 | lower than the collected count: parametrized tests expand |
+| Frontend source files in `dashboard/src` | 210 | `.ts .tsx .js .jsx` |
+| Benchmark prompt files | 10 | `benchmarks/prompts/*` |
+| Python files over 600 lines | 0 | none |
 | `dashboard/src/pages/ProjectView.jsx` lines | 457 | `wc -l` |
-| Bare `except:` lines | 2 | `git ls-files '*.py' \| xargs grep -nE "^\s*except\s*:"` (both are inside prompt example text: `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89`) |
+| Bare `except:` lines | 2 | `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89` |
+| Tests collected by pytest | 2357 | `python -m pytest --collect-only -q tests` (collection only, not a run) |
+<!-- repo_stats:end -->
 
-Last full test run: **1907 passed, 47 skipped**. This was reported by the integration run on branch r2/int. It was not re-run here. 1907 + 47 = 1954, which equals the collected count above.
+Last full test run: **2304 passed, 47 skipped** (2351 collected), the "Run tests" step of CI run 44382811852 on `main` at `ff6ce31`, 18 Nov 2026. That step passed; two later steps of the same job (pip-audit and the gitleaks secret scan) failed in that run. The suite was not re-run for this document, and the collected count in the table is for the tree named there, which is newer than that run.
 
 Not measured: test coverage percent, performance numbers, uptime, number of users or customers, number of generated apps, pass rate of generated apps.
 
