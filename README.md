@@ -38,7 +38,7 @@ Other files that generation code writes (each one was found in the code that wri
 - `compliance_manifest.json` (`phases/p06_review_security/manifest.py:20`, called from `subtasks.py:21`).
 - `domain_knowledge.json` (`phases/p06_review_security/subtasks.py:346-350`).
 - `business_model.json` (`phases/p00_research/business_model_generator.py`).
-- `formal_verification_report.json` (`phases/p06b_formal_verification/task_agent.py`).
+- `formal_verification_report.json` (`phases/p06b_formal_verification/task_agent.py`); fields, verdicts and what is and is not proved: `docs/VERIFICATION_REPORT.md`.
 - A GitHub Actions workflow with a `compliance-drift` job (`phases/p08_cicd/task_agent.py:249`).
 - IAM output: OPA Rego and Keycloak realm JSON (`phases/p16_iam/`).
 - Billing and metering output: OpenMeter and Stripe handlers (`phases/p18_billing_metering/`).
