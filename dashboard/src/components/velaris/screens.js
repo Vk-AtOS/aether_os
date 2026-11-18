@@ -116,7 +116,7 @@ export const SCREENS = [
     load('Work samples', H('INTERVIEW_KIT', 'list_work_samples')),
     form('Review a work sample', H('INTERVIEW_KIT', 'review_work_sample'), [text('application_id', 'Application id', { required: true }), text('work_sample_id', 'Work sample id', { required: true }), json('checks', 'Checks (met or not, with the evidence seen)', { required: true }), { name: 'notes', label: 'Notes', type: 'textarea' }], 'Submit review'),
     form('Reviews of an application', H('INTERVIEW_KIT', 'work_sample_reviews'), [text('application_id', 'Application id', { required: true })], 'Show'),
-    load('Calibration report', H('INTERVIEW_KIT', 'calibration_report'), { rows: 'competencies', chart: { label: 'competency', value: 'krippendorff_alpha_ordinal', min: 0, max: 1 }, note: 'Agreement between interviewers per competency (Krippendorff alpha, 1 = full agreement). A short bar means the rubric needs rewriting.' }),
+    load('Calibration report', H('INTERVIEW_KIT', 'calibration_report'), { rows: 'competencies', chart: { label: 'competency', value: 'krippendorff_alpha_ordinal', min: 0, max: 1 }, compare: 'rater_leniency_offset', note: 'Agreement between interviewers per competency (Krippendorff alpha, 1 = full agreement). A short bar means the rubric needs rewriting.' }),
   ] },
   { id: 'interview-records', role: 'admin', title: 'Interview records', sub: 'Sessions, participant link, consent, audio and evidence. Consent is checked before recording; evidence never shows automatic scores. The candidate\'s own consent and audio upload go through their link, not here.', sections: [
     form('Sessions', H('INTERVIEW_RECORD', 'list_sessions'), [text('application_id', 'Application id (blank = all)')], 'List'),
@@ -128,7 +128,7 @@ export const SCREENS = [
     form('Transcribe a track', H('INTERVIEW_RECORD', 'transcribe_track'), [text('session_id', 'Session id', { required: true }), text('participant', 'Participant', { required: true })], 'Transcribe', { note: 'Needs transcript consent. Says so when no transcriber is configured.' }),
     form('Mark an event', H('INTERVIEW_RECORD', 'mark_event'), [text('session_id', 'Session id', { required: true }), num('seq', 'Event number', { required: true }), { name: 'mark', label: 'Mark', type: 'select', options: ['relevant', 'explained'], required: true }, text('reason', 'Reason', { required: true })], 'Mark'),
     form('Replay the pad', H('INTERVIEW_RECORD', 'replay_pad'), [text('session_id', 'Session id', { required: true }), text('pad_id', 'Pad (blank = main)'), num('upto_seq', 'Up to event (blank = end)')], 'Show'),
-    form('Evidence', H('INTERVIEW_RECORD', 'evidence_view'), [text('session_id', 'Session id', { required: true })], 'Show'),
+    form('Evidence and consent state', H('INTERVIEW_RECORD', 'evidence_view'), [text('session_id', 'Session id', { required: true })], 'Show', { view: 'evidence', note: 'Shows who has consented to be recorded, and for what, above the events. A withdrawn consent is shown as withdrawn.' }),
     form('Close the session', H('INTERVIEW_RECORD', 'close_session'), [text('session_id', 'Session id', { required: true })], 'Close', { danger: true, warn: 'A closed session cannot be reopened.' }),
   ] },
   { id: 'my-chat-data', role: 'member', title: 'My chat data', sub: 'Download everything Velaris holds about you in chat.', sections: [
@@ -137,7 +137,7 @@ export const SCREENS = [
   { id: 'chat-privacy', role: 'admin', title: 'Chat privacy (admin)', sub: 'One person\'s chat data. Messages in channels on legal hold are reported as kept, not erased. Both actions are ledgered by id.', sections: [
     { kind: 'form', title: 'Export a person\'s chat data', call: { method: 'get', path: '/chat/admin/users/{user_id}/export' }, fields: [text('user_id', 'User id', { required: true })], submit: 'Download export', download: 'chat-user-export.json', path_params: ['user_id'], raw: true },
     { kind: 'form', title: 'Erase a person\'s chat data', call: { method: 'post', path: '/chat/admin/users/{user_id}/erase' }, fields: [text('user_id', 'User id', { required: true })], submit: 'Erase', typed: 'ERASE', danger: true, warn: 'Messages in channels on legal hold are kept; the answer says which.', path_params: ['user_id'], raw: true },
-    { kind: 'form', title: 'Erase one message', call: { method: 'post', path: '/chat/admin/messages/{message_id}/erase' }, fields: [text('message_id', 'Message id', { required: true })], submit: 'Erase message', danger: true, path_params: ['message_id'], raw: true },
+    { kind: 'form', title: 'Erase one message', call: { method: 'post', path: '/chat/admin/messages/{message_id}/erase' }, fields: [text('message_id', 'Message id', { required: true })], submit: 'Erase message', typed: 'ERASE', danger: true, path_params: ['message_id'], raw: true },
   ] },
   { id: 'mail-admin', role: 'admin', title: 'Mail provisioning', sub: 'Mailboxes, aliases, delegates (shared mailboxes), quota and organisation mail settings. Each change is ledgered. Delegation can only be set by the mailbox owner.', sections: [
     { kind: 'form', title: 'Create a mailbox', call: P('post', '/mail/mailboxes'), fields: [text('address', 'Address', { required: true }), text('owner_id', 'Owner (user id)')], submit: 'Create', raw: true },
