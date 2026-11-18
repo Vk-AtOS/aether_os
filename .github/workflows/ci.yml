@@ -24,7 +24,8 @@ jobs:
         ports:
           - 6379:6379
       postgres:
-        image: postgres:15-alpine
+        # pgvector build of Postgres 15: the schema uses the vector type (core/schema_ddl.py runs CREATE EXTENSION vector, which needs it installed)
+        image: pgvector/pgvector:pg15
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci-only-password
@@ -67,6 +68,10 @@ jobs:
           pip install ruff bandit pip-audit pytest-cov pytest-timeout
           mkdir -p "$RUNNER_TEMP/pkg" && ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pkg/aether_os"
           echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
+
+      - name: Build the sandbox image (generated code only runs in it on Linux)
+        # Without it every test that runs generated code failed with 'sandbox backend docker is not available'.
+        run: docker build -f core/sandbox/Dockerfile -t aether-sandbox:1 core/sandbox
 
       - name: Lint with ruff (blocking)
         # Pyflakes (F), syntax errors (E9) and B904 (raise ... from) are clean (KAN-59): zero tolerance.
