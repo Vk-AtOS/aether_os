@@ -107,6 +107,34 @@ jobs:
           name: coverage-report
           path: coverage.xml
 
+  generated-npm-build:
+    # KAN-180: a generated frontend must really build (npm install + vite build), not only pass the static checks.
+    # Skippable: set the repository variable SKIP_NPM_BUILD=true to turn it off (e.g. no npm registry access).
+    if: ${{ vars.SKIP_NPM_BUILD != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      AETHER_NPM_BUILD_TEST: "1"
+      AETHER_FIELD_KEY: ${{ secrets.AETHER_FIELD_KEY || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: |
+          pip install -r requirements.lock pytest pytest-timeout
+          mkdir -p "$RUNNER_TEMP/pkg" && ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pkg/aether_os"
+          echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
+      - name: Generate a product and build its frontend for real
+        working-directory: ${{ runner.temp }}/pkg/aether_os
+        run: pytest tests/test_r3_e2e_generated_output.py --timeout=1200 -q
+
   dashboard:
     runs-on: ubuntu-latest
     timeout-minutes: 15
