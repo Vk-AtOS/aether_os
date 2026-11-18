@@ -13,6 +13,20 @@ from typing import Dict, List
 logger = logging.getLogger(__name__)
 
 
+def _consumer_template(slug: str) -> str:
+    var = slug.upper().replace("-", "_") + "_JWT_PUBLIC_KEY"
+    return f"""\
+# Consumer template: the jwt plugin needs one. The public key comes from the environment of the
+# Kong pods (a PEM public key in ${var}), never from this file.
+consumers:
+  - username: {slug}-app
+    jwt_secrets:
+      - key: {slug}-app            # the "kid" header the app's tokens carry
+        algorithm: RS256
+        rsa_public_key: "{{vault://env/{var.lower().replace("_", "-")}}}"
+"""
+
+
 def generate_kong_declarative_config(
     services: List[Dict], slug: str, cors_origins: List[str] | None = None, redis_host: str = "",
 ) -> str:
@@ -24,6 +38,13 @@ def generate_kong_declarative_config(
     credentials let any website make credentialed calls). The rate limit counts in Redis when redis_host
     is set; "local" counts per Kong replica, so two replicas allow twice the limit.
     One route per service with strip_path=true.
+
+    JWT consumers (KAN-131): the jwt plugin rejects every call (401) until a consumer holds the key
+    that verifies the app's tokens. The config carries a documented consumer TEMPLATE: key = the
+    "kid" the app puts in its token header, algorithm RS256, and the PUBLIC key referenced from the
+    environment through Kong's env vault (`{vault://env/<SLUG>_JWT_PUBLIC_KEY>`), so no key
+    material is ever written into the file. Set that variable on the Kong pods (PEM public key) and
+    issue tokens with kid=<slug>-app, or edit the consumer.
 
     services = [{"name": str, "port": int, "path_prefix": str}, ...]
     """
@@ -111,8 +132,7 @@ services:
 routes:
 {routes_block}
 plugins:
-{plugins_block}consumers: []
-"""
+{plugins_block}{_consumer_template(slug)}"""
 
 
 def generate_kong_helm_values(slug: str) -> str:

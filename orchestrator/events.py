@@ -11,19 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextvars import ContextVar
 from typing import Optional
 
 from aether_os.core import pipeline_state
 
 logger = logging.getLogger(__name__)
 
-# Set by factory_pipeline before each phase so LLM calls can emit to the right queue.
-ACTIVE_RUN_ID: ContextVar[Optional[str]] = ContextVar("active_run_id", default=None)
-# Phase name currently executing (for tagging llm_chunk events)
-ACTIVE_PHASE: ContextVar[Optional[str]] = ContextVar("active_phase", default=None)
-# Org ID for the active run (for cost tracking)
-ACTIVE_ORG_ID: ContextVar[Optional[str]] = ContextVar("active_org_id", default=None)
+# The context vars live in core.run_context (KAN-183); re-exported for existing callers.
+from aether_os.core.run_context import ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID  # noqa: E402,F401
 
 
 # Redaction happens inside core.pipeline_state.publish_event, so every publisher —

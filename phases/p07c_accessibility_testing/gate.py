@@ -28,7 +28,9 @@ def validate(result: TaskResult) -> GateOutcome:
         )
         if candidates and candidates[0].exists():
             data = json.loads(candidates[0].read_text())
-            violations = data.get("violations", [])
+            # the result stores the count in "violations" and the first findings in "items"
+            raw = data.get("items") if isinstance(data.get("violations"), int) else data.get("violations", [])
+            violations = raw or []
             critical = [v for v in violations if v.get("impact", "") in _CRITICAL_IMPACT]
             if critical:
                 rules = ", ".join(v.get("id", "?") for v in critical[:5])

@@ -413,6 +413,7 @@ Tags: run-files. Routes: 9.
 | POST | `/factory/runs/{run_id}/open-in-vscode` | `get_current_user`; floor: member+ (viewer denied) | Open the project folder in VS Code on the local machine. |
 | GET | `/factory/runs/{run_id}/snapshots` | `get_current_user`; floor: any role | List all code snapshots for a run (versioned file history). |
 | GET | `/factory/runs/{run_id}/snapshots/{snapshot_id}` | `get_current_user`; floor: any role | Get full content of a specific code snapshot. |
+| POST | `/factory/runs/{run_id}/snapshots/{snapshot_id}/rollback` | `get_current_user`; owner or admin only | Restore the file a snapshot was taken from (org-scoped, audited as `run.rollback`). |
 
 ### `gateway/routers/factory_run_streaming_router.py`
 

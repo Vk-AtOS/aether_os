@@ -19,6 +19,8 @@ def validate(result: TaskResult) -> GateOutcome:
     output_path = Path(result.output_path)
     all_files = list(output_path.rglob("*")) if output_path.is_dir() else [output_path]
     file_names_lower = {f.name.lower() for f in all_files if f.is_file()}
+    rel_paths_lower = {f.relative_to(output_path).as_posix().lower() for f in all_files if f.is_file()} \
+        if output_path.is_dir() else set()
 
     missing_docs = []
     for doc in _REQUIRED_DOCS:
@@ -28,7 +30,8 @@ def validate(result: TaskResult) -> GateOutcome:
         issues.append(f"Missing handoff documents: {', '.join(missing_docs)}")
 
     # Check for Postman collection
-    has_postman = any("postman" in n or n.endswith(".postman_collection.json") for n in file_names_lower)
+    # the collection is written as postman/collection.json: the folder, not the file name, says "postman"
+    has_postman = any("postman" in p for p in rel_paths_lower | file_names_lower)
     if not has_postman:
         issues.append("Postman collection not found in handoff package")
 

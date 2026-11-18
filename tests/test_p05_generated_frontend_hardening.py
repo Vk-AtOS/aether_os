@@ -161,29 +161,43 @@ def test_gate2_revisions_go_to_the_shipped_copy(tmp_path, monkeypatch):
     assert (shipped / "src" / "App.tsx").exists()           # refreshed from this run, not the stale copy
 
 
-def test_preview_server_is_loopback_only_and_playwright_install_does_not_block_the_loop(tmp_path, monkeypatch):
-    # take_preview_screenshot ran `playwright install` with a blocking subprocess.run inside the coroutine (the event
-    # loop froze for up to two minutes) and served the build with http.server's default bind on every interface.
+def test_preview_screenshot_runs_in_the_browser_sandbox_not_on_the_host(tmp_path, monkeypatch):
+    """KAN-99: Chromium and http.server ran on the platform host (and `playwright install` blocked the loop);
+    now the build is served and screenshotted by the browser sandbox job on its own loopback."""
     import asyncio
-    import threading
-    from types import SimpleNamespace
     from aether_os.phases.p05_frontend import preview
-    ran_in, popen_args = [], []
+    jobs = []
 
-    def fake_run(argv, **kw):
-        ran_in.append(threading.current_thread())
-        return SimpleNamespace(returncode=0)
+    async def fake_job(job, *, project, timeout=120):
+        jobs.append(job)
+        Path(job["out"]).write_bytes(b"\x89PNG fake")
+        return {"ok": True}
 
-    class Proc:
-        def terminate(self):
-            pass
-    monkeypatch.setattr(preview.subprocess, "run", fake_run)
-    monkeypatch.setattr(preview.subprocess, "Popen", lambda argv, **kw: popen_args.append(argv) or Proc())
+    monkeypatch.setattr(preview, "run_browser_job", fake_job)
+    monkeypatch.setattr(preview.phase_exec, "project_root", lambda p: tmp_path)
     (tmp_path / "dist").mkdir()
-    asyncio.run(preview.take_preview_screenshot(tmp_path, tmp_path / "shot.png"))
-    assert ran_in and ran_in[0] is not threading.main_thread()
-    argv = popen_args[0]
-    assert argv[argv.index("--bind") + 1] == "127.0.0.1"
+    out = tmp_path / "shot.png"
+    assert asyncio.run(preview.take_preview_screenshot(tmp_path, out)) is True
+    assert out.read_bytes().startswith(b"\x89PNG")
+    job = jobs[0]
+    assert job["action"] == "screenshot" and job["serve"]["dir"] == str(tmp_path / "dist")
+    assert job["url"].startswith("http://127.0.0.1:")
+    for name in ("subprocess", "sys", "tempfile", "playwright"):
+        assert not hasattr(preview, name), name           # nothing left that can start a host process
+
+
+def test_preview_screenshot_without_a_browser_sandbox_is_no_screenshot(tmp_path, monkeypatch):
+    import asyncio
+    from aether_os.core.sandbox.runner import SandboxUnavailable
+    from aether_os.phases.p05_frontend import preview
+
+    async def down(job, *, project, timeout=120):
+        raise SandboxUnavailable("no docker")
+
+    monkeypatch.setattr(preview, "run_browser_job", down)
+    monkeypatch.setattr(preview.phase_exec, "project_root", lambda p: tmp_path)
+    (tmp_path / "dist").mkdir()
+    assert asyncio.run(preview.take_preview_screenshot(tmp_path, tmp_path / "shot.png")) is False
 
 
 def test_gate_fails_for_a_structurally_broken_project(tmp_path, monkeypatch):

@@ -101,6 +101,10 @@ class SandboxRunner:
         """Path of a toolchain binary (npm, npx, node) as seen inside the sandbox."""
         return shutil.which(name)
 
+    def browser_entry(self) -> str:
+        """Path of the in-sandbox browser driver (core/sandbox/browser/entry.py) as the sandbox sees it."""
+        return str(Path(__file__).resolve().parent / "browser" / "entry.py")
+
     def run(self, argv: Sequence[str], *, run_dir: Path, cwd: Optional[Path] = None,
             env: Mapping[str, str], timeout: Optional[int] = None,
             network: bool = False) -> subprocess.CompletedProcess:
@@ -147,11 +151,17 @@ class NoSandboxRunner(SandboxRunner):
             os.close(log)
 
 
-def get_runner(limits: Limits = Limits()) -> SandboxRunner:
-    """The configured runner, or SandboxUnavailable (fail closed). See module docstring."""
+def get_runner(limits: Limits = Limits(), profile: str = "default") -> SandboxRunner:
+    """The configured runner, or SandboxUnavailable (fail closed). See module docstring.
+
+    profile "browser": the docker backend uses the browser image (Chromium, Playwright, axe-core);
+    the host backends (development only) use the host's own tools."""
     # Imported here: both backends import this module for the base class.
-    from aether_os.core.sandbox.docker_backend import DockerRunner
+    from aether_os.core.sandbox.docker_backend import DockerRunner, browser_image
     from aether_os.core.sandbox.macos_backend import MacSandboxRunner
+
+    if profile not in ("default", "browser"):
+        raise SandboxUnavailable(f"unknown sandbox profile {profile!r}")
 
     prod = is_production()
     default = "docker" if prod or sys.platform != "darwin" else "macos"
@@ -167,7 +177,8 @@ def get_runner(limits: Limits = Limits()) -> SandboxRunner:
     backends = {"docker": DockerRunner, "macos": MacSandboxRunner}
     if choice not in backends:
         raise SandboxUnavailable(f"unknown AETHER_SANDBOX={choice!r}; use docker, macos or none")
-    runner = backends[choice](limits)
+    runner = DockerRunner(limits, img=browser_image()) if choice == "docker" and profile == "browser" \
+        else backends[choice](limits)
     if not runner.available():
         raise SandboxUnavailable(f"sandbox backend {choice!r} is not available on this host; "
                                  "refusing to run generated code")

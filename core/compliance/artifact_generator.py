@@ -43,7 +43,8 @@ class ComplianceArtifactGenerator:
             from .pdf_report import generate_pdf
 
             main_py = Path(main_py_path)
-            result = scan_file(main_py, project_name=project_name, domain=domain)
+            result = scan_file(main_py, project_name=project_name, domain=domain,
+                               root=main_py.parent.parent)
 
             pdf_out = main_py.parent.parent / "compliance_report.pdf"
             try:

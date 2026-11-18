@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.run_app import safe_fs
+
 logger = logging.getLogger(__name__)
 
 _FRAMEWORK_VERSIONS: Dict[str, str] = {
@@ -31,13 +33,16 @@ def _compute_drift_fingerprint(project_path: Path) -> str:
     """SHA-256 of all route-bearing .py files concatenated in sorted order."""
     route_sources: List[str] = []
     for search_dir in (project_path / "src", project_path):
-        if not search_dir.exists():
+        # project_path is the run dir: no link below it is followed (KAN-63)
+        if not safe_fs.is_real_dir(project_path, search_dir.relative_to(project_path)):
             continue
-        for py_file in sorted(search_dir.rglob("*.py")):
-            if "__pycache__" in str(py_file):
+        for rel in safe_fs.walk_files(project_path, search_dir.relative_to(project_path),
+                                      skip_dirs=("__pycache__",)):
+            py_file = project_path / rel
+            if py_file.suffix != ".py":
                 continue
             try:
-                text = py_file.read_text(encoding="utf-8", errors="replace")
+                text = safe_fs.read_text_or_none(project_path, py_file) or ""
                 if re.search(r"@(?:app|router)\.(get|post|put|delete|patch)", text):
                     route_sources.append(text)
             except Exception as exc:
@@ -120,7 +125,7 @@ def write_compliance_manifest(
             _path / "main.py",
             _path / "app" / "main.py",
         ):
-            if candidate.exists():
+            if safe_fs.stat_or_none(_path, candidate) is not None:
                 main_py = candidate
                 break
 
@@ -131,7 +136,7 @@ def write_compliance_manifest(
             )
             manifest = {**empty_manifest}
         else:
-            scan_result = scan_file(main_py, project_name=project_name, domain=domain)
+            scan_result = scan_file(main_py, project_name=project_name, domain=domain, root=_path)
             scanned_file = getattr(scan_result, "scanned_file", str(main_py))
             components = _build_components_from_scan(scan_result, scanned_file)
             drift_fingerprint = _compute_drift_fingerprint(_path)
