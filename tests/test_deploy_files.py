@@ -159,3 +159,13 @@ def test_csp_connect_src_is_configurable_and_every_placeholder_is_substituted():
     assert run(None) == "'self' https: wss: blob:"                       # default unchanged: nothing breaks on upgrade
     assert run("'self' wss://a.example.com") == "'self' wss://a.example.com"
     assert ";" not in run("'self'; script-src *") and "\n" not in run("'self'\nadd_header X y;") and "|" not in run("a|b")
+
+
+def test_deploy_scripts_install_the_lock_not_the_floors():
+    """A server must get the versions the suite and the audit ran on. requirements.txt only gives floors."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for name in ("deploy/deploy.sh", "deploy/setup_vps.sh"):
+        lines = [ln for ln in (root / name).read_text().splitlines() if "pip" in ln and "install" in ln and "requirements" in ln
+                 and not ln.lstrip().startswith("#")]
+        assert lines and all("requirements.lock" in ln and "requirements.txt" not in ln for ln in lines), (name, lines)
