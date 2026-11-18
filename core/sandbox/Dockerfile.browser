@@ -1,0 +1,22 @@
+# Browser sandbox image: Chromium, Playwright, axe-core and the in-sandbox driver (core/sandbox/browser/entry.py).
+# Build on the Docker host AFTER the base image (it extends it, so the backend toolchain is there too):
+#   docker build -f core/sandbox/Dockerfile.browser -t aether-sandbox-browser:1 core/sandbox
+#
+# Used for everything that opens a generated frontend in a browser: the p05 preview screenshot, the p07c axe
+# scan, the p07d Playwright specs, the s05 live axe result. Containers run exactly like the base sandbox
+# (docker_backend.docker_args: non-root, read-only root, cap-drop ALL, no network, run dir only), so nothing
+# below is writable at run time and the browsers and axe are installed here, never downloaded by a run.
+ARG BASE=aether-sandbox:1
+FROM ${BASE}
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw
+RUN pip install --no-cache-dir "playwright==1.48.0" \
+ && playwright install --with-deps chromium \
+ && chmod -R a+rX /opt/pw \
+ && mkdir -p /opt/axe /opt/aether \
+ && npm install --prefix /opt/axe --no-audit --no-fund "axe-core@4.10.0" \
+ && npm install -g --no-audit --no-fund "@playwright/test@1.48.0" \
+ && rm -rf /var/lib/apt/lists/* /root/.npm
+ENV NODE_PATH=/usr/local/lib/node_modules
+COPY browser/entry.py /opt/aether/browser_entry.py
+USER 10001:10001

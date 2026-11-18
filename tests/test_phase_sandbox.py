@@ -201,9 +201,7 @@ _SP = {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getst
 # Files that start processes, and why none of them runs GENERATED code on the host.
 ALLOWED = {
     "phases/p03_scaffolding/task_agent.py": "git init / git clone of a user-given repo: no generated code",
-    "phases/p05_frontend/preview.py": "playwright install (platform tool) and http.server serving static dist/ files",
     "phases/p06_review_security/subtasks.py": "bandit (pinned dependency): static analysis, reads files only",
-    "phases/p07c_accessibility_testing/task_agent.py": "platform-written axe script loading a URL; not a generated file",
     "phases/p08_cicd/repo/git_manager.py": "git operations",
     "phases/p08_cicd/repo/patch_applier.py": "git apply/commit",
     "phases/p08_cicd/task_agent.py": "bandit: static analysis",
@@ -257,7 +255,7 @@ def test_only_known_files_start_processes_outside_the_sandbox_package():
     # the phases that run generated code must be clean of it
     for rel in found:
         assert not rel.startswith(("phases/p04", "phases/p07a", "phases/p07b", "phases/p07_", "phases/p07d")), rel
-        assert not (rel.startswith("phases/p05") and rel != "phases/p05_frontend/preview.py"), rel
+        assert not rel.startswith(("phases/p05", "phases/p07c")), rel   # the browser work is the sandbox's (KAN-99)
 
 
 def test_p08_tiered_tests_run_in_the_sandbox_and_fail_closed(fake, tmp_path, monkeypatch):
