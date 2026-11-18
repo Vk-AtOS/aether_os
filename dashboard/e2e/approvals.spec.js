@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, stubApi } from './helpers';
+import { signIn, stubApi, jwt } from './helpers';
 
 // KAN-18 (model providers), KAN-21 (approval detail), KAN-23 (edit before approve) against a stubbed API.
 
@@ -137,22 +137,88 @@ test('approval detail opens inline, rejecting needs a reason, approving sends th
   expect(calls.find((c) => c.key === 'POST /prime/requests/req1/approve').body.request_hash).toBe('h1');
 });
 
-test('edit before approve: the edit form posts the changed amount with a reason', async ({ page }) => {
-  await signIn(page, 'owner');
-  const calls = await stubApi(page, {
-    'GET /prime/inbox': { requests: [REQUEST], total: 1 }, 'GET /prime/inbox/count': { count: 1 },
-    'GET /prime/requests/req1': DETAIL,
-    'POST /prime/requests/req1/edit': { ...DETAIL, detail: { ...DETAIL.detail, revision: 2, edited_by: ['u1'] } },
+// The server's side of edit-before-approve, as prime/approvals.py behaves: an edit makes a new revision with a new
+// hash and records the editor; someone who edited a request can no longer decide it ("you cannot decide a request
+// you edited", 403), anyone else who may decide sees the new revision. `view(uid)` is what that user is served.
+const editableRequest = () => {
+  const s = { amount: 5000, hash: 'h1', revision: 1, edited_by: [], state: 'pending' };
+  const view = (uid) => {
+    const editor = s.edited_by.includes(uid);
+    const open = s.state === 'pending';
+    return {
+      ...DETAIL, state: s.state, request_hash: s.hash, action: { ...REQUEST.action, amount: s.amount },
+      can_decide: open && !editor, can_approve: open && !editor,
+      blocked_reason: open && editor ? 'you cannot decide a request you edited' : null,
+      detail: { ...DETAIL.detail, revision: s.revision, edited_by: s.edited_by },
+    };
+  };
+  const routes = (uid) => ({
+    'GET /prime/inbox': () => ({ requests: [view(uid)], total: 1 }), 'GET /prime/inbox/count': { count: 1 },
+    'GET /prime/requests/req1': () => view(uid),
+    'POST /prime/requests/req1/edit': (req) => {
+      const b = req.postDataJSON();
+      if (b.request_hash !== s.hash) return { status: 409, body: { detail: 'The request changed; reload it.' } };
+      Object.assign(s, { amount: Number(b.amount), hash: `h${s.revision + 1}`, revision: s.revision + 1, edited_by: [...s.edited_by, uid] });
+      return view(uid);
+    },
+    'POST /prime/requests/req1/approve': (req) => {
+      if (s.edited_by.includes(uid)) return { status: 403, body: { detail: 'you cannot decide a request you edited' } };
+      if (req.postDataJSON().request_hash !== s.hash) return { status: 409, body: { detail: 'The request changed; reload it.' } };
+      s.state = 'approved';
+      return view(uid);
+    },
   });
+  return { s, routes };
+};
+
+const decideButtons = (page) => page.getByRole('button', { name: /^(Approve|Reject|Edit)$/ });
+
+test('edit before approve: diff table, approvals reset to a new revision, a second user approves it', async ({ page, browser }) => {
+  const { routes } = editableRequest();
+  await signIn(page, 'owner');                                  // user u1
+  const calls = await stubApi(page, routes('u1'));
   await page.goto('prime/inbox');
   await page.getByRole('button', { name: /payment\.release/ }).click();
+  await expect(page.getByText('revision 1', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   const form = page.getByRole('form', { name: 'Edit request' });
+  const save = form.getByRole('button', { name: 'Save edit' });
+
+  // Nothing changed yet: no diff and nothing to save.
+  await expect(form.getByRole('table', { name: 'Changes' })).toHaveCount(0);
+  await expect(save).toBeDisabled();
   await form.getByLabel('Amount (INR)').fill('4000');
+  const cells = form.getByRole('table', { name: 'Changes' }).getByRole('row').nth(1).getByRole('cell');
+  await expect(cells).toHaveText(['amount', '5000', '4000']);  // field, before, after
+  await expect(save).toBeDisabled();                             // the reason is required
   await form.getByLabel(/Why you are changing it/).fill('Agreed with finance');
-  await form.getByRole('button', { name: /Save|Submit|Apply/ }).click();
-  await expect.poll(() => calls.some((c) => c.key === 'POST /prime/requests/req1/edit')).toBe(true);
-  const body = calls.find((c) => c.key === 'POST /prime/requests/req1/edit').body;
-  expect(JSON.stringify(body)).toContain('4000');
-  expect(JSON.stringify(body)).toContain('Agreed with finance');
+  await save.click();
+
+  // Saved: the reset message names the new revision, and the editor can no longer decide it.
+  await expect(page.getByRole('status').filter({ hasText: 'Earlier approvals were reset' }))
+    .toHaveText('Edited. Earlier approvals were reset: this is revision 2, and it needs a new decision from someone other than its editors.');
+  await expect(page.getByText('revision 2', { exact: true })).toBeVisible();
+  await expect(form).toHaveCount(0);
+  await expect(page.getByText('you cannot decide a request you edited')).toBeVisible();
+  await expect(decideButtons(page)).toHaveCount(0);
+  expect(calls.find((c) => c.key === 'POST /prime/requests/req1/edit').body)
+    .toEqual({ request_hash: 'h1', reason: 'Agreed with finance', amount: '4000' });
+
+  // A second person (another browser session) sees the new revision and approves that one, by its new hash.
+  const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  const second = await ctx.newPage();
+  await second.addInitScript((t) => { localStorage.setItem('aether_token', t); },
+    jwt({ sub: 'second@example.com', user_id: 'u2', org_id: 'org1', role: 'owner' }));
+  const calls2 = await stubApi(second, routes('u2'));
+  await second.goto('prime/inbox');
+  await second.getByRole('button', { name: /payment\.release/ }).click();
+  await expect(second.getByText('revision 2', { exact: true })).toBeVisible();
+  await expect(second.getByText('INR 4,000').first()).toBeVisible();
+  await expect(second.getByRole('status').filter({ hasText: 'Earlier approvals were reset' })).toHaveCount(0);  // only the editor is told
+  await second.getByRole('button', { name: 'Approve', exact: true }).click();
+  await second.getByRole('alertdialog').getByRole('button').last().click();
+  await expect(second.getByText('approved', { exact: true })).toBeVisible();
+  await expect(decideButtons(second)).toHaveCount(0);
+  expect(calls2.find((c) => c.key === 'POST /prime/requests/req1/approve').body.request_hash).toBe('h2');
+  await ctx.close();
 });
