@@ -69,7 +69,9 @@ def test_fill_on_behalf_stores_answers_and_requires_the_required_ones(gw):
 
 def test_share_token_is_stored_hashed_and_never_logged_or_listed(gw, monkeypatch, caplog):
     """KAN-69 F18: the database holds a hash, the log holds no token, the list returns no link, and a leaked
-    hash does not open the link; rows written before (plain token) still resolve."""
+    hash does not open the link. A stored value is never itself a credential: rows that held the plain token
+    were hashed by the hash_legacy_plaintext_tokens migration (KAN-131), so a plain value left in the column
+    opens nothing."""
     import hashlib
     import logging
     monkeypatch.setenv("APP_BASE_URL", "https://app.example.com")
@@ -86,4 +88,4 @@ def test_share_token_is_stored_hashed_and_never_logged_or_listed(gw, monkeypatch
     assert gw.client.get(f"/questionnaire/{token}/status").status_code == 200
     assert gw.client.get(f"/questionnaire/{stored}/status").status_code == 404          # the hash is not a credential
     gw.sql("UPDATE questionnaire_sessions SET access_token = 'legacyplaintexttoken' WHERE run_id = 'qrun-h'")
-    assert gw.client.get("/questionnaire/legacyplaintexttoken/status").status_code == 200
+    assert gw.client.get("/questionnaire/legacyplaintexttoken/status").status_code == 404
