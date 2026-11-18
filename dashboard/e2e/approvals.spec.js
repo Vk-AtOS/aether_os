@@ -222,3 +222,76 @@ test('edit before approve: diff table, approvals reset to a new revision, a seco
   expect(calls2.find((c) => c.key === 'POST /prime/requests/req1/approve').body.request_hash).toBe('h2');
   await ctx.close();
 });
+
+// KAN-21: the buttons follow can_decide / can_approve from the API, not the role in the browser's token.
+test('approval detail: someone who may not decide sees the reason and no buttons', async ({ page }) => {
+  await signIn(page, 'member');
+  const blocked = { can_decide: false, can_approve: false, blocked_reason: 'cannot approve: your role holds no authority for payment.release' };
+  const calls = await stubApi(page, {
+    'GET /prime/inbox': { requests: [{ ...REQUEST, ...blocked }], total: 1 }, 'GET /prime/inbox/count': { count: 1 },
+    'GET /prime/requests/req1': { ...DETAIL, ...blocked },
+  });
+  await page.goto('prime/inbox');
+  await page.getByRole('button', { name: /payment\.release/ }).click();
+  await expect(page.getByText('Releases the payment.')).toBeVisible();       // the detail itself is shown
+  await expect(page.getByText(blocked.blocked_reason, { exact: true })).toBeVisible();
+  await expect(decideButtons(page)).toHaveCount(0);
+  await expect(page.getByLabel('Reason (required to reject)')).toHaveCount(0);
+  expect(calls.filter((c) => !c.key.startsWith('GET '))).toHaveLength(0);
+});
+
+test('approval detail: someone who may only reject gets Reject, a disabled Approve and no Edit', async ({ page }) => {
+  await signIn(page, 'admin');
+  const limited = { can_decide: true, can_approve: false, blocked_reason: 'cannot approve: over your payment limit' };
+  await stubApi(page, {
+    'GET /prime/inbox': { requests: [{ ...REQUEST, ...limited }], total: 1 }, 'GET /prime/inbox/count': { count: 1 },
+    'GET /prime/requests/req1': { ...DETAIL, ...limited, detail: { ...DETAIL.detail, editable_fields: {} } },
+  });
+  await page.goto('prime/inbox');
+  await page.getByRole('button', { name: /payment\.release/ }).click();
+  await expect(page.getByText('It can only be rejected: cannot approve: over your payment limit')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await page.getByLabel('Reason (required to reject)').fill('Too much');
+  await expect(page.getByRole('button', { name: 'Reject' })).toBeEnabled();
+});
+
+test.describe('at a phone width', () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  test('approval detail: readable without sideways scrolling, and a decision can be made', async ({ page }) => {
+    await signIn(page, 'owner');
+    const long = { ...DETAIL, request_hash: 'h1', action: { ...REQUEST.action, params: { beneficiary_reference: 'INV-2026-11-000000000000000000000000000000000000000000000042' } } };
+    const calls = await stubApi(page, {
+      'GET /prime/inbox': { requests: [REQUEST], total: 1 }, 'GET /prime/inbox/count': { count: 1 },
+      'GET /prime/requests/req1': long,
+      'POST /prime/requests/req1/reject': { ...REQUEST, state: 'rejected' },
+    });
+    await page.goto('prime/inbox');
+    await page.getByRole('button', { name: /payment\.release/ }).click();
+    await expect(page.getByText('Releases the payment.')).toBeVisible();
+    const inView = async (loc) => {
+      await loc.scrollIntoViewIfNeeded();
+      const box = await loc.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(375);
+    };
+    // Everything fits the width of the screen: the page does not scroll sideways, and neither a long value nor a button is cut off.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    await inView(page.getByText(/INV-2026-11-0+42/));
+    for (const name of ['Approve', 'Reject', 'Edit']) await inView(page.getByRole('button', { name, exact: true }));
+    await inView(page.getByLabel('Reason (required to reject)'));
+
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await inView(page.getByRole('form', { name: 'Edit request' }).getByLabel('Amount (INR)'));
+    await page.getByRole('form', { name: 'Edit request' }).getByRole('button', { name: 'Cancel' }).click();
+
+    await page.getByLabel('Reason (required to reject)').fill('Wrong supplier');
+    await page.getByRole('button', { name: 'Reject' }).click();
+    const dialog = page.getByRole('alertdialog');
+    await inView(dialog.getByRole('button').last());
+    await dialog.getByRole('button').last().click();
+    await expect.poll(() => calls.find((c) => c.key === 'POST /prime/requests/req1/reject')?.body)
+      .toEqual({ request_hash: 'h1', reason: 'Wrong supplier' });
+  });
+});
