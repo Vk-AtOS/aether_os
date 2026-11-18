@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.errors import SandboxViolation
+from aether_os.core.quality._project_root import relative_to_root, require_project_root
 from aether_os.core.run_app import safe_fs
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.security.bandit_run import BanditScanError, bandit_args, parse as parse_bandit
@@ -44,12 +45,7 @@ def _files(root: Path, pattern: str, under: Optional[Path] = None) -> List[Path]
             if rel.match(pattern)]
 
 
-def _rel(root: Path, path: Path) -> Path:
-    """path relative to root; a path outside root is refused (SandboxViolation)."""
-    try:
-        return Path(path).relative_to(root)
-    except ValueError:
-        raise SandboxViolation(f"{path} is outside the run dir {root}") from None
+_rel = relative_to_root
 
 
 def _is_file(root: Path, path: Path) -> bool:
@@ -172,9 +168,9 @@ class QualityScore:
 
 # ── Individual scorers ────────────────────────────────────────────────────────
 
-def _collect_all_routes(src_dir: Path, root: Optional[Path] = None) -> List[RouteInfo]:
+def _collect_all_routes(src_dir: Path, root: Path) -> List[RouteInfo]:
     """Read all .py files in src_dir and collect routes. root: the run directory."""
-    root = root or src_dir
+    root = require_project_root(root)
     routes: List[RouteInfo] = []
     for py_file in _files(root, "*.py", under=src_dir):
         code = _read(root, py_file)
@@ -185,7 +181,7 @@ def _collect_all_routes(src_dir: Path, root: Optional[Path] = None) -> List[Rout
     return routes
 
 
-def _check_auth_coverage(src_dir: Path, root: Optional[Path] = None) -> float:
+def _check_auth_coverage(src_dir: Path, root: Path) -> float:
     """Fraction of non-health routes that have auth (Depends(...))."""
     routes = _collect_all_routes(src_dir, root)
     checkable = [r for r in routes if r.path not in _HEALTH_PATHS]
@@ -195,7 +191,7 @@ def _check_auth_coverage(src_dir: Path, root: Optional[Path] = None) -> float:
     return protected / len(checkable)
 
 
-def _check_input_validation(src_dir: Path, root: Optional[Path] = None) -> float:
+def _check_input_validation(src_dir: Path, root: Path) -> float:
     """Fraction of write-method routes that have Pydantic body params."""
     routes = _collect_all_routes(src_dir, root)
     write_routes = [r for r in routes if r.method in ("POST", "PUT", "PATCH")]
@@ -239,9 +235,9 @@ def _check_test_score(project_dir: Path) -> float:
     return 0.5
 
 
-def _check_seed_quality(src_dir: Path, root: Optional[Path] = None) -> float:
+def _check_seed_quality(src_dir: Path, root: Path) -> float:
     """Check if seed.py contains ORM object instantiation."""
-    code = _read(root or src_dir, src_dir / "seed.py")
+    code = _read(require_project_root(root), src_dir / "seed.py")
     if code is None:
         return 0.0
     seeds = re.findall(r"\b[A-Z]\w+\(", code)
@@ -253,9 +249,9 @@ def _check_seed_quality(src_dir: Path, root: Optional[Path] = None) -> float:
     return 0.3
 
 
-def _check_domain_specificity(src_dir: Path, root: Optional[Path] = None) -> float:
+def _check_domain_specificity(src_dir: Path, root: Path) -> float:
     score = 0.0
-    root = root or src_dir.parent
+    root = require_project_root(root)
     frontend_dir = src_dir.parent / "frontend"
 
     widget = _read(root, frontend_dir / "src" / "components" / "DomainWidget.jsx")
@@ -378,7 +374,13 @@ def _find_real_src_dir(project_dir: Path) -> Optional[Path]:
 
 def score_project(project_dir: Path) -> QualityScore:
     """Return a real QualityScore based on AetherOS v2 Master Directive."""
-    src_dir = _find_real_src_dir(project_dir)
+    try:
+        project_dir = require_project_root(project_dir)
+    except SandboxViolation as exc:     # no usable run directory: nothing is scored, fail closed
+        logger.warning("score_project: %s", exc)
+        src_dir = None
+    else:
+        src_dir = _find_real_src_dir(project_dir)
     if src_dir is None:
         return QualityScore(
             total=0, auth_coverage=0, input_validation=0,
