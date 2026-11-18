@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+_TIMEOUT_S = 30   # urlopen has no default timeout: a stalled API call would hang the phase forever
+
 
 @dataclass
 class PRResult:
@@ -49,7 +51,7 @@ class PRCreator:
 
         try:
             req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method="POST")
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 res_data = json.loads(resp.read().decode())
                 return PRResult(success=True, url=res_data["html_url"], number=res_data["number"])
         except urllib.error.HTTPError as e:
@@ -77,7 +79,7 @@ class PRCreator:
 
         try:
             req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method="POST")
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 res_data = json.loads(resp.read().decode())
                 return PRResult(success=True, url=res_data["web_url"], number=res_data["iid"])
         except urllib.error.HTTPError as e:

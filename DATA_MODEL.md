@@ -595,7 +595,6 @@ Model `Organisation` at `core/models.py:15`.
 | `storage_used_mb` | FLOAT | no |  | `0.0` |
 | `autonomous_mode` | BOOLEAN | no |  | `False` |
 | `data_region` | VARCHAR(20) | no |  | `'global'` |
-| `scim_token` | VARCHAR(128) | yes |  |  |
 | `scim_token_hash` | VARCHAR(128) | yes |  |  |
 | `scim_token_lookup` | VARCHAR(64) | yes | indexed |  |
 | `stripe_customer_id` | VARCHAR(64) | yes |  |  |
@@ -1018,7 +1017,7 @@ Model `Webhook` at `core/models.py:194`.
 | `org_id` | VARCHAR(50) | no | indexed |  |
 | `url` | VARCHAR(512) | no |  |  |
 | `events` | JSON | yes |  |  |
-| `secret` | VARCHAR(255) | yes |  |  |
+| `secret` | TEXT | yes |  |  |
 | `secret_hash` | VARCHAR(255) | yes |  |  |
 | `is_active` | BOOLEAN | no |  | `True` |
 | `created_at` | DATETIME | no |  | `_utcnow()` |

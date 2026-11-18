@@ -26,7 +26,6 @@ class Organisation(Base):
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
     autonomous_mode: Mapped[bool] = mapped_column(Boolean, default=False)
     data_region: Mapped[str] = mapped_column(String(20), default="global")
-    scim_token: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated — use scim_token_hash
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
     # sha256 of the SCIM token (a 256-bit random value, so a plain digest is enough): lets a request find its org
     # with one indexed lookup instead of bcrypt-checking every org that has a token.
@@ -219,7 +218,7 @@ class Webhook(Base):
     org_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     events: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # deprecated — plaintext, kept for migration period
+    secret: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # the HMAC signing key, Fernet-encrypted (core.encryption); never plaintext
     secret_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # M3: bcrypt hash; plaintext only returned at creation time
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -549,7 +548,7 @@ class QuestionnaireSession(Base):
     org_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # denormalised from runs.org_id (set on insert)
     stage_id: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending|sent|completed|expired
-    access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)  # sha256 of the share token, never the token
     token_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     respondent_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     respondent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

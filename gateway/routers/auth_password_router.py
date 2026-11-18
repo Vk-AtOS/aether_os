@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from html import escape
 from typing import Any, Dict
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -145,9 +146,9 @@ async def password_reset_request(req: PasswordResetRequest, request: Request) ->
             subject = "AetherOS: Password Reset Request"
             body_html = (
                 f"<p>You requested a password reset for your AetherOS account.</p>"
-                f"<p><a href='{reset_link}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
+                f"<p><a href='{escape(reset_link)}' style='background:#7c3aed;color:#fff;padding:10px 20px;"
                 f"border-radius:6px;text-decoration:none;display:inline-block'>Reset Password</a></p>"
-                f"<p>Or copy this link: <code>{reset_link}</code></p>"
+                f"<p>Or copy this link: <code>{escape(reset_link)}</code></p>"
                 f"<p>This link expires in 1 hour. If you did not request this, ignore this email.</p>"
                 f"<hr><p style='color:#888;font-size:12px'>AetherOS</p>"
             )
