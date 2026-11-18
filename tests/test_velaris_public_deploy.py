@@ -80,6 +80,7 @@ def test_nginx_accepts_the_config(tmp_path):
     proxy.write_text(PROXY.read_text())
     site = CONF.read_text().replace("/etc/nginx/velaris_public_proxy.conf", str(proxy)).replace("VELARIS_PUBLIC_DOMAIN_PLACEHOLDER", "x.test")
     site = re.sub(r"ssl_certificate\s+\S+;|ssl_certificate_key\s+\S+;|access_log /var/log\S+ velaris_public;|error_log\s+\S+ crit;", "", site)
+    site = site.replace("listen 80;", "listen 8080;").replace("listen [::]:80;", "")   # ports below 1024 need root
     site = site.replace("listen 443 ssl http2;", "listen 8443;").replace("listen [::]:443 ssl http2;", "")
     main = tmp_path / "nginx.conf"
     main.write_text(f"events {{}} http {{ access_log off; {site} }}")   # the built-in default log path is not writable either
