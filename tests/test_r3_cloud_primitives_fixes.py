@@ -97,3 +97,58 @@ def test_litmus_rbac_is_namespaced_and_cannot_touch_secrets_or_nodes():
     resources = {r for rule in docs[1]["rules"] for r in rule["resources"]}
     assert not resources & {"secrets", "nodes"}
     assert all(d["metadata"]["namespace"] == "shop" for d in docs)
+
+
+# ── KAN-131: no plaintext credentials in generated gateway / queue config ─────────────────────
+def test_kong_config_has_a_jwt_consumer_template_with_the_key_from_the_environment():
+    import yaml
+    from aether_os.core.cloud_primitives.gateway import generate_kong_declarative_config
+    text = generate_kong_declarative_config([{"name": "api", "port": 8000}], "my-app")
+    cfg = yaml.safe_load(text)
+    consumer = cfg["consumers"][0]                     # was [] : every call through the gateway was a 401
+    secret = consumer["jwt_secrets"][0]
+    assert secret["algorithm"] == "RS256"
+    assert secret["rsa_public_key"].startswith("{vault://env/")        # referenced, never inlined
+    assert "BEGIN" not in text
+
+
+def test_nats_compose_takes_credentials_from_the_environment_and_binds_localhost():
+    from aether_os.core.cloud_primitives.queue import generate_nats_docker_compose
+    text = generate_nats_docker_compose("my-app")
+    assert "${NATS_USER:?" in text and "${NATS_PASSWORD:?" in text and "--user ${NATS_USER}" in text
+    assert '"4222:4222"' not in text and '"127.0.0.1:4222:4222"' in text   # was open on every interface, no auth
+
+
+# ── KAN-131: cell planner and capacity planner review ─────────────────────────────────────────
+def test_cell_health_queue_check_runs_and_does_not_block():
+    import asyncio
+    from aether_os.core.cell_architecture.cell_planner import generate_cell_health_check
+    ns: dict = {}
+    exec(compile(generate_cell_health_check("my-app"), "cell_health.py", "exec"), ns)   # noqa: S102
+
+    async def go():
+        server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        import os
+        os.environ["KAFKA_BROKERS"] = f"127.0.0.1:{port}"
+        try:
+            up = await ns["_check_queue"]()          # was a NameError (socket never imported) -> always False
+        finally:
+            server.close()
+            await server.wait_closed()
+        os.environ["KAFKA_BROKERS"] = "127.0.0.1:1"
+        return up, await ns["_check_queue"]()
+    up, down = asyncio.run(go())
+    assert up is True and down is False
+
+
+def test_global_accelerator_groups_are_each_dialled_to_100():
+    from aether_os.core.cell_architecture.cell_planner import generate_cell_terraform
+    tf = generate_cell_terraform("my-app", ["us-east-1", "eu-west-1", "ap-southeast-1"])
+    assert tf.count("traffic_dial_percentage = 100") == 3      # was 33 each: 1/3 of the traffic per group
+
+
+def test_pdb_never_blocks_a_single_replica_drain():
+    from aether_os.core.capacity_planner.planner import generate_pdb
+    assert "maxUnavailable: 1" in generate_pdb("svc", "ns", "batch")        # was minAvailable 50% of 1 replica = 1
+    assert 'minAvailable: "67%"' in generate_pdb("svc", "ns", "real_time")
