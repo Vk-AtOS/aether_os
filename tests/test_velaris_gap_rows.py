@@ -103,7 +103,7 @@ async def test_an_admin_role_reaches_the_rows(http, velaris):
 
 
 async def test_typed_confirmation_is_required_and_not_forwarded(http, velaris):
-    for path in ("/hr/EMPLOYEE_RECORDS/erase_subject", "/hr/ATS_CORE/erase_candidates", "/chat/admin/users/u1/erase",
+    for path in ("/hr/EMPLOYEE_RECORDS/erase_subject", "/hr/ATS_CORE/erase_candidates", "/chat/admin/users/u1/erase", "/chat/admin/messages/7/erase",
                  "/mail/mailboxes/m1"):
         method = "DELETE" if path == "/mail/mailboxes/m1" else "POST"
         for body in (None, {}, {"confirm": "erase"}, {"confirm": "EXPORT"}, {"confirm": True}):

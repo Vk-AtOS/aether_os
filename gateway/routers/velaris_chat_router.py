@@ -51,7 +51,8 @@ ROUTES = (
     R("PUT", "/admin/channels/{channel_id}/hold", "chat.admin.hold", log=("hold",), admin=True, needs="chat_admin"),
     R("GET", "/admin/channels/{channel_id}/export", "chat.admin.export", kind="export", admin=True, needs="chat_admin"),
     R("POST", "/admin/sweep", "chat.admin.sweep", admin=True, needs="chat_admin"),
-    R("POST", "/admin/messages/{message_id}/erase", "chat.admin.erase", admin=True, needs="chat_admin"),
+    # one message: erased for good, so the typed word is required here as for a whole person (KAN-129, DPDP)
+    R("POST", "/admin/messages/{message_id}/erase", "chat.admin.erase", admin=True, needs="chat_admin", confirm="ERASE"),
     # KAN-129 DPDP: one person's chat data. Export is a download and ledgered; erase needs the typed word.
     R("GET", "/admin/users/{user_id}/export", "chat.admin.user.export", kind="export", admin=True, needs="chat_admin", timeout=SLOW),
     R("POST", "/admin/users/{user_id}/erase", "chat.admin.user.erase", admin=True, needs="chat_admin", confirm="ERASE", timeout=SLOW),
