@@ -43,7 +43,6 @@ python-dotenv>=1.2.2
 # ── Analysis ──────────────────────────────────────────────────────────────────
 networkx>=3.2.0             # call graph (DCSP dfle/call_graph.py)
 whatthepatch>=1.0.0         # Bug 1 fix: replaces broken difflib.patch_from_unified_diff
-mcp>=0.1.0                  # Model Context Protocol
 sqlite-vec>=0.1.0           # Vector search for SQLite
 
 # ── Async / Files ─────────────────────────────────────────────────────────────
