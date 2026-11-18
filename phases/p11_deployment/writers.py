@@ -30,7 +30,7 @@ def write_dockerfile(app_dir: Path, main_py: Path) -> Path:
     else:
         pip_cmd = (
             "RUN pip install --no-cache-dir "
-            "fastapi uvicorn[standard] pydantic sqlalchemy python-jose passlib bcrypt "
+            "fastapi uvicorn[standard] pydantic sqlalchemy 'PyJWT[crypto]' passlib bcrypt "
             "python-multipart slowapi python-dotenv httpx"
         )
 
