@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from prometheus_client import Counter, Gauge
@@ -16,6 +19,7 @@ from aether_os.core.db import get_session_factory
 from aether_os.core.queue.sqs_client import dlq_depth
 from aether_os.core.resilience import all_breakers, all_bulkheads
 from aether_os.core.resilience.health import snapshot
+from aether_os.core.telemetry.events import GUARDIAN_TAMPER, LLM_REFUSED, SANDBOX_START_FAILURES  # noqa: F401  (re-exported)
 from aether_os.prime.models import PrimeRequest
 
 logger = logging.getLogger(__name__)
@@ -30,7 +34,18 @@ QUEUE_DLQ_DEPTH = Gauge("aether_queue_dead_letters", "Dead-lettered pipeline job
 APPROVALS_PENDING = Gauge("aether_approvals_pending", "Prime approval requests waiting for a decision")
 APPROVAL_OLDEST_AGE = Gauge("aether_approval_oldest_pending_seconds", "Age of the oldest pending approval request")
 READY = Gauge("aether_ready", "1 when /readyz would answer 200")
+BACKUP_AGE = Gauge("aether_backup_age_seconds", "Age of the newest database dump in BACKUP_DIR (not set when the directory is not visible)")
 COMPONENT_DEGRADED = Gauge("aether_component_degraded", "1 while a component is degraded or down", ["component"])
+
+
+def newest_backup_age(backup_dir: str) -> Optional[float]:
+    """Seconds since the newest aetheros_* dump was written; None when the directory does not exist (a backup that
+    cannot be seen is not reported as fresh or stale); inf when it exists but holds no dump."""
+    d = Path(backup_dir)
+    if not d.is_dir():
+        return None
+    mtimes = [f.stat().st_mtime for f in d.glob("aetheros_*")]
+    return max(time.time() - max(mtimes), 0.0) if mtimes else float("inf")
 
 
 def observe_cost(model: str, input_tokens: int, output_tokens: int, cost_usd: float) -> None:
@@ -80,3 +95,9 @@ async def refresh(approvals: Optional[tuple[int, float]] = None) -> None:
         APPROVAL_OLDEST_AGE.set(age)
     except Exception as e:
         logger.warning("metrics: approval backlog failed: %s", type(e).__name__)
+    try:
+        age = await asyncio.to_thread(newest_backup_age, os.environ.get("BACKUP_DIR", "/var/backups/aetheros"))
+        if age is not None:
+            BACKUP_AGE.set(age)
+    except Exception as e:
+        logger.warning("metrics: backup age failed: %s", type(e).__name__)
