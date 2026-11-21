@@ -26,9 +26,10 @@ variable "name" {
   default = "aetheros-testbed"
 }
 variable "instance_type" {
-  description = "2 vCPU / 8 GiB: the compose stack plus one sandbox build at a time"
-  type        = string
-  default     = "t3.large"
+  # 2 vCPU / 8 GiB: the compose stack plus one sandbox build at a time. m7i-flex rather than t3.large because accounts on
+  # the AWS free plan may only launch free-tier-eligible types (RunInstances: InvalidParameterCombination otherwise).
+  type    = string
+  default = "m7i-flex.large"
 }
 variable "budget_email" {
   description = "Where AWS sends the budget alerts. Empty: no budget is created"

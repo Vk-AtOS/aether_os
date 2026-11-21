@@ -30,7 +30,7 @@ state: keep the state bucket private, encrypted and limited to the deployers.
 ## Testbed (`environments/testbed`)
 
 A throwaway environment for the tests that need real infrastructure (compose up and the kill test, restore drill, sandbox
-images, pgvector, Velaris smoke): one Docker host (t3.large, no inbound port, reached with
+images, pgvector, Velaris smoke): one Docker host (m7i-flex.large, no inbound port, reached with
 `aws ssm start-session`), RDS PostgreSQL 15 db.t4g.micro (password in Secrets Manager), and a private S3 backup bucket. Default
 VPC, local state, no domain. Region defaults to `ap-southeast-2` because the owner's test account allows no other region.
 Optional budget alert: `-var budget_email=...`. Destroy it when the run is over: `terraform destroy`.
