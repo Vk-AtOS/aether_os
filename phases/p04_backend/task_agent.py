@@ -15,6 +15,7 @@ from aether_os.phases.utils import get_domain_ir
 from aether_os.phases.p04_backend.go_generator import (
     generate_go_multiservice,
     generate_go_project,
+    service_dir,
 )
 from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
@@ -198,7 +199,7 @@ async def _run_go_backend(phase_input: Any, output_dir: Path) -> TaskResult:
             # Add gRPC layer for grpc-communication services
             for svc in service_map["services"]:
                 if svc.get("communication") == "grpc":
-                    svc_dir = output_dir / "services" / svc["name"] / "backend"
+                    svc_dir = service_dir(output_dir, svc["name"]) / "backend"
                     slug = svc["name"].lower()
                     module = f"github.com/aetheros/{slug}"
                     owns = set(svc.get("owns_entities") or [])

@@ -8,32 +8,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
 
 def _extract_json(text: str) -> dict:
-    """PIPELINE-056: robust JSON extraction that handles nested JSON correctly."""
-    # Try direct parse first
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.warning("[p06] _extract_json: direct parse failed: %s", e)
-    # Walk through each '{' and find the matching '}'
-    for match in re.finditer(r'\{', text):
-        start = match.start()
-        depth = 0
-        for i, ch in enumerate(text[start:], start):
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start:i + 1])
-                except json.JSONDecodeError:
-                    break
-    raise ValueError("No valid JSON found in text")
+    """First complete JSON object in the model's reply; raises ValueError when there is none."""
+    return extract_first_json(text, expect=dict)
 
 _SUBTASK_TIMEOUT = 150.0
 

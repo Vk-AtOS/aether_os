@@ -19,9 +19,11 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.stack_profiles import get_profile, profile_to_dict
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p00c_architecture_planner.prompts import SERVICE_MAP_PROMPT
 from aether_os.phases.p00c_architecture_planner.helpers import (
+    coerce_service_map,
     validate_service_map,
     build_fallback_service_map,
     normalise_service_map,
@@ -36,6 +38,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     data = phase_input.input_data or {}
 
     build_profile = data.get("build_profile") or {}
+    if isinstance(build_profile, str):
+        # Older p00 results carried only the profile name; resolve it instead of crashing on .get().
+        logger.warning("p00c: build_profile is the name %r, not a dict; resolving it", build_profile)
+        build_profile = profile_to_dict(get_profile(build_profile))
+    elif not isinstance(build_profile, dict):
+        logger.warning("p00c: build_profile is %s, ignoring it", type(build_profile).__name__)
+        build_profile = {}
     architecture = build_profile.get("architecture", "monolith")
 
     # Only produce a service map for microservices builds.
@@ -69,7 +78,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             backend_framework=backend_framework,
             performance_tier=performance_tier,
         )
-        raw = await llm.call_json(prompt, task_type="analysis")
+        raw = coerce_service_map(await llm.call_json(prompt, task_type="analysis"), backend_lang)
         errors = validate_service_map(raw)
         if errors:
             logger.warning("p00c: LLM service_map invalid (%s) — using fallback", errors)
