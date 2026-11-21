@@ -147,8 +147,10 @@ container 127.0.0.1 is the container itself, so the defaults only work when the 
 
 On Linux, then re-run the firewall with the same address so the published ports stay unreachable from outside the
 host: `sudo AETHER_SANDBOX_PUBLISH_IP=172.17.0.1 core/sandbox/host_firewall.sh` (it drops packets for that address that
-do not arrive on loopback, docker0 or a Docker bridge, and refuses `0.0.0.0`). Never use `0.0.0.0`: the gateway
-refuses it (`SandboxViolation`). `host.docker.internal` also resolves on Linux (compose sets
+do not arrive on loopback, docker0 or a Docker bridge). The gateway and the firewall script validate the address
+with the same `core/sandbox/publish_addr.py` (python3 must be on the host): only loopback or an RFC 1918 IPv4 address
+is accepted (no wildcard in any spelling, no 169.254.x, no public address, no hostname), and the firewall further
+requires it to be assigned to docker0 or a `br-*` bridge, so a LAN/VPC address of the host is refused too. `host.docker.internal` also resolves on Linux (compose sets
 `extra_hosts: host.docker.internal:host-gateway`, which is the docker0 address), so it is an alternative upstream host
 there as long as the publish IP is the docker0 address. Check from the API container:
 `docker compose exec api python3 -c "import socket; socket.create_connection(('172.17.0.1', <port>), 2)"` while an app runs.
