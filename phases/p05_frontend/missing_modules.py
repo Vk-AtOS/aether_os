@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aether_os.core.errors import SandboxViolation
 from aether_os.core.run_app.safe_fs import safe_makedirs, safe_write_text
+from aether_os.phases.p05_frontend.missing_exports import render_patch
 from aether_os.phases.p05_frontend.ui_primitives import UI_PRIMITIVES, UTIL_MODULES
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,39 @@ def _drop_generated_case_duplicates(src: Path) -> list[Path]:
     return removed
 
 
+def _existing_file(base: Path) -> Path | None:
+    """The source file a (resolved) specifier points to, exact spelling, or None."""
+    for cand in [base] + [Path(str(base) + e) for e in _SRC_EXT] + [base / ("index" + e) for e in _SRC_EXT]:
+        if cand.suffix in _SRC_EXT and _has(cand):
+            return cand
+    return None
+
+
+def _add_missing_exports(src: Path, needs: dict[Path, list]) -> list[str]:
+    """Append the named exports importers expect to the existing modules that lack them. Never renames or removes an
+    export; same containment rules as every other write here (no symlinks, nothing outside src)."""
+    changed: list[str] = []
+    for target, (values, types) in sorted(needs.items()):
+        if not _plain_file_in_src(target, src):
+            logger.warning("p05 missing_modules: %s is a symlink or outside src; exports not added", target.name)
+            continue
+        try:
+            text = target.read_text(errors="replace")
+            patch, added = render_patch(text, values, types, jsx=target.suffix == ".tsx")
+            if not added:
+                continue
+            if target.suffix not in (".ts", ".tsx"):
+                logger.warning("p05 missing_modules: %s is not TypeScript; cannot add %s", target.name, added)
+                continue
+            safe_write_text(src, target, text.rstrip("\n") + "\n" + patch)
+        except (SandboxViolation, OSError) as exc:
+            logger.warning("p05 missing_modules: could not add exports to %s: %s", target, exc)
+            continue
+        changed.append(target.relative_to(src).as_posix())
+        logger.warning("p05 missing_modules: added missing exports %s to existing %s", added, target.name)
+    return changed
+
+
 def _forward_exports(values: set[str], types: set[str], taken: set[str]) -> str:
     out = []
     for n in sorted(values - taken):
@@ -207,6 +241,7 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
         return []
     _drop_generated_case_duplicates(src)
     missing: dict[Path, list] = {}  # target base -> [values, types, default]
+    needs: dict[Path, list] = {}  # existing file -> [values, types] importers need exported
     respell: list[tuple[Path, str, str]] = []  # (importer, old specifier, specifier in the on-disk casing)
     for f in sorted(src.rglob("*")):
         if f.suffix not in _SRC_EXT or not f.is_file():
@@ -229,11 +264,21 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
             except PermissionError as exc:
                 logger.warning("p05 missing_modules: %s imports %r: %s; skipped", f.name, spec, exc)
                 continue
-            if base is None or _exists(base):
+            if base is None:
                 continue
-            fixed = _case_corrected_spec(spec, f, src)
+            fixed = None if _exists(base) else _case_corrected_spec(spec, f, src)
             if fixed is not None and fixed != spec:
                 respell.append((f, spec, fixed))
+                try:
+                    base = _resolve(fixed, f, src)
+                except PermissionError:
+                    continue
+            if _exists(base):
+                target = _existing_file(base)
+                if target is not None and (values or types) and target != f:
+                    entry = needs.setdefault(target, [set(), set()])
+                    entry[0] |= values
+                    entry[1] |= types
                 continue
             ext = Path(spec).suffix
             if ext and ext not in _SRC_EXT:
@@ -280,4 +325,5 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
         else:
             logger.warning("p05 missing_modules: generated stub %s for imported names %s",
                            written[-1], sorted(values | types) or "(default)")
+    _add_missing_exports(src, needs)
     return written
