@@ -23,6 +23,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from aether_os.core.llm.plans import PLATFORM_ORG
+from aether_os.core.telemetry.events import LLM_REFUSED
 from aether_os.core.llm.data_policy import effective_level, filter_chain
 from aether_os.core.model_router_providers import (
     ModelSpec,
@@ -148,7 +149,11 @@ class ModelRouter:
 
         # ── 0. Kill switches, org/plan/USD allowance, sensitivity (D6) — before anything is sent ──
         from aether_os.core.llm.guard import admit
-        admission = await admit(org_id, plan, prompt, system, max_tokens, enforce_local)
+        try:
+            admission = await admit(org_id, plan, prompt, system, max_tokens, enforce_local)
+        except LLMUnavailable:
+            LLM_REFUSED.labels(reason="admission").inc()   # kill switch, unknown org/plan, budget: alerts watch the rate
+            raise
         plan = admission.plan
 
         # ── 1. Semantic cache check ───────────────────────────────────────────
@@ -244,6 +249,7 @@ class ModelRouter:
                     filtered_chain.append(spec)
 
             if not filtered_chain:
+                LLM_REFUSED.labels(reason="no_model").inc()
                 raise LLMUnavailable(
                     "Trial plan users are restricted to free-tier models. "
                     "No free models available in fallback chain."
@@ -254,6 +260,7 @@ class ModelRouter:
         if not enforce_local:
             chain = filter_chain(chain, level)
             if not chain:
+                LLM_REFUSED.labels(reason="no_model").inc()
                 raise LLMUnavailable(
                     "No approved provider is configured for this data"
                     + (" (restricted data never goes to a free or third-party pool)" if level == "restricted" else ""))
@@ -487,6 +494,7 @@ class ModelRouter:
             if _server_failed:
                 _note_provider_result(spec.provider, _scope, True)
 
+        LLM_REFUSED.labels(reason="chain_exhausted").inc()
         raise LLMUnavailable(
             "All models in the fallback chain exhausted. "
             f"Last errors: {'; '.join(errors[-3:])}"
