@@ -9,6 +9,8 @@ Contains generators for:
 """
 from __future__ import annotations
 
+import re
+
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity
 from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields, is_user_entity  # noqa: F401
 from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
@@ -337,13 +339,18 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
         ]
 
         if status_field.enum_values:
-            for val in status_field.enum_values:
+            # Enum values are free text from the model ("To do", "Won't fix"): the variable name is a sanitised slug plus
+            # its index (unique, never starts with a digit) and the value is a Python literal via repr(). Pasting the raw
+            # value produced `_stage_to do_r = ...`, a SyntaxError that failed Stage 3 on production (22 Nov 2026).
+            for idx, val in enumerate(status_field.enum_values):
+                slug = re.sub(r"\W+", "_", str(val).lower()).strip("_") or "value"
+                var = f"_stage_{idx}_{slug}_r"
                 lines += [
-                    f"    _stage_{val.lower()}_r = await db.execute(",
+                    f"    {var} = await db.execute(",
                     f"        select(func.count()).select_from(models.{status_entity.name})",
-                    f"        .where(models.{status_entity.name}.{status_field.name} == '{val}'{_m(status_entity)})",
+                    f"        .where(models.{status_entity.name}.{status_field.name} == {str(val)!r}{_m(status_entity)})",
                     "    )",
-                    f"    stats['stage_{val.lower()}'] = _stage_{val.lower()}_r.scalar_one()",
+                    f"    stats[{('stage_' + slug)!r}] = {var}.scalar_one()",
                 ]
 
         lines += [

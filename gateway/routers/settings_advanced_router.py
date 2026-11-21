@@ -81,6 +81,28 @@ async def _provider_has_key(provider: str, org_id: str) -> bool:
         return False
 
 
+async def _platform_default_config(org_id: str) -> Dict[str, Any]:
+    """What an organisation without its own LLM settings actually runs on: the platform's PRIMARY_LLM and models.
+
+    This used to answer a hard-coded "anthropic" with no key, so on an install running the OpenAI-compatible provider
+    (production, 22 Nov 2026: PRIMARY_LLM=openrouter on NVIDIA) the dashboard showed "ANTHROPIC - NO KEY / MODEL NOT
+    READY" while every model call worked.
+    """
+    provider = (os.environ.get("PRIMARY_LLM") or "anthropic").strip().lower()
+    cfg: Dict[str, Any] = {
+        "primary_llm": provider,
+        "primary_key_configured": await _provider_has_key(provider, org_id),
+        "anthropic_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        "ollama_model": os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:3b"),
+        "langsmith_enabled": False,
+        "bedrock_enabled": provider == "bedrock" or os.environ.get("BEDROCK_ENABLED", "").lower() in ("1", "true"),
+    }
+    if provider == "openrouter":
+        cfg["openrouter_heavy_model"] = os.environ.get("OPENROUTER_HEAVY_MODEL", "")
+        cfg["openrouter_light_model"] = os.environ.get("OPENROUTER_LIGHT_MODEL", "")
+    return cfg
+
+
 @router.get("/settings/llm-config")
 async def get_llm_config(
     user: Dict[str, Any] = _current_user(),
@@ -92,14 +114,7 @@ async def get_llm_config(
         db_cfg = (await session.execute(select(LlmConfig).where(LlmConfig.org_id == org_id))).scalar_one_or_none()
 
     if not db_cfg:
-        return {
-            "primary_llm": "anthropic",
-            "primary_key_configured": await _provider_has_key("anthropic", org_id),
-            "anthropic_model": "claude-sonnet-4-6",
-            "ollama_model": "qwen2.5-coder:3b",
-            "langsmith_enabled": False,
-            "bedrock_enabled": False,
-        }
+        return await _platform_default_config(org_id)
 
     return {
         "primary_llm": db_cfg.provider,

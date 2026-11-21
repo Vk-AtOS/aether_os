@@ -143,6 +143,8 @@ def test_p05_install_gets_network_and_build_does_not(fake, tmp_path, monkeypatch
 def test_p05_build_loop_runs_tsc_and_build_in_the_sandbox(fake, tmp_path, monkeypatch):
     from aether_os.phases.p05_frontend.build_loop import run_build_loop
     monkeypatch.setenv("ENVIRONMENT", "development")
+    (tmp_path / "dist").mkdir()  # the fake sandbox runs nothing; success now also requires the bundle on disk
+    (tmp_path / "dist" / "index.html").write_text("<html/>")
     out = asyncio.run(run_build_loop(tmp_path, max_rounds=1))
     assert out["success"] and len(fake.calls) == 2 and not any(c.network for c in fake.calls)
 

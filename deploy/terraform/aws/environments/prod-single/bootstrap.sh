@@ -103,32 +103,49 @@ sleep 60
 docker compose --profile velaris ps --format '{{.Service}} {{.Status}}' | tr '\n' ';'; echo
 curl -s -o /dev/null -w "api healthz %{http_code}\n" http://127.0.0.1:8000/healthz || true
 
-# ── TLS certificate (Let's Encrypt, HTTP-01, standalone on port 80 before nginx takes it) ──
-mkdir -p /etc/letsencrypt /var/www/certbot /home/aether_os/dashboard
-docker rm -f aether-nginx >/dev/null 2>&1 || true
-if [ ! -f /etc/letsencrypt/live/$HOST/fullchain.pem ]; then
-  docker run --rm -p 80:80 -v /etc/letsencrypt:/etc/letsencrypt certbot/certbot:v2.11.0 certonly --standalone \
-    -d "$HOST" -d "preview.$HOST" --cert-name "$HOST" --agree-tos --register-unsafely-without-email -n > /srv/logs/certbot.log 2>&1 \
-    && echo "certificate issued" || { echo "certbot FAILED"; tail -15 /srv/logs/certbot.log; }
-fi
-# the preview server block expects its own certificate name; the one certificate covers both names
-mkdir -p /etc/letsencrypt/live/preview.$HOST
-ln -sf /etc/letsencrypt/live/$HOST/fullchain.pem /etc/letsencrypt/live/preview.$HOST/fullchain.pem
-ln -sf /etc/letsencrypt/live/$HOST/privkey.pem /etc/letsencrypt/live/preview.$HOST/privkey.pem
-
-# ── dashboard files + nginx (host network: upstream is 127.0.0.1:8000) ──
+# ── front end: FRONT=caddy (default) or FRONT=nginx ──
+# caddy: deploy/sslip (Caddy on 80/443, nginx behind it on loopback). Per-run preview hosts get certificates on demand
+# and velaris.<host> serves the Velaris public app (KAN-75, KAN-128); Caddy renews its own certificates.
+# nginx: the original single-nginx front with a certbot certificate for <host> and preview.<host> only; no per-run
+# previews. Re-running with the default keeps a host that already runs Caddy on Caddy. Starting the old nginx on 80/443
+# next to Caddy would fail.
+FRONT=${FRONT:-caddy}
+mkdir -p /home/aether_os/dashboard
 rm -rf /home/aether_os/dashboard/dist && docker compose cp api:/srv/aether_os/dashboard/dist /home/aether_os/dashboard/dist >/dev/null
-sed -e "s/PREVIEW_DOMAIN_PLACEHOLDER/preview.$HOST/g" -e "s/APP_DOMAIN_PLACEHOLDER/$HOST/g" deploy/nginx.conf > /srv/nginx-aetheros.conf
-docker run -d --name aether-nginx --restart unless-stopped --network host \
-  -v /srv/nginx-aetheros.conf:/etc/nginx/conf.d/default.conf:ro \
-  -v /home/aether_os/dashboard/dist:/home/aether_os/dashboard/dist:ro \
-  -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/certbot:/var/www/certbot:ro nginx:1.27-alpine >/dev/null
-sleep 3; docker logs aether-nginx 2>&1 | grep -iE "emerg|error" | head -5 || true
-rpm -q cronie >/dev/null 2>&1 || dnf install -y -q cronie >/dev/null; systemctl enable --now crond >/dev/null 2>&1
-# renewal twice a day; nginx reloads to pick up a renewed certificate
-cat > /etc/cron.d/aetheros-certbot <<CRON
+if [ "$FRONT" = caddy ]; then
+  bash deploy/sslip/switch_to_caddy.sh "$HOST" || { echo "caddy front FAILED (switch_to_caddy rolled back)"; exit 1; }
+else
+  # ── TLS certificate (Let's Encrypt, HTTP-01, standalone on port 80 before nginx takes it) ──
+  mkdir -p /etc/letsencrypt /var/www/certbot /home/aether_os/dashboard
+  docker rm -f aether-nginx >/dev/null 2>&1 || true
+  if [ ! -f /etc/letsencrypt/live/$HOST/fullchain.pem ]; then
+    docker run --rm -p 80:80 -v /etc/letsencrypt:/etc/letsencrypt certbot/certbot:v2.11.0 certonly --standalone \
+      -d "$HOST" -d "preview.$HOST" --cert-name "$HOST" --agree-tos --register-unsafely-without-email -n > /srv/logs/certbot.log 2>&1 \
+      && echo "certificate issued" || { echo "certbot FAILED"; tail -15 /srv/logs/certbot.log; }
+  fi
+  # the preview server block expects its own certificate name; the one certificate covers both names
+  mkdir -p /etc/letsencrypt/live/preview.$HOST
+  ln -sf /etc/letsencrypt/live/$HOST/fullchain.pem /etc/letsencrypt/live/preview.$HOST/fullchain.pem
+  ln -sf /etc/letsencrypt/live/$HOST/privkey.pem /etc/letsencrypt/live/preview.$HOST/privkey.pem
+
+  # ── dashboard files + nginx (host network: upstream is 127.0.0.1:8000) ──
+  # connect-src: same default and character filter as deploy/deploy.sh. Leaving CSP_CONNECT_SRC_PLACEHOLDER in place made
+  # browsers block every dashboard API call (production, 22 Nov 2026; curl-based smoke tests cannot see it).
+  CSP_CONNECT_SRC_CLEAN=$(printf '%s' "${CSP_CONNECT_SRC:-'self' https: wss: blob:}" | tr -cd "A-Za-z0-9:/.*' _-")
+  sed -e "s/PREVIEW_DOMAIN_PLACEHOLDER/preview.$HOST/g" -e "s/APP_DOMAIN_PLACEHOLDER/$HOST/g" \
+      -e "s|CSP_CONNECT_SRC_PLACEHOLDER|$CSP_CONNECT_SRC_CLEAN|g" deploy/nginx.conf > /srv/nginx-aetheros.conf
+  grep -q PLACEHOLDER /srv/nginx-aetheros.conf && { echo "nginx config still has a PLACEHOLDER; refusing to start nginx"; exit 1; }
+  docker run -d --name aether-nginx --restart unless-stopped --network host \
+    -v /srv/nginx-aetheros.conf:/etc/nginx/conf.d/default.conf:ro \
+    -v /home/aether_os/dashboard/dist:/home/aether_os/dashboard/dist:ro \
+    -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/certbot:/var/www/certbot:ro nginx:1.27-alpine >/dev/null
+  sleep 3; docker logs aether-nginx 2>&1 | grep -iE "emerg|error" | head -5 || true
+  rpm -q cronie >/dev/null 2>&1 || dnf install -y -q cronie >/dev/null; systemctl enable --now crond >/dev/null 2>&1
+  # renewal twice a day; nginx reloads to pick up a renewed certificate
+  cat > /etc/cron.d/aetheros-certbot <<CRON
 17 3,15 * * * root docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/www/certbot certbot/certbot:v2.11.0 renew --webroot -w /var/www/certbot -q && docker exec aether-nginx nginx -s reload
 CRON
+fi
 curl -s -o /dev/null -w "https dashboard %{http_code}\n" https://$HOST/dashboard/ || true
 curl -s -o /dev/null -w "https api %{http_code}\n" https://$HOST/api/healthz || true
 echo "$HOST" > /root/public_host

@@ -8,10 +8,12 @@ pr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pr)
 
 
-def test_only_the_known_blocker_fails_and_owner_items_stay_unverified():
+def test_no_blocker_fails_and_owner_items_stay_unverified():
     rows = {r["item"]: r["status"] for r in pr.run()}
     # Update this set when a blocker is fixed or a new one is found: the checklist must never go quiet by accident.
-    assert {k for k, v in rows.items() if v == "FAIL"} == {"sandbox isolation"}
+    # "sandbox isolation" left this set when the API stopped mounting the Docker socket (docker-proxy, KAN-65/66/101).
+    assert {k for k, v in rows.items() if v == "FAIL"} == set()
+    assert rows["sandbox isolation"] == "PASS"
     assert rows["access reviews"] == rows["incident contacts"] == rows["restore on real data"] == "UNVERIFIED"
 
 

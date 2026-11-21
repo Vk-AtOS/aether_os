@@ -123,7 +123,7 @@ async def apply_gate2_revisions(
     src_dir = frontend_dir / "src"
     candidates = (
         list((src_dir / "pages").glob("*.tsx"))
-        + [src_dir / "components" / "DomainWidget.jsx", src_dir / "components" / "Layout.tsx"]
+        + [src_dir / "components" / "DomainWidget.tsx", src_dir / "components" / "Layout.tsx"]
     )
 
     # Also include all pages in customer portal subdirectory

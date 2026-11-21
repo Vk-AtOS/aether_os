@@ -220,6 +220,7 @@ class FrontendStageSupervisor(PhaseBase):
                     ][:50]  # cap at 50 to avoid huge payloads
             _quality_scores = {
                 "p05_confidence": float(p05_result.confidence),
+                "p05_tsc_errors": float(p05_result.metadata.get("tsc_errors", 0)),
                 "sub_steps_run": float(len(all_results)),
                 "any_critical_fail": 1.0 if any(
                     not r.success and not r.metadata.get("skipped") for r in all_results
@@ -312,7 +313,11 @@ class FrontendStageSupervisor(PhaseBase):
                 issues=["s04_frontend: sentinel files exist but p05 reported build failure — broken frontend not shipped"],
             )
 
-        return GateOutcome(passed=True, confidence=result.confidence)
+        # Policy: a bundled app passes even with leftover type errors; the count stays visible as a gate warning.
+        tsc_errors = int(result.metadata.get("tsc_errors", 0) or 0)
+        warn = [f"s04_frontend: {tsc_errors} TypeScript error(s) remain (vite build succeeded): "
+                + " | ".join(result.metadata.get("tsc_messages", [])[:3])] if tsc_errors else []
+        return GateOutcome(passed=True, confidence=result.confidence, issues=warn)
 
     # ── Internal helpers ────────────────────────────────────────────────────
 

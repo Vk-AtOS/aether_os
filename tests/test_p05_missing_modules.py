@@ -47,7 +47,8 @@ def test_existing_files_not_overwritten_and_cn_util(tmp_path):
         "src/components/ui/card.tsx": "export const Card = () => null // mine\n",
     })
     ensure_local_modules(root)
-    assert (root / "src/components/ui/card.tsx").read_text() == "export const Card = () => null // mine\n"
+    # existing exports are never rewritten; names the page imports that the file lacks are appended after them
+    assert (root / "src/components/ui/card.tsx").read_text().startswith("export const Card = () => null // mine\n")
     assert "export function cn" in (root / "src/lib/utils.ts").read_text()
 
 
@@ -72,3 +73,27 @@ def test_traversal_specifiers_never_write_outside_src(tmp_path):
     assert list(outside.iterdir()) == []
     assert not Path("/tmp/p05_traversal_probe").exists()
     assert [p for p in tmp_path.rglob("*.ts*") if not p.is_relative_to(root / "src")] == []
+
+
+def test_case_variant_import_is_respelled_not_duplicated(tmp_path):
+    root = _tree(tmp_path, {
+        "src/pages/D.tsx": "import { Card } from '../components/ui/card'\nimport { Button } from '@/components/ui/button'\n"
+                           "import X from '@/Components/UI/Card'\n",
+        "src/components/ui/Card.tsx": "export const Card = () => null\n",
+        "src/components/ui/Button.tsx": "export const Button = () => null\n"})
+    written = ensure_local_modules(root)
+    names = sorted(p.name for p in (root / "src/components/ui").iterdir())
+    assert names == ["Button.tsx", "Card.tsx"] and not [w for w in written if "ui/" in w]
+    page = (root / "src/pages/D.tsx").read_text()
+    assert "'../components/ui/Card'" in page and "'@/components/ui/Button'" in page
+    assert "'@/components/ui/Card'" in page  # directory casing is respelled too
+    assert ensure_local_modules(root) == []
+
+
+def test_previously_generated_duplicate_is_removed(tmp_path):
+    root = _tree(tmp_path, {
+        "src/pages/D.tsx": "import { Card } from '../components/ui/Card'\n",
+        "src/components/ui/Card.tsx": "export const Card = () => null\n",
+        "src/components/ui/card.tsx": "// aether:generated-module\nexport const Card = () => null\n"})
+    ensure_local_modules(root)
+    assert [p.name for p in (root / "src/components/ui").iterdir()] == ["Card.tsx"]

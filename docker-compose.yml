@@ -130,6 +130,8 @@ services:
       # Generated apps run in Docker sandbox containers (core/sandbox/docker_backend.py) and are
       # served only from the preview origin (gateway/preview_server.py, service `preview`).
       AETHER_SANDBOX: docker
+      # Docker API through the filtered proxy's unix socket on a private volume (no host socket, no TCP listener).
+      DOCKER_HOST: unix:///docker-proxy/docker.sock
       AETHER_SANDBOX_IMAGE: ${AETHER_SANDBOX_IMAGE:-aether-sandbox:1}
       # Where sandbox app ports are published on the host, and where this container connects to them
       # (core/sandbox/endpoints.py). Empty = 127.0.0.1, which inside this container is the container
@@ -149,12 +151,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # The gateway starts sandbox containers through the host's Docker daemon. Whoever controls
-    # this socket is root on the host: the API image needs the docker CLI, and its user must be
-    # in the socket's group (DOCKER_GID). The run directories are bind-mounted from the host at
-    # the SAME path, because sandbox containers mount them by the path the gateway sees.
-    group_add:
-      - ${DOCKER_GID:?DOCKER_GID is required - the group id owning /var/run/docker.sock}
+      docker-proxy:
+        condition: service_started
+    # The gateway starts sandbox containers through the host's Docker daemon, but NOT through the socket:
+    # the docker CLI in this image talks to the docker-proxy service (DOCKER_HOST below), which is the only
+    # service that mounts the socket (KAN-65/66/101). The API has no docker group and no socket. The run
+    # directories are bind-mounted from the host at the SAME path, because sandbox containers mount them by
+    # the path the gateway sees (the daemon resolves that path on the host).
     # host.docker.internal resolves to the docker0 address on Linux too (built in on Docker Desktop).
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -162,7 +165,7 @@ services:
       # INFRA-H1: container runs as non-root user 'aether'; the host directory must exist and
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
       - /home/aether/.aether_os:/home/aether/.aether_os
-      - /var/run/docker.sock:/var/run/docker.sock
+      - docker_proxy_sock:/docker-proxy
       # Read-only view of the dump directory so /metrics can report aether_backup_age_seconds (alert BackupTooOld).
       - ${BACKUP_DIR:-/var/backups/aetheros}:${BACKUP_DIR:-/var/backups/aetheros}:ro
     # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
@@ -175,6 +178,57 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # ── Docker socket proxy: the ONLY service that mounts the host Docker socket ────────────────────────────
+  # Filters the Docker API by path and method (HAProxy, tecnativa/docker-socket-proxy). Allowed: containers
+  # (create/start/stop/kill/remove/inspect/logs/wait/ps), images (inspect, load), networks (inspect/create) and
+  # /info + /version; POST/DELETE are needed for those. Denied (the image defaults, spelled out): exec, volumes,
+  # build, swarm, services, tasks, secrets, configs, plugins, system, session, auth, distribution, commit, nodes.
+  # It listens on a UNIX socket in the docker_proxy_sock volume, shared only with the api, and has network_mode none: no
+  # TCP port, no network interface, so nothing else on the host or on any bridge can reach it (an unauthenticated
+  # root-equivalent TCP API on a bridge was the alternative; rejected in the PR #29 security review).
+  # LIMIT: the proxy filters endpoints, not request bodies, so a caller that can reach it can still ask for a
+  # privileged container or a host bind mount. It narrows the attack surface (no exec, no volumes, no swarm,
+  # no image build, no host-side file API) but is not a sandbox. Tracked residual risk: KAN-204 (remote or rootless runner).
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest@sha256:be1ac64f33bd82043beb504822a17ba6b71668ea1ad7cf51a9a01d27bb7ab047
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      INFO: "1"
+      VERSION: "1"
+      POST: "1"
+      EXEC: "0"
+      VOLUMES: "0"
+      BUILD: "0"
+      COMMIT: "0"
+      CONFIGS: "0"
+      DISTRIBUTION: "0"
+      NODES: "0"
+      PLUGINS: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SESSION: "0"
+      SWARM: "0"
+      SYSTEM: "0"
+      TASKS: "0"
+      AUTH: "0"
+      # unix socket for the api (mode 666 is safe: the directory is a volume only api and this service mount)
+      BIND_CONFIG: unix@/docker-proxy/docker.sock mode 666
+    network_mode: none
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker_proxy_sock:/docker-proxy
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   # ── Preview server: the only thing that serves generated apps, on its own origin ──
   # Host network so it reaches the apps' ports published on the host (127.0.0.1 or AETHER_SANDBOX_PUBLISH_IP); it listens
@@ -273,6 +327,7 @@ services:
       retries: 3
 
 volumes:
+  docker_proxy_sock:
   velaris_data:
   pg_data:
   redis_data:
