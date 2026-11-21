@@ -111,9 +111,16 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 }
 
 data "aws_iam_policy_document" "host" {
+  # The host writes only under backups/ and can delete nothing: a compromised host cannot erase backups (the lifecycle rule
+  # expires them) or replace the src/ archives it deploys from (those are uploaded by the operator, read-only here).
   statement {
-    sid       = "Backups"
-    actions   = ["s3:PutObject", "s3:GetObject", "s3:ListBucket", "s3:DeleteObject"]
+    sid       = "BackupsWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.backups.arn}/backups/*"]
+  }
+  statement {
+    sid       = "BackupsAndSourceRead"
+    actions   = ["s3:GetObject", "s3:ListBucket"]
     resources = [aws_s3_bucket.backups.arn, "${aws_s3_bucket.backups.arn}/*"]
   }
   statement {
