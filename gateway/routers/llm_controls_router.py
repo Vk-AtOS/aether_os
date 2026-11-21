@@ -87,7 +87,8 @@ async def set_org_cap(org_id: str, body: CapBody, user: Dict[str, Any] = Depends
 
 @router.put("/settings/llm/cap")
 async def org_cap(body: CapBody, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """An org admin may LOWER the org's own monthly cap, never raise it above the plan default (null = back to plan)."""
+    """An org admin may set its OWN cap, 0..plan cap (null clears only that own cap). It is stored apart from the
+    platform cap (llm_monthly_cap_usd) and the effective cap is the minimum, so a tenant cannot undo a platform decision."""
     if user.get("role") not in ("owner", "admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Admin access required")
     policy = await controls.org_policy(user["org_id"])
@@ -96,9 +97,10 @@ async def org_cap(body: CapBody, user: Dict[str, Any] = Depends(get_current_user
         raise HTTPException(status_code=404, detail="Organisation or plan not found")
     if body.monthly_cap_usd is not None and not 0 <= body.monthly_cap_usd <= limit.usd:
         raise HTTPException(status_code=422, detail=f"monthly_cap_usd must be between 0 and {limit.usd} (the {policy.plan} plan cap)")
-    await _set_org(user["org_id"], llm_monthly_cap_usd=body.monthly_cap_usd)
-    await _ledger(user, "llm.cap.set_by_org", user["org_id"], {"monthly_cap_usd": body.monthly_cap_usd})
-    return {"org_id": user["org_id"], "monthly_cap_usd": body.monthly_cap_usd}
+    await _set_org(user["org_id"], llm_org_cap_usd=body.monthly_cap_usd)
+    await _ledger(user, "llm.cap.set_by_org", user["org_id"], {"org_cap_usd": body.monthly_cap_usd})
+    policy = await controls.org_policy(user["org_id"])
+    return {"org_id": user["org_id"], "org_cap_usd": body.monthly_cap_usd, "effective_cap_usd": policy.effective_cap_usd()}
 
 
 @router.post("/settings/llm/kill-switch")
@@ -116,12 +118,13 @@ async def usage(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, A
     if policy is None:
         raise HTTPException(status_code=404, detail="Organisation not found")
     limit = PLAN_LIMITS.get(policy.plan)
-    cap = policy.cap_usd if policy.cap_usd is not None else (limit.usd if limit else 0.0)
+    cap = policy.effective_cap_usd() or 0.0
     u = await get_budget_manager().get_usage(user["org_id"], time.strftime("%Y-%m"))
     spent = u["estimated_cost_usd"] or 0.0
     async with get_session_factory()() as session:
         today = await budget._daily_spent(session, user["org_id"], budget._today())
     return {"plan": policy.plan, "month": time.strftime("%Y-%m"), "spent_usd": round(spent, 4),
-            "cap_usd": cap, "percent_used": round(100 * spent / cap, 1) if cap else 100.0,
+            "cap_usd": cap, "plan_cap_usd": limit.usd if limit else None,
+            "platform_cap_usd": policy.cap_usd, "org_cap_usd": policy.org_cap_usd, "percent_used": round(100 * spent / cap, 1) if cap else 100.0,
             "llm_disabled": policy.disabled,
             "today_spent_usd": round(today, 4), "daily_cap_usd": round(budget.daily_cap_usd(cap), 2)}
