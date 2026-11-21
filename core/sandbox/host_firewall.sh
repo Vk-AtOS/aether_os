@@ -49,13 +49,26 @@ done
 # API container can reach them. Pass the same AETHER_SANDBOX_PUBLISH_IP to this script: packets for
 # that address are accepted only from this host's own interfaces (loopback, docker0, the compose
 # bridges), never from the outside network.
-PUB_IP="${AETHER_SANDBOX_PUBLISH_IP:-127.0.0.1}"
+# The address is checked by the SAME validator the gateway uses (publish_addr.py: loopback or RFC 1918
+# only; no wildcard in any spelling, no link-local, no public, no hostname), and it prints the canonical form.
+RAW_PUB_IP="${AETHER_SANDBOX_PUBLISH_IP:-}"
+RAW_PUB_IP="${RAW_PUB_IP:-127.0.0.1}"
+PUB_IP="$(python3 "$(dirname "$0")/publish_addr.py" "$RAW_PUB_IP")" || {
+  echo "refusing AETHER_SANDBOX_PUBLISH_IP=$RAW_PUB_IP (see core/sandbox/publish_addr.py)" >&2
+  exit 1
+}
 case "$PUB_IP" in
-  0.0.0.0|::|"[::]"|"*")
-    echo "refusing AETHER_SANDBOX_PUBLISH_IP=$PUB_IP: sandboxed apps must not be published on every interface" >&2
-    exit 1 ;;
-  127.*) ;;  # loopback: unreachable from outside by construction
+  127.*|::1) ;;  # loopback: unreachable from outside by construction
   *)
+    # RFC 1918 also covers this host's own LAN/VPC address, which IS reachable from outside:
+    # require the address to belong to docker0 or a Docker bridge.
+    OWNER="$(ip -4 -o addr show | awk -v ip="$PUB_IP" '{split($4, a, "/"); if (a[1] == ip) print $2}')"
+    case "$OWNER" in
+      docker0|br-*) ;;
+      *)
+        echo "refusing AETHER_SANDBOX_PUBLISH_IP=$PUB_IP: not an address of docker0 or a Docker bridge (owner: ${OWNER:-none})" >&2
+        exit 1 ;;
+    esac
     iptables -t raw -N AETHER-SBX-PUB 2>/dev/null || true
     iptables -t raw -F AETHER-SBX-PUB
     iptables -t raw -A AETHER-SBX-PUB -i lo -j RETURN

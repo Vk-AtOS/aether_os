@@ -10,6 +10,7 @@ import asyncio
 import re
 import socket
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,11 +58,45 @@ def test_env_override(monkeypatch):
     assert endpoints.publish_ip() == "172.17.0.1"
 
 
-@pytest.mark.parametrize("wildcard", ["0.0.0.0", "::", "[::]", "*"])
-def test_publish_ip_never_a_wildcard(monkeypatch, wildcard):
-    monkeypatch.setenv("AETHER_SANDBOX_PUBLISH_IP", wildcard)
+# Every spelling of "all interfaces", the metadata range, public addresses and names must be refused.
+_REFUSED = [
+    "0.0.0.0", " 0.0.0.0 ", "::", "[::]", "::0", "0:0:0:0:0:0:0:0", "[0::0]", "0", "000.0.0.0", "*",
+    "169.254.169.254", "169.254.1.1", "8.8.8.8", "52.95.110.1", "100.64.0.1", "224.0.0.1", "fe80::1",
+    "fd00::1", "localhost", "host.docker.internal", "example.com", "172.17.0.1:80", "10.0.0.0/8",
+]
+_ALLOWED = [("127.0.0.1", "127.0.0.1"), ("127.0.0.2", "127.0.0.2"), ("::1", "::1"), ("[::1]", "::1"),
+            (" 172.17.0.1 ", "172.17.0.1"), ("172.18.0.1", "172.18.0.1"), ("10.0.0.1", "10.0.0.1"),
+            ("192.168.65.1", "192.168.65.1")]
+
+
+@pytest.mark.parametrize("value", _REFUSED)
+def test_publish_ip_refuses_wildcards_public_link_local_and_names(monkeypatch, value):
+    monkeypatch.setenv("AETHER_SANDBOX_PUBLISH_IP", value)
     with pytest.raises(SandboxViolation):
         endpoints.publish_ip()
+
+
+@pytest.mark.parametrize("value,canonical", _ALLOWED)
+def test_publish_ip_allows_loopback_and_private_bridge(monkeypatch, value, canonical):
+    monkeypatch.setenv("AETHER_SANDBOX_PUBLISH_IP", value)
+    assert endpoints.publish_ip() == canonical
+
+
+@pytest.mark.parametrize("value", _REFUSED[:12] + ["8.8.8.8"])
+def test_firewall_validator_cli_agrees(value):
+    # host_firewall.sh runs this exact script, so the host and the gateway cannot disagree.
+    script = _ROOT / "core" / "sandbox" / "publish_addr.py"
+    done = subprocess.run([sys.executable, "-I", str(script), value], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 1, (value, done.stdout)
+    ok = subprocess.run([sys.executable, "-I", str(script), " 172.17.0.1 "], capture_output=True, text=True,
+                        timeout=30)
+    assert ok.returncode == 0 and ok.stdout.strip() == "172.17.0.1"
+
+
+def test_host_firewall_uses_the_shared_validator():
+    text = (_ROOT / "core" / "sandbox" / "host_firewall.sh").read_text()
+    assert 'publish_addr.py" "$RAW_PUB_IP"' in text
+    assert "docker0|br-*" in text
 
 
 def test_docker_backend_publishes_on_the_configured_ip(monkeypatch, tmp_path):
