@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://openrouter.ai/api/v1"
 
+
+def base_url() -> str:
+    """OpenAI-compatible endpoint. OPENROUTER_BASE_URL points the same client at another provider with the same API,
+    e.g. NVIDIA's https://integrate.api.nvidia.com/v1 (free developer tier) when no paid model provider is available."""
+    return os.environ.get("OPENROUTER_BASE_URL", "").strip().rstrip("/") or _BASE_URL
+
 OPENROUTER_MODELS = {
     # ── Free models (verified available 2026-06-06) ───────────────────────
     "minimax-m2.5-free":      "minimax/minimax-m2.5:free",
@@ -71,7 +77,7 @@ OPENROUTER_MODELS = {
 # Council uses a diverse set of models — different from the pipeline primary
 # so council reviews are genuinely independent.  Ordered by preference; the
 # council tries each in turn, skipping any that return 429/404.
-COUNCIL_MODELS = [
+_DEFAULT_COUNCIL_MODELS = [
     "poolside/laguna-m.1:free",                 # 131K ctx, coding specialist
     "meta-llama/llama-3.3-70b-instruct:free",   # reliable, 128K ctx
     "google/gemma-4-31b-it:free",               # 262K ctx, balanced
@@ -79,6 +85,10 @@ COUNCIL_MODELS = [
     "nousresearch/hermes-3-llama-3.1-405b:free", # 405B, highly capable
     "minimax/minimax-m2.5:free",                # best free for code
 ]
+# OPENROUTER_COUNCIL_MODELS (comma-separated) replaces the list: with OPENROUTER_BASE_URL set, the OpenRouter names
+# above do not exist on the other endpoint and every council call would fail.
+COUNCIL_MODELS = [m.strip() for m in os.environ.get("OPENROUTER_COUNCIL_MODELS", "").split(",") if m.strip()] \
+    or _DEFAULT_COUNCIL_MODELS
 
 _DEFAULT_HEAVY = "minimax/minimax-m2.5:free"
 _DEFAULT_LIGHT  = "meta-llama/llama-3.3-70b-instruct:free"
@@ -150,7 +160,7 @@ async def call_openrouter(
     async with httpx.AsyncClient(timeout=timeout) as http:
         try:
             resp = await http.post(
-                f"{_BASE_URL}/chat/completions",
+                f"{base_url()}/chat/completions",
                 json=payload,
                 headers=headers,
             )
