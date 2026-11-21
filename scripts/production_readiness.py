@@ -66,9 +66,9 @@ def sandbox_isolation() -> Result:
     # through DOCKER_HOST. Residual risk: the proxy does not inspect request bodies (see docs/ops/RUNBOOKS.md).
     services = yaml.safe_load(text("docker-compose.yml"))["services"]
     holders = [n for n, d in services.items() if any("docker.sock" in str(v) for v in d.get("volumes", []))]
-    return ok(holders == ["docker-proxy"] and "DOCKER_HOST: tcp://docker-proxy" in text("docker-compose.yml"),
+    return ok(holders == ["docker-proxy"] and "DOCKER_HOST: unix:///docker-proxy" in text("docker-compose.yml"),
               "host docker.sock mounted only by docker-proxy; api uses DOCKER_HOST",
-              f"docker.sock is mounted by {holders}; only docker-proxy may, and the api needs DOCKER_HOST=tcp://docker-proxy:2375")
+              f"docker.sock is mounted by {holders}; only docker-proxy may, and the api needs DOCKER_HOST=unix:///docker-proxy/docker.sock")
 
 
 def rate_limits() -> Result:
