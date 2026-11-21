@@ -55,15 +55,33 @@ _K8S_ARCHITECTURES = {"microservices", "event_driven"}
 # ---------------------------------------------------------------------------
 # Enterprise extension routers
 # ---------------------------------------------------------------------------
-# Each entry: (phase, package, router module, import alias).
+# Each entry: (phase, package, module, import alias, kind). kind "router" is included under /api;
+# kind "middleware" (alias = the class) is added to the app, but only when the service it reports to
+# is configured: p18's metering middleware posts every entity request to OPENMETER_URL, so an app
+# deployed without OpenMeter must not mount it. It was generated and copied but never mounted at all.
 # A sub-phase writes <its own output dir>/<package>/..., NOT into the app: the old table looked for
 # the files under the app's src/, where they never are, so nothing was ever wired. The package is
 # copied into src/ and then included. p16_iam writes policy files only (no router), so it is not here.
-_ENTERPRISE_ROUTERS: List[Tuple[str, str, str, str]] = [
-    ("p12a_feature_flags", "feature_flags", "flag_admin_router", "_ff_router"),
-    ("p12b_ab_testing", "ab_testing", "ab_router", "_ab_router"),
-    ("p18_billing_metering", "billing", "billing_webhook", "_billing_router"),
+_ENTERPRISE_ROUTERS: List[Tuple[str, str, str, str, str]] = [
+    ("p12a_feature_flags", "feature_flags", "flag_admin_router", "_ff_router", "router"),
+    ("p12b_ab_testing", "ab_testing", "ab_router", "_ab_router", "router"),
+    ("p18_billing_metering", "billing", "billing_webhook", "_billing_router", "router"),
+    ("p18_billing_metering", "billing", "metering_middleware", "MeteringMiddleware", "middleware"),
 ]
+
+
+def _wiring_lines(import_path: str, alias: str, kind: str) -> str:
+    """The statements (inside the snippet's try) that attach one extension to `app`."""
+    if kind == "middleware":
+        return (
+            "    import os as _os\n"
+            "    if _os.getenv(\"OPENMETER_URL\"):\n"
+            f"        from {import_path} import {alias} as _{alias}\n"
+            f"        app.add_middleware(_{alias})\n"
+            "    else:\n"
+            f"        logging.getLogger(__name__).info('{import_path} not mounted: OPENMETER_URL is not set')\n"
+        )
+    return f"    from {import_path} import router as {alias}\n    app.include_router({alias}, prefix=\"/api\")\n"
 
 
 def _autowire_enterprise_extensions(
@@ -83,7 +101,7 @@ def _autowire_enterprise_extensions(
     patched_main = original_main
     wired: List[str] = []
 
-    for phase, package, router_module, alias in _ENTERPRISE_ROUTERS:
+    for phase, package, router_module, alias, kind in _ENTERPRISE_ROUTERS:
         if phase not in succeeded_phases:
             continue
         src_pkg = phase_dirs.get(phase, Path("/nonexistent")) / package
@@ -98,27 +116,27 @@ def _autowire_enterprise_extensions(
             (dest_pkg / "__init__.py").touch()
 
         import_path = f"{package}.{router_module}"
+        label = package if kind == "router" else import_path
         if import_path in patched_main:
-            wired.append(package)  # idempotent: already wired
+            wired.append(label)  # idempotent: already wired
             continue
         # main.py imports the app's modules by plain name (src/ is on sys.path), so the same here.
         snippet = (
-            f"\n# Enterprise extension: {package} (auto-wired by s10)\n"
+            f"\n# Enterprise extension: {label} (auto-wired by s10)\n"
             f"try:\n"
-            f"    from {import_path} import router as {alias}\n"
-            f"    app.include_router({alias}, prefix=\"/api\")\n"
-            f"except Exception as _autowire_{package}_exc:\n"
+            f"{_wiring_lines(import_path, alias, kind)}"
+            f"except Exception as _autowire_{router_module}_exc:\n"
             f"    logging.getLogger(__name__).warning("
-            f"'s10 autowire: {package} router unavailable: %s', _autowire_{package}_exc)\n"
+            f"'s10 autowire: {label} {kind} unavailable: %s', _autowire_{router_module}_exc)\n"
         )
         try:
             ast.parse(patched_main + snippet)
         except SyntaxError as syn_exc:
-            logger.warning("s10 autowire: patched main.py fails ast.parse for '%s' — skipping: %s", package, syn_exc)
+            logger.warning("s10 autowire: patched main.py fails ast.parse for '%s' — skipping: %s", label, syn_exc)
             continue
         patched_main += snippet
-        wired.append(package)
-        logger.info("s10 autowire: wired enterprise extension '%s' into main.py", package)
+        wired.append(label)
+        logger.info("s10 autowire: wired enterprise extension '%s' into main.py", label)
 
     if patched_main != original_main:
         main_py_path.write_text(patched_main, encoding="utf-8")

@@ -66,7 +66,11 @@ def summarize_stage_outcomes(results: Dict[str, Dict[str, Any]]) -> Dict[str, An
             failed.append({"stage": stage, "status": status, "reason": str(reason or "no reason given")})
         elif status == "skipped" or meta.get("skipped") is True:
             skipped.append({"stage": stage, "reason": str(meta.get("skipped_reason") or "skipped")})
-    return {"failed_stages": failed, "skipped_stages": skipped, "all_stages_ok": not failed and not skipped}
+    # s06's gate lets failing unit tests through (healing repairs them): say so at run level.
+    s06_gate = ((results.get("s06_testing") or {}).get("metadata") or {}).get("gate") or {}
+    return {"failed_stages": failed, "skipped_stages": skipped, "all_stages_ok": not failed and not skipped,
+            "tests_failed_but_did_not_block": bool(s06_gate.get("tests_failed_but_did_not_block")),
+            "tests_not_checked": list(s06_gate.get("not_checked") or [])}
 
 
 def council_view(council_delivery: Optional[Dict[str, Any]]) -> Dict[str, Any]:

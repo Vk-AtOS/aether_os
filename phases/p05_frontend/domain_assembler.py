@@ -99,8 +99,11 @@ def write_scaffold_and_components(
     generate_frontend_readme_fn: Any,
     write_ui_components_fn: Any,
     write_with_guard_fn: Any,
-) -> None:
+) -> List[str]:
     """Write Phases 1–5: scaffold files, core logic, and layout components.
+
+    Returns the user-facing surfaces (router shell, login, layouts, ...) it wrote from templates,
+    relative to src/. Shared building blocks (DataTable, ui/*) are a component library, not listed.
 
     Extracted to keep task_agent.py under 450 lines.  All generator functions
     are passed in as callables to avoid circular imports between this module
@@ -143,6 +146,9 @@ def write_scaffold_and_components(
     # Phase 3: App.tsx skeleton
     logger.info("p05: Writing App.tsx skeleton...")
     write_with_guard_fn(src_dir / "App.tsx", generate_app_fn(entities, dual_portal=(layout_mode == "dual")))
+    # User-facing surfaces written from fixed templates here (no model involved). Returned so
+    # template_debt_pct counts them: it used to count the entity pages and the dashboard only.
+    template_surfaces = ["App.tsx", "pages/LoginPage.tsx", "pages/NotFoundPage.tsx"]
 
     # Phase 4: Core pages
     write_with_guard_fn(src_dir / "pages" / "LoginPage.tsx", generate_login_page_fn(project_name, layout_mode=layout_mode))
@@ -155,6 +161,7 @@ def write_scaffold_and_components(
                 app_brand=app_brand, app_tagline=app_tagline,
             ),
         )
+        template_surfaces.append("pages/CustomerHome.tsx")
 
     # Phase 4b: Landing page
     if has_landing_page:
@@ -168,6 +175,7 @@ def write_scaffold_and_components(
             app_brand=app_brand,
         )
         write_with_guard_fn(src_dir / "pages" / "LandingPage.tsx", _landing_code)
+        template_surfaces.append("pages/LandingPage.tsx")
 
     # Phase 4c: SSE realtime hook
     if realtime_features:
@@ -186,9 +194,11 @@ def write_scaffold_and_components(
         write_with_guard_fn(src_dir / "components" / "CustomerLayout.tsx", generate_customer_layout_fn(entities, project_name))
         write_with_guard_fn(src_dir / "components" / "AdminLayout.tsx", generate_admin_layout_fn(entities, project_name))
         write_with_guard_fn(src_dir / "components" / "Layout.tsx", "export { AdminLayout as Layout } from './AdminLayout'\n")
+        template_surfaces += ["components/CustomerLayout.tsx", "components/AdminLayout.tsx"]
     else:
         _layout_code = generate_mobile_first_layout_fn(entities, project_name)
         write_with_guard_fn(src_dir / "components" / "Layout.tsx", _layout_code)
+        template_surfaces.append("components/Layout.tsx")
 
     write_with_guard_fn(src_dir / "components" / "DataTable.tsx", generate_data_table_fn())
     write_with_guard_fn(src_dir / "components" / "CrudModal.tsx", generate_crud_modal_fn())
@@ -199,6 +209,7 @@ def write_scaffold_and_components(
     write_with_guard_fn(src_dir / "components" / "Pagination.tsx", _generate_pagination())
     write_with_guard_fn(src_dir / "components" / "Skeleton.tsx", _generate_skeleton())
     write_with_guard_fn(src_dir / "components" / "RoleGuard.tsx", _generate_role_guard())
+    return template_surfaces
 
 
 async def generate_domain_widget(

@@ -1,6 +1,7 @@
 """KAN-69: every clone of a user-supplied URL goes through the shared public-address check (core/security/git_remote,
 safe_http), not only a host allow-list; the p08 repo manager had no check at all and sent tokens by substring."""
 import asyncio
+import base64
 import subprocess
 from types import SimpleNamespace
 
@@ -38,7 +39,9 @@ def test_p03_refuses_an_allow_listed_host_that_is_private(tmp_path, monkeypatch)
 def test_repo_manager_checks_the_url_and_keeps_tokens_for_their_own_host(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "tok-123")
     seen = []
-    monkeypatch.setattr(RepoManager, "_run_git", lambda self, args, cwd=None, pin=None: seen.append(args) or "")
+    auths = []
+    monkeypatch.setattr(RepoManager, "_run_git", lambda self, args, cwd=None, pin=None, auth=None:
+                        (seen.append(args), auths.append(auth or {})) and "")
     mgr = RepoManager(str(tmp_path))
     for bad in ("https://127.0.0.1/x/y.git", "file:///srv/repo", "https://169.254.169.254/github.com/y"):
         with pytest.raises(RepoError):
@@ -46,13 +49,15 @@ def test_repo_manager_checks_the_url_and_keeps_tokens_for_their_own_host(tmp_pat
     assert not seen
     with pytest.raises(RepoError):
         mgr.clone_or_pull("https://8.8.8.8/org/repo.git", commit_sha="--orphan")
-    # the token is embedded only for the real github.com host, never by substring
+    # the token goes only to the real github.com host, never by substring, and never inside the URL (KAN-122)
     monkeypatch.setattr("aether_os.phases.p08_cicd.repo.git_manager.check_https_remote_pinned",
                         lambda u: HttpsRemote(u, "x", ("8.8.8.8",)))
     mgr.clone_or_pull("https://evil.example/github.com/repo.git")
     mgr.clone_or_pull("https://github.com/org/ok.git")
-    urls = [a[2] for a in seen if a[0] == "clone"]
-    assert "tok-123" not in urls[0] and "tok-123" in urls[1], urls
+    assert [a[2] for a in seen] == ["https://evil.example/github.com/repo.git", "https://github.com/org/ok.git"]
+    assert "tok-123" not in str(seen)
+    assert auths[0] == {} and auths[1]["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    assert base64.b64decode(auths[1]["GIT_CONFIG_VALUE_0"].rsplit(" ", 1)[1]) == b"x-access-token:tok-123"
 
 
 def test_https_clone_is_pinned_to_the_checked_address(tmp_path, monkeypatch):

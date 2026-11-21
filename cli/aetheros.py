@@ -1,11 +1,13 @@
 """AetherOS Factory CLI — interact with your factory from the terminal."""
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
 import time
 import webbrowser
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +17,6 @@ import typer
 import requests
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
@@ -82,7 +83,7 @@ def _headers(cfg: dict) -> dict:
 
 def _get(cfg: dict, path: str, **kwargs):
     url = cfg["url"].rstrip("/") + path
-    r = requests.get(url, headers=_headers(cfg), timeout=30, **kwargs)
+    r = requests.get(url, headers=_headers(cfg), **{"timeout": 30, **kwargs})
     r.raise_for_status()
     return r
 
@@ -170,7 +171,9 @@ def logout():
         try:
             _post(cfg, "/auth/logout")
         except Exception as exc:
-            logger.debug("CLI logout: server-side logout call failed (non-fatal): %s", exc)
+            logger.warning("CLI logout: server-side logout call failed: %s", exc)
+            console.print(f"[yellow]Warning:[/yellow] the server did not revoke the session ({escape(str(exc))}); "
+                          "the token stays valid until it expires.")
     _save_cfg({})
     console.print("[green]Logged out.[/green]")
 
@@ -191,6 +194,7 @@ def whoami():
         ))
     except Exception as e:
         logger.warning("whoami: could not fetch account usage: %s", e)
+        console.print(f"[yellow]Could not reach the gateway ({escape(str(e))}); showing saved config only.[/yellow]")
         console.print(f"Email: {cfg.get('email','—')}  Gateway: {cfg['url']}")
 
 
@@ -323,12 +327,13 @@ def logs(
     """Stream live logs from a factory run."""
     cfg = _require_cfg()
     url = cfg["url"].rstrip("/") + f"/factory/runs/{run_id}/stream"
-    hdrs = _headers(cfg)
-    hdrs["Accept"] = "text/event-stream"
 
     console.print(f"[dim]Streaming logs for [cyan]{run_id}[/cyan] — [bold]Ctrl+C[/bold] to stop[/dim]\n")
     try:
-        with requests.get(url, headers=hdrs, stream=True, timeout=None) as resp:
+        # the stream route takes a one-time sse_token, never the bearer token (it would land in proxy logs)
+        sse_token = _post(cfg, f"/factory/runs/{run_id}/sse-token").json()["sse_token"]
+        with requests.get(url, params={"sse_token": sse_token}, headers={"Accept": "text/event-stream"},
+                          stream=True, timeout=None) as resp:
             resp.raise_for_status()
             lines_shown = 0
             for raw_line in resp.iter_lines():
@@ -337,11 +342,11 @@ def logs(
                 line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
                 if line.startswith("data:"):
                     payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        console.print("\n[green]Run complete.[/green]")
-                        break
                     try:
                         ev = json.loads(payload)
+                        if ev.get("type") in ("pipeline_complete", "stream_end"):
+                            console.print(f"\n[green]Run finished:[/green] {escape(str(ev.get('status', 'completed')))}")
+                            break
                         phase  = ev.get("phase", "")
                         msg    = ev.get("message") or ev.get("log") or str(ev)
                         etype  = ev.get("type", "")
@@ -363,6 +368,7 @@ def logs(
         logger.warning("stream_logs: stream error for run %s: %s", run_id, e)
         console.print(f"[red]Stream error:[/red] {e}")
         console.print(f"[dim]Try [bold]aether status {run_id}[/bold] for a snapshot.[/dim]")
+        raise typer.Exit(1) from e
 
 
 def _do_watch(cfg: dict, run_id: str) -> None:
@@ -416,40 +422,24 @@ def download(
     """Download all artifacts from a completed run."""
     cfg = _require_cfg()
     out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    with console.status("Fetching artifact list…"):
+    with console.status("Downloading artifacts…"):
         try:
-            r = _get(cfg, f"/factory/runs/{run_id}/artifacts")
+            # the gateway serves a run's files as one ZIP; there is no per-artifact route
+            r = _get(cfg, f"/factory/runs/{run_id}/download", timeout=300)
+            with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+                names = [n for n in zf.namelist() if not n.endswith("/")]
+                out.mkdir(parents=True, exist_ok=True)
+                zf.extractall(out)   # extractall drops absolute paths and ".." components
         except requests.HTTPError as e:
-            console.print(f"[red]Failed:[/red] {e.response.text}")
+            console.print(f"[red]Failed:[/red] {e.response.status_code} {escape(e.response.text)}")
             raise typer.Exit(1) from e
-    artifacts = r.json()
-    if isinstance(artifacts, dict):
-        artifacts = artifacts.get("items") or artifacts.get("artifacts") or []
-
-    if not artifacts:
+        except (requests.RequestException, zipfile.BadZipFile, OSError) as e:
+            console.print(f"[red]Failed:[/red] {escape(str(e))}")
+            raise typer.Exit(1) from e
+    if not names:
         console.print("[yellow]No artifacts found.[/yellow]")
-        return
-
-    console.print(f"[cyan]Downloading {len(artifacts)} artifact(s) to [bold]{out}[/bold]…[/cyan]")
-    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-                  BarColumn(), TimeElapsedColumn(), console=console) as prog:
-        task = prog.add_task("Downloading", total=len(artifacts))
-        for art in artifacts:
-            fpath = art.get("path") or art.get("name") or f"artifact_{art.get('id','?')}"
-            art_id = art.get("id")
-            if art_id:
-                try:
-                    res = _get(cfg, f"/factory/artifacts/{art_id}/download", stream=True)
-                    dest = out / Path(fpath).name
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(res.content)
-                except Exception as e:
-                    logger.warning("download: could not download artifact %s: %s", fpath, e)
-                    console.print(f"[red]  ✗ {fpath}:[/red] {e}")
-            prog.advance(task)
-    console.print(f"[green]Done.[/green] Artifacts saved to [bold]{out}[/bold]")
+        raise typer.Exit(1)
+    console.print(f"[green]Done.[/green] {len(names)} file(s) saved to [bold]{out}[/bold]")
 
 
 @app.command("open")

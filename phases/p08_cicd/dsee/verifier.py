@@ -7,11 +7,9 @@ Verifies stability conditions based on test results and impact analysis.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from src.dsee.test_runner import TieredTestRunResult
-    from src.dsee.impact import ImpactResult
+from aether_os.phases.p08_cicd.dsee.impact import ImpactResult
+from aether_os.phases.p08_cicd.dsee.test_runner import TieredTestRunResult
 
 
 @dataclass

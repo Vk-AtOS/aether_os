@@ -1,6 +1,6 @@
 """Multi-tenant SaaS pattern — org middleware, organization models, invite system."""
 from __future__ import annotations
-MULTI_TENANT_REQUIREMENTS = ["python-jose[cryptography]>=3.3.0"]
+MULTI_TENANT_REQUIREMENTS = ["PyJWT[crypto]>=2.15.1"]
 MULTI_TENANT_CODE = '''\
 """
 Multi-tenant SaaS layer — OrgMiddleware, Organization CRUD, invite system.
