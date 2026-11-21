@@ -50,7 +50,7 @@ def _configure_logging(verbose: bool = False) -> None:
 def _show_banner() -> None:
     console.print(Panel(
         "[bold cyan]AetherOS[/bold cyan] — Unified Multi-Agent Software Development System\n"
-        "[dim]Primary LLM: Anthropic claude-sonnet-4-6[/dim]\n"
+        "[dim]Model provider: set by PRIMARY_LLM (OpenAI-compatible endpoint, Bedrock, Anthropic, Gemini or Ollama); see .env.example[/dim]\n"
         "[dim]Phases: Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package[/dim]",
         title="[bold]AetherOS v1.0.0[/bold]",
         border_style="cyan",
