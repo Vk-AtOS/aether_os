@@ -183,7 +183,7 @@ function isoLocal(offsetHours = 0): string {
 
 export default function SensorChartPage() {
   const deviceId = (() => {
-    const m = window.location.pathname.match(/\/devices\/([^/]+)\/readings/)
+    const m = window.location.pathname.match(/\\/devices\\/([^/]+)\\/readings/)
     return m?.[1] ?? 'unknown'
   })()
 
