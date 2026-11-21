@@ -18,7 +18,7 @@ This file was checked against the code at commit `e5c23fd`. Where a number or be
 | `go_microservices` | go / gin | react | postgres | kubernetes |
 | `node_api` | typescript / fastify | react | postgres | docker_compose |
 | `node_serverless` | typescript / express | react | postgres | serverless |
-| `java_enterprise` | java / spring_boot | react | postgres | kubernetes |
+| `java_enterprise` (experimental, partial) | java / spring_boot (no generator: the backend is generated as Python/FastAPI) | react | postgres | kubernetes |
 | `mobile_react_native` | python / fastapi | react_native | postgres | docker_compose |
 | `mobile_rn` | python / fastapi | react_native | postgres | docker_compose |
 | `desktop_electron` | python / fastapi | electron | sqlite | native |
@@ -32,7 +32,7 @@ This file was checked against the code at commit `e5c23fd`. Where a number or be
 
 These are the values in the registry. Whether a profile has a working generator is a separate question (see below).
 
-Backend generation is routed by `build_profile.backend_lang` in `phases/p04_backend/task_agent.py:254-261`. There is a Go generator (`go_generator.py`, `go_grpc_generator.py`) and a TypeScript generator (`node_generator.py`). There is no Java generator: the `java_enterprise` profile exists, but a Spring Boot backend is not generated. The CI/CD phase has a Java build template (`phases/p08_cicd/lang/java.py`).
+Backend generation is routed by `build_profile.backend_lang` in `phases/p04_backend/task_agent.py:254-261`. There is a Go generator (`go_generator.py`, `go_grpc_generator.py`) and a TypeScript generator (`node_generator.py`). There is no Java generator: the `java_enterprise` profile is experimental and only partly supported. Selecting it routes to the default Python/FastAPI backend generator, so no Spring Boot code is produced; the frontend, database and Kubernetes choices of the profile still apply. The CI/CD phase has a Java build template (`phases/p08_cicd/lang/java.py`).
 
 Other files that generation code writes (each one was found in the code that writes it):
 - `compliance_manifest.json` (`phases/p06_review_security/manifest.py:20`, called from `subtasks.py:21`).

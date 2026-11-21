@@ -140,10 +140,39 @@ allow-listed environment, no network for builds and tests, a firewalled egress n
 The host-side regex filter and the two host-execution helpers that had no caller were deleted (KAN-69 SC-05). Whether the host firewall is applied on any deployed host:
 not verified (`core/sandbox/isolation_probe.py` exists to check this at run time).
 
+### Git clone of a user-supplied repository (accepted design, KAN-97)
+
+The "fork a repository" feature clones on the host, not in the sandbox. This is the accepted design: the
+sandbox image has no `git`, and moving the clone would need a rebuilt image and a new network profile. The
+protections are in the code and tested (`tests/test_p03_input_validation.py`):
+`phases/p03_scaffolding/validation.py` allows plain `https://` URLs on a host allow-list only
+(`GIT_CLONE_ALLOWED_HOSTS`, default github.com, gitlab.com, bitbucket.org; no credentials, no odd ports, no
+leading `-`); the address is checked as public and pinned (`check_https_remote_pinned`); the clone runs
+`git ... -c protocol.allow=never -c protocol.https.allow=always clone --depth=1 -- <url>` with a 60 second timeout.
+Residual risk: a hostile repository is parsed by git on the host; run the gateway as a non-root user in a container.
+
+### Which findings block delivery (KAN-99)
+
+Critical and high findings block delivery (p06 gate and the s05 quality gate fail closed); medium and low
+findings are reported as warnings. The operator can change the set with `AETHER_BLOCKING_SEVERITIES`
+(comma list, default `critical,high`); implementation: `core/policy/blocking_severities.py`.
+Checks that need Docker, the `opa` binary or a Kubernetes cluster are listed in `docs/CI.md` as optional CI jobs.
+
+### India fintech (KAN-131) and audio intake (KAN-184)
+
+An India fintech build is not blocked by default. RBI data localisation findings are warnings that ask for
+approval, and the build output carries a compliance checklist (`compliance_context.checklist`). An operator who
+wants the hard stop sets `AETHER_RBI_LOCALISATION_BLOCK=1`. Retention windows are set by the operator
+(`AETHER_RETENTION_*`, see `scripts/retention_purge.py`); the defaults are engineering choices, not legal periods.
+Audio memos are not stored. They are transcribed by an external speech service only when the operator sets
+`AETHER_AUDIO_TRANSCRIPTION=1` and `OPENAI_API_KEY`; otherwise audio input is refused and the text is used.
+
 ### Data retention
 
-No automatic retention or purge job for run data, events or LLM records exists in the code that this review
-found. Audit personal data is erased on account or organisation deletion only (`core/audit/deletion.py`).
+`scripts/retention_purge.py` prunes traces, events, snapshots and artifact files by configurable windows
+(`AETHER_RETENTION_TRACE_DAYS`, `AETHER_RETENTION_EVENT_DAYS`, `AETHER_RETENTION_SNAPSHOT_DAYS`,
+`AETHER_RETENTION_ARTIFACT_DAYS`); it must be scheduled by the operator. Audit personal data is erased on
+account or organisation deletion (`core/audit/deletion.py`).
 
 ### Secrets
 

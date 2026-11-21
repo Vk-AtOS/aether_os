@@ -6,7 +6,6 @@ targeted find/replace patches. Retries up to max_rounds before giving up.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -15,7 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.llm.json_enforcer import extract_first_json
 from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,9 @@ def _extract_json_array(raw: str) -> list[dict[str, Any]]:
     """Pull first JSON array out of an LLM response (may be fenced or prefaced)."""
     if not raw:
         return []
-    start, end = raw.find("["), raw.rfind("]")
-    if start < 0 or end <= start:
-        return []
     try:
-        parsed = json.loads(raw[start : end + 1])
-        return parsed if isinstance(parsed, list) else []
-    except Exception as exc:
+        return extract_first_json(raw, expect=list)
+    except ValueError as exc:
         logger.warning("p05 build_loop: JSON parse failed: %s", exc)
         return []
 
@@ -108,6 +105,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
     tsc_errors = 0
     for round_num in range(1, max_rounds + 1):
+        ensure_local_modules(frontend_dir)  # LLM patches/revisions may add imports of files that do not exist
         try:
             # Type-check and build execute the project's own tooling and plugins: sandbox, no network.
             tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],

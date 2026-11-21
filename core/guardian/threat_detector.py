@@ -16,21 +16,31 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from aether_os.core.guardian.build_identity import (
+    CRITICAL_REL_PATHS,
+    MANIFEST_PATH,
+    PACKAGE_ROOT,
+    resolve_build_identity,
+    sha256_file,
+)
+
 logger = logging.getLogger(__name__)
 
 # Critical files whose integrity is checked every cycle.
 # Paths relative to the aether_os package root.
-_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
-_CRITICAL_FILES: List[Path] = [
-    _PACKAGE_ROOT / "gateway" / "api.py",
-    _PACKAGE_ROOT / "gateway" / "auth.py",
-    _PACKAGE_ROOT / "core" / "models.py",
-    _PACKAGE_ROOT / "core" / "db.py",
-    _PACKAGE_ROOT / "alembic" / "env.py",
-]
+_PACKAGE_ROOT = PACKAGE_ROOT
+_MANIFEST_PATH = MANIFEST_PATH
+_CRITICAL_FILES: List[Path] = [_PACKAGE_ROOT / rel for rel in CRITICAL_REL_PATHS]
 
-# Redis key prefix for baseline file hashes
+# Legacy (no build identity) baseline: one key per file, guardian:file_hash:<md5(abs path)>. Still written by
+# scripts/post-deploy.sh and still used on installs that have neither a build manifest nor AETHER_BUILD_ID.
 _HASH_KEY_PREFIX = "guardian:file_hash:"
+# Per-build baseline: one Redis hash per build, guardian:baseline:<build_id> → {rel_path: sha256}.
+_BUILD_BASELINE_PREFIX = "guardian:baseline:"
+# The build id whose baseline is current, so a build change is noticed and logged.
+_CURRENT_BUILD_KEY = "guardian:current_build"
+# A replaced build's baseline is kept this long (rolling deploys: old pods still check against it), then expires.
+_OLD_BUILD_TTL_SECONDS = 7 * 24 * 3600
 # Redis key for brute force check
 _LOGIN_KEY_PREFIX = "login:"
 
@@ -39,18 +49,20 @@ _BRUTE_FORCE_THRESHOLD = 15   # failed logins per 15-minute window → HIGH
 _DISK_WARN_PCT = 80            # disk usage % → medium
 _DISK_CRIT_PCT = 92            # disk usage % → critical
 
+# Kept as a module-level name: other modules and tests use it from here.
+_sha256_file = sha256_file
 
-def _sha256_file(path: Path) -> Optional[str]:
-    """Return SHA-256 hex digest of a file, or None if unreadable."""
+
+def _legacy_key(path: Path) -> str:
+    return _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
+
+
+def _rel(path: Path) -> str:
+    """Manifest key for a file: its path relative to the package root (absolute if outside it)."""
     try:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()
-    except Exception as exc:
-        logger.warning("Guardian: cannot hash %s: %s", path, exc)
-        return None
+        return path.relative_to(_PACKAGE_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 async def _get_redis():
@@ -66,57 +78,90 @@ async def _get_redis():
 class ThreatDetector:
     def __init__(self):
         self._baseline_loaded = False
+        self._build_id: Optional[str] = None
+        # Always populated at load, so a Redis outage after startup still leaves a baseline to compare against.
+        self._mem_baseline: Dict[str, str] = {}
 
     # ── Baseline ─────────────────────────────────────────────────────────────
 
-    async def load_or_create_baseline(self) -> None:
-        """Hash critical files and store in Redis as the trusted baseline."""
-        r = await _get_redis()
-        if r is None:
-            logger.warning("Guardian: Redis unavailable — file integrity baseline stored in memory only")
-            self._mem_baseline: Dict[str, str] = {}
-            for path in _CRITICAL_FILES:
-                if path.exists():
-                    h = _sha256_file(path)
-                    if h:
-                        self._mem_baseline[str(path)] = h
-            self._baseline_loaded = True
-            return
-
+    def _trusted_hashes(self, manifest: Optional[Dict[str, str]]) -> Dict[Path, str]:
+        """Hashes to trust: the build-time manifest where it lists the file, else the file as it is now."""
+        trusted: Dict[Path, str] = {}
         for path in _CRITICAL_FILES:
             if not path.exists():
                 continue
-            key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
-            existing = await r.get(key)
-            if not existing:
-                # First boot — establish baseline
-                h = _sha256_file(path)
-                if h:
+            h = (manifest or {}).get(_rel(path)) or _sha256_file(path)
+            if h:
+                trusted[path] = h
+        return trusted
+
+    async def load_or_create_baseline(self) -> None:
+        """
+        Establish the trusted baseline for the running build.
+
+        With a build identity (AETHER_BUILD_ID or the image's build manifest) the baseline is stored per build, so a new
+        deploy starts from its own baseline instead of alerting against the previous build's. Within one build the
+        first-stored baseline is never overwritten here (HSETNX): a file changed while that build runs, even across a
+        container restart, still differs from it. Without a build identity the legacy first-boot baseline is kept.
+        """
+        build_id, manifest = resolve_build_identity(_MANIFEST_PATH)
+        self._build_id = build_id
+        trusted = self._trusted_hashes(manifest)
+        self._mem_baseline = {str(p): h for p, h in trusted.items()}
+
+        r = await _get_redis()
+        if r is None:
+            logger.warning("Guardian: Redis unavailable — file integrity baseline stored in memory only (build %s)",
+                           build_id or "unknown")
+            self._baseline_loaded = True
+            return
+
+        if build_id is None:
+            for path, h in trusted.items():
+                key = _legacy_key(path)
+                if not await r.get(key):
+                    # First boot — establish baseline
                     await r.set(key, h)
                     logger.info("Guardian: baseline set for %s", path.name)
+            self._baseline_loaded = True
+            return
+
+        key = _BUILD_BASELINE_PREFIX + build_id
+        for path, h in trusted.items():
+            await r.hsetnx(key, _rel(path), h)
+        previous = await r.get(_CURRENT_BUILD_KEY)
+        if previous != build_id:
+            await r.set(_CURRENT_BUILD_KEY, build_id)
+            if previous:
+                await r.expire(_BUILD_BASELINE_PREFIX + previous, _OLD_BUILD_TTL_SECONDS)
+            # Warning level so every baseline change is in the logs; a restart of the same build never causes one.
+            logger.warning("Guardian: new build %s (previous %s) — file integrity baseline re-established",
+                           build_id, previous or "none")
         self._baseline_loaded = True
 
     async def _get_baseline(self, path: Path) -> Optional[str]:
         r = await _get_redis()
-        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
         if r:
-            val = await r.get(key)
-            return val
-        return getattr(self, "_mem_baseline", {}).get(str(path))
+            if self._build_id:
+                val = await r.hget(_BUILD_BASELINE_PREFIX + self._build_id, _rel(path))
+            else:
+                val = await r.get(_legacy_key(path))
+            if val:
+                return val
+        return self._mem_baseline.get(str(path))
 
     async def update_baseline(self, path: Path) -> None:
-        """Refresh the baseline for one file (call after legitimate deploys)."""
+        """Accept a file's current content as trusted for the running build (admin re-baseline, after a restore)."""
         h = _sha256_file(path)
         if not h:
             return
+        self._mem_baseline[str(path)] = h
         r = await _get_redis()
-        key = _HASH_KEY_PREFIX + hashlib.md5(str(path).encode(), usedforsecurity=False).hexdigest()
         if r:
-            await r.set(key, h)
-        else:
-            if not hasattr(self, "_mem_baseline"):
-                self._mem_baseline = {}
-            self._mem_baseline[str(path)] = h
+            if self._build_id:
+                await r.hset(_BUILD_BASELINE_PREFIX + self._build_id, _rel(path), h)
+            else:
+                await r.set(_legacy_key(path), h)
 
     async def update_all_baselines(self) -> None:
         """Re-hash all critical files and write to baseline (call after git pull / deploy)."""

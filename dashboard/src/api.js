@@ -250,6 +250,7 @@ export const api = {
   // Settings
   getApiKeys: () => client.get('/settings/api-keys'),
   saveApiKeys: (provider, key) => client.post('/settings/api-keys', { provider, key }),
+  getProviderStatus: () => client.get('/settings/provider-status'),
   testProvider: (provider) => client.post('/settings/test-provider', { provider }),
   getPhaseConfigs: () => client.get('/settings/phases/config'),
   savePhaseConfig: (phase, config) => client.post(`/settings/phases/${phase}/config`, config),

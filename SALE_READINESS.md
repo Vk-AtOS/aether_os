@@ -17,31 +17,31 @@ AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`)
 The table is generated: no figure in it is typed by hand, and `python scripts/ci/repo_stats.py --check` (part of the CI step "Docs match code") fails when it drifts from the repository.
 
 <!-- repo_stats:begin (written by `python scripts/ci/repo_stats.py --write`; do not edit by hand) -->
-Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `912a7d7` (2026-11-19). Counts are over git-tracked files.
+Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `a65a16f` (2026-11-22). Counts are over git-tracked files.
 
 | Metric | Value | How it is counted |
 |---|---|---|
-| Git commits | 1440 | `git rev-list --count HEAD` |
-| Tracked Python files | 1269 | `git ls-files '*.py'` |
-| Python lines (tracked files) | 190555 | lines of those files |
-| Alembic migration files | 87 | `alembic/versions/*.py` |
-| Gateway router files named `*_router.py` | 73 | `gateway/routers/*_router.py` |
-| All `.py` files in `gateway/routers/` | 77 | `gateway/routers/*.py` |
-| Route decorators in `gateway/routers/*.py` | 339 | lines starting `@...router.<method>(` |
+| Git commits | 1549 | `git rev-list --count HEAD` |
+| Tracked Python files | 1279 | `git ls-files '*.py'` |
+| Python lines (tracked files) | 190008 | lines of those files |
+| Alembic migration files | 89 | `alembic/versions/*.py` |
+| Gateway router files named `*_router.py` | 74 | `gateway/routers/*_router.py` |
+| All `.py` files in `gateway/routers/` | 78 | `gateway/routers/*.py` |
+| Route decorators in `gateway/routers/*.py` | 342 | lines starting `@...router.<method>(` |
 | Pipeline stages | 12 | `stages/s<digit>*/` |
 | Phase directories | 49 | `phases/p<digit>*/` (`phases/patterns/` is not a phase) |
-| Tracked Python files under `phases/` | 398 | `git ls-files 'phases/*.py'` |
-| Test files | 287 | `tests/**/test_*.py` |
-| `def test_` lines in `tests/` | 1949 | lower than the collected count: parametrized tests expand |
-| Frontend source files in `dashboard/src` | 211 | `.ts .tsx .js .jsx` |
+| Tracked Python files under `phases/` | 391 | `git ls-files 'phases/*.py'` |
+| Test files | 305 | `tests/**/test_*.py` |
+| `def test_` lines in `tests/` | 2055 | lower than the collected count: parametrized tests expand |
+| Frontend source files in `dashboard/src` | 219 | `.ts .tsx .js .jsx` |
 | Benchmark prompt files | 10 | `benchmarks/prompts/*` |
 | Python files over 600 lines | 0 | none |
 | `dashboard/src/pages/ProjectView.jsx` lines | 457 | `wc -l` |
 | Bare `except:` lines | 2 | `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89` |
-| Tests collected by pytest | 2386 | `python -m pytest --collect-only -q tests` (collection only, not a run) |
+| Tests collected by pytest | 2581 | `python -m pytest --collect-only -q tests` (collection only, not a run) |
 <!-- repo_stats:end -->
 
-Last full test run: **2304 passed, 47 skipped** (2351 collected), the "Run tests" step of CI run 44382811852 on `main` at `ff6ce31`, 18 Nov 2026. That step passed; two later steps of the same job (pip-audit and the gitleaks secret scan) failed in that run. The suite was not re-run for this document, and the collected count in the table is for the tree named there, which is newer than that run.
+Last full test run: **2360 passed, 47 skipped**, the "Run tests" step of CI run 44929175212 on `main` at `9913c09`, 21 Nov 2026. That step passed; the later gitleaks full-history secret scan step of the same job failed in that run (history still holds old secrets, KAN-175). The suite was not re-run for this document, and the collected count in the table is for the tree named there, which is newer than that run.
 
 Not measured: test coverage percent, performance numbers, uptime, number of users or customers, number of generated apps, pass rate of generated apps.
 
@@ -59,7 +59,7 @@ Not measured: test coverage percent, performance numbers, uptime, number of user
 - **SAML.** SAML code exists in `gateway/auth_saml.py` with a relay-state test in `tests/test_saml_relay_state.py`. A run against a real identity provider (Okta or other) is not recorded here. SCIM payload tests exist in `tests/test_scim_provisioning.py` and use simulated payloads.
 - **Not deployed here.** Whether a server is running, its uptime, and whether it is behind the code are not measured. No customers or users are claimed.
 - **No recorded end-to-end benchmark.** `benchmarks/results/` is empty at this commit. A benchmark harness (`scripts/benchmark_harness.py`) and 10 prompt files exist. No baseline scores are claimed.
-- **Model quality.** Output quality depends on the model configured. Earlier audits recorded that the operator environment ran on Amazon Nova models because the Anthropic path was blocked. The current environment is not measured here.
+- **Model quality.** Output quality depends on the model configured. Earlier audits recorded that the operator environment ran on Amazon Nova models because the Anthropic path was blocked. As of 21 Nov 2026 the model is reached through an OpenAI-compatible endpoint (NVIDIA, free-tier Nemotron models) or through Bedrock (`PRIMARY_LLM`, see `.env.example`); output quality on those models is not measured here, and a Claude run waits for Bedrock access.
 - **Four files are over the repo's 600-line rule** (listed above). Two are pre-approved in `CLAUDE.md` (`code_writer.py`, `factory_pipeline.py`). `phases/p05_frontend/helpers.py` (601) and `phases/p08_cicd/task_agent.py` (607) are not.
 - **Earlier audit findings** (`docs/AUDIT_2026_08_08.md`, `PROJECT_STATE_AUDIT.md`) are historical. Current work is tracked in Jira project KAN. The owner register is KAN-204.
 

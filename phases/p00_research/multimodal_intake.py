@@ -109,7 +109,10 @@ async def parse_audio_transcript(audio_base64: str, audio_format: str = "mp3") -
     Without a transcript this raises ValueError and the caller falls back to the text input.
     After transcription, an LLM call structures the text into a spec.
     """
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    # Privacy: the recording is sent to a third party, so it needs an explicit operator flag on top of the key
+    # (an OPENAI_API_KEY may be set for other reasons). The audio itself is never written to disk or the database.
+    audio_enabled = os.environ.get("AETHER_AUDIO_TRANSCRIPTION", "").strip().lower() in ("1", "true", "yes")
+    openai_key = os.environ.get("OPENAI_API_KEY", "") if audio_enabled else ""
     transcript: Optional[str] = None
 
     # ── Primary path: Whisper transcription ─────────────────────────────────────
@@ -144,7 +147,7 @@ async def parse_audio_transcript(audio_base64: str, audio_format: str = "mp3") -
 
     if not transcript:
         # No placeholder spec: the pipeline must not build from a sentence saying "could not be transcribed".
-        raise ValueError("audio memo could not be transcribed (needs OPENAI_API_KEY for Whisper); send the requirements as text")
+        raise ValueError("audio memo could not be transcribed (audio transcription is off unless the operator sets AETHER_AUDIO_TRANSCRIPTION=1 and OPENAI_API_KEY); send the requirements as text")
 
     # ── Second pass: structure the transcript into a spec ────────────────────────
     try:

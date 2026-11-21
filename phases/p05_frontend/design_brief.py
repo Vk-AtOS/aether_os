@@ -9,11 +9,12 @@ the token system of design_system.py. Tests run it against a fake model with fix
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
+
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +54,11 @@ def entity_widget_brief(domain: str, entities: List[dict]) -> str:
 
 
 def _parse(text: str) -> Optional[dict]:
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
     try:
-        data = json.loads(text[start:end + 1])
-    except ValueError:
+        return extract_first_json(text, expect=dict)
+    except ValueError as e:
+        logger.warning("p05 design_brief: no JSON object in model reply: %s", e)
         return None
-    return data if isinstance(data, dict) else None
 
 
 def validate_brief(raw: dict) -> Optional[Dict[str, str]]:

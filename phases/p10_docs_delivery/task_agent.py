@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +122,8 @@ Return ONLY the JSON object, no markdown fences."""
     files: Dict[str, str] = {}
     try:
         raw = await llm.call(prompt, task_type="documentation", max_tokens=8000)
-        # Strip markdown fences if present
-        raw = re.sub(r'^```(?:json)?\s*', '', raw.strip())
-        raw = re.sub(r'\s*```$', '', raw.strip())
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            files = parsed
+        # First complete object: fences, leading prose and trailing explanation are ignored.
+        files = extract_first_json(raw, expect=dict)
     except Exception as exc:
         logger.warning("[p10] LLM docs generation failed (%s), using template fallback", exc)
 

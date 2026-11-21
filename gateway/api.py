@@ -275,6 +275,7 @@ def create_app() -> FastAPI:
         ("billing",       "aether_os.gateway.routers.billing_router",       "router",       {},                        True),
         ("settings",      "aether_os.gateway.routers.settings_router",      "router",       {},                        True),
         ("settings_advanced", "aether_os.gateway.routers.settings_advanced_router", "router", {},                   True),
+        ("provider_status", "aether_os.gateway.routers.provider_status_router", "router", {},                   True),
         # --- Optional: present in most deployments but non-critical ---
         ("metrics",       "aether_os.gateway.routers.metrics_router",       "router",       {},                        False),
         ("spa",           "aether_os.gateway.routers.spa_router",           "router",       {},                        False),

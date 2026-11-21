@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from aether_os.core.policy.compliance_india import RBI_CHECKLIST
 from aether_os.gateway.services.phase_output import enrich_phases
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,7 @@ def run_compliance_precheck(
             "region": _region,
             "allowed": _decision.allowed,
             "requires_approval": _decision.requires_approval,
+            "checklist": RBI_CHECKLIST if any(v.rule_id.startswith("IN_RBI") for v in _decision.violations) else [],
             "violations": [
                 {"rule_id": v.rule_id, "severity": v.severity, "message": v.message}
                 for v in _decision.violations

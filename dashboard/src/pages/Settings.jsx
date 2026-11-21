@@ -11,6 +11,7 @@ import { ModelConfigPanel, BedrockPanel, CouncilPanel, LangsmithPanel } from '..
 import { SSOPanel, SCIMPanel } from '../components/settings/SecuritySettings';
 import { AuditExportPanel, OrgConfigPanel, DataRegionPanel } from '../components/settings/OrgSettings';
 import ModelProvidersPanel from '../components/settings/ModelProvidersPanel';
+import ProviderHealthPanel from '../components/settings/ProviderHealthPanel';
 import { PhaseControlsPanel, FileBrowserPanel } from '../components/settings/PhaseSettings';
 import { PHASES, PHASE_NAMES } from '../components/project/projectConstants';
 import { apiError } from '../apiError';
@@ -175,6 +176,7 @@ const Settings = () => {
     try {
       await api.saveApiKeys(provider, key);
       setKeyStatus(s => ({ ...s, [provider]: 'saved' }));
+      setApiKeys(k => ({ ...k, [provider]: '' })); // a saved key is never kept in the page
       setTimeout(() => setKeyStatus(s => ({ ...s, [provider]: null })), 3000);
       const storeProvider = provider === 'gemini' ? 'google' : provider;
       setOrgKeys(ok => ({ ...ok, [storeProvider]: true }));
@@ -458,6 +460,7 @@ const Settings = () => {
             orgKeys={orgKeys}
             onUpdateKey={handleUpdateKey} onTestKey={handleTestKey}
           />
+          <ProviderHealthPanel isAdmin={isAdmin} />
           <ModelProvidersPanel isAdmin={isAdmin} />
           <PlanLimitsPanel
             usageLoading={usageLoading} usageError={usageError} usageData={usageData}
