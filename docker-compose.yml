@@ -44,6 +44,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: "no"
     working_dir: /srv/aether_os
     # empty database: create from the models and stamp; existing: alembic upgrade head (alembic cannot replay from empty)
@@ -61,6 +64,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"   # nginx on the host is the only entry; Docker-published ports bypass ufw
@@ -165,6 +171,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: unless-stopped
     network_mode: host
     command: ["uvicorn", "aether_os.gateway.preview_server:create_preview_app", "--factory",
