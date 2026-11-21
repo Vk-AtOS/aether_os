@@ -146,6 +146,8 @@ services:
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
       - /home/aether/.aether_os:/home/aether/.aether_os
       - /var/run/docker.sock:/var/run/docker.sock
+      # Read-only view of the dump directory so /metrics can report aether_backup_age_seconds (alert BackupTooOld).
+      - ${BACKUP_DIR:-/var/backups/aetheros}:${BACKUP_DIR:-/var/backups/aetheros}:ro
     # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
     init: true
     stop_grace_period: 60s
@@ -248,7 +250,41 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── Observability (KAN-50): `docker compose --profile observability up -d prometheus grafana` ──
+  # Prometheus scrapes the API's /metrics (X-Metrics-Key read from the file METRICS_KEY_FILE, which holds the same value as
+  # METRICS_API_KEY) and evaluates deploy/observability/alerts.yml. Both UIs listen on 127.0.0.1 only. Routing alerts to a
+  # pager needs an Alertmanager receiver, which is the owner's decision (roster and channel) and is not configured here.
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ${METRICS_KEY_FILE:?METRICS_KEY_FILE is required - a file holding METRICS_API_KEY}:/etc/prometheus/metrics_key:ro
+      - prometheus_data:/prometheus
+    depends_on: [api]
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus]
+
 volumes:
+  prometheus_data:
+  grafana_data:
   velaris_data:
   pg_data:
   redis_data:
