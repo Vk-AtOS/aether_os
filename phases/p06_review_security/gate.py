@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from aether_os.core.policy.blocking_severities import blocks
 from aether_os.phases.base import GateOutcome, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -89,19 +90,22 @@ def validate(result: TaskResult) -> GateOutcome:
         logger.debug("P06 gate code-pattern scan failed: %s", _scan_exc)
 
     # ── 3. Blocking conditions ────────────────────────────────────────────────
-    if n_critical >= _CRITICAL_THRESHOLD:
+    # Which severities block: core/policy/blocking_severities.py (default critical,high; env AETHER_BLOCKING_SEVERITIES).
+    if n_critical >= _CRITICAL_THRESHOLD and blocks("critical"):
         issues.append(
             f"BLOCKED: {n_critical} CRITICAL security finding(s) must be resolved before proceeding"
         )
         return GateOutcome(passed=False, confidence=0.0, issues=issues)
 
-    if n_high >= _HIGH_THRESHOLD:
+    if n_high >= _HIGH_THRESHOLD and blocks("high"):
         issues.append(
             f"BLOCKED: {n_high} HIGH severity findings exceed threshold of {_HIGH_THRESHOLD}"
         )
         return GateOutcome(passed=False, confidence=0.1, issues=issues)
 
     # ── 4. Non-blocking warnings ──────────────────────────────────────────────
+    if n_critical > 0:
+        issues.append(f"{n_critical} CRITICAL finding(s) — review recommended")
     if n_high > 0:
         issues.append(f"{n_high} HIGH severity finding(s) — review recommended")
     if n_medium > 0:

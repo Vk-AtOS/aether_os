@@ -6,7 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / "docs/ops/RUNBOOKS.md").read_text()
-COMPONENTS = ["API", "Postgres", "Redis", "Velaris", "Queue", "Approvals", "Model gateway", "Sandbox", "Preview", "Dashboard", "Ledger"]
+COMPONENTS = ["API", "Postgres", "Redis", "Velaris", "Queue", "Approvals", "Model gateway", "Sandbox", "Guardian", "Preview", "Dashboard", "Ledger"]
 
 
 def _anchor(h):

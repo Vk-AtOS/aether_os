@@ -15,6 +15,8 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from aether_os.core.policy.blocking_severities import blocks
+
 logger = logging.getLogger(__name__)
 
 # Detects hardcoded secret literals in Python source code
@@ -37,7 +39,7 @@ def blocking_findings(unresolved: list[dict]) -> list[str]:
     """Descriptions of unresolved High/Critical findings from a scanner or the security review."""
     return [
         i["description"] for i in unresolved
-        if i.get("issue_type") in _BLOCKING_TYPES and i.get("severity") in ("high", "critical")
+        if i.get("issue_type") in _BLOCKING_TYPES and blocks(i.get("severity"))
     ]
 
 

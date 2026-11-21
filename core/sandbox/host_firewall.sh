@@ -44,6 +44,19 @@ for CIDR in $BLOCKED; do
   rule DOCKER-USER -i "$EGR_IF" -d "$CIDR" -j DROP
 done
 
+# ...except DNS to this host's own upstream resolver(s). Docker's embedded DNS forwards a container's queries from the
+# container's network, and on cloud hosts the resolver sits in a private range (AWS VPC resolver 172.31.0.2 or
+# 169.254.169.253): the drops above blocked every lookup, so npm/pip installs hung until their timeout (AWS testbed
+# run 8, 22 Nov 2026). Only port 53 to the configured resolver addresses is opened, nothing else in those ranges.
+RESOLV=/etc/resolv.conf
+grep -qE '^nameserver 127\.' "$RESOLV" 2>/dev/null && [ -f /run/systemd/resolve/resolv.conf ] && RESOLV=/run/systemd/resolve/resolv.conf
+for NS in $(awk '$1=="nameserver" && $2 ~ /^[0-9.]+$/ && $2 !~ /^127\./ {print $2}' "$RESOLV" 2>/dev/null); do
+  for PROTO in udp tcp; do
+    rule DOCKER-USER -i "$EGR_IF" -d "$NS" -p "$PROTO" --dport 53 -j RETURN
+  done
+  echo "install network: DNS allowed to resolver $NS"
+done
+
 # Published app ports. With the gateway in a container (docker compose on Linux) the ports are
 # published on the docker0 bridge address instead of 127.0.0.1 (core/sandbox/endpoints.py), so the
 # API container can reach them. Pass the same AETHER_SANDBOX_PUBLISH_IP to this script: packets for

@@ -122,3 +122,21 @@ def test_unknown_provider_is_rejected_without_echoing_it(gw, org):
     resp = _test(gw, org.owner, "<script>x</script>")
     assert resp.status_code == 400 and "script" not in resp.text
     assert gw.client.post("/settings/test-provider", json={"provider": "bedrock"}).status_code == 401
+
+
+def test_openai_compatible_endpoint_is_tested_with_a_model_listing_not_an_openrouter_model(gw, org, monkeypatch):
+    """OPENROUTER_BASE_URL (e.g. NVIDIA) used to be ignored: the test posted to openrouter.ai with the NVIDIA key."""
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://integrate.api.nvidia.com/v1/")
+    assert gw.client.post("/settings/api-keys", headers=org.owner.auth,
+                          json={"provider": "openrouter", "key": "nv-key"}).status_code == 200
+    seen = {}
+
+    def handler(request):
+        seen.update(method=request.method, url=str(request.url), auth=request.headers["authorization"])
+        return httpx.Response(200, json={"data": []})
+
+    real_client = httpx.AsyncClient
+    with patch("httpx.AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)):
+        resp = _test(gw, org.owner, "openrouter")
+    assert resp.status_code == 200, resp.text
+    assert seen == {"method": "GET", "url": "https://integrate.api.nvidia.com/v1/models", "auth": "Bearer nv-key"}

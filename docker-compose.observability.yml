@@ -1,0 +1,38 @@
+# Optional observability stack (KAN-50), kept OUT of docker-compose.yml on purpose: compose interpolates every service in
+# a file, profile or not, so its required variables (METRICS_KEY_FILE, GRAFANA_ADMIN_PASSWORD) made every plain
+# `docker compose up` fail on hosts that do not run it (production redeploy, 22 Nov 2026). Start it with:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d prometheus grafana
+services:
+  # ── Observability (KAN-50) ──
+  # Prometheus scrapes the API's /metrics (X-Metrics-Key read from the file METRICS_KEY_FILE, which holds the same value as
+  # METRICS_API_KEY) and evaluates deploy/observability/alerts.yml. Both UIs listen on 127.0.0.1 only. Routing alerts to a
+  # pager needs an Alertmanager receiver, which is the owner's decision (roster and channel) and is not configured here.
+  prometheus:
+    image: prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ${METRICS_KEY_FILE:?METRICS_KEY_FILE is required - a file holding METRICS_API_KEY}:/etc/prometheus/metrics_key:ro
+      - prometheus_data:/prometheus
+    depends_on: [api]
+
+  grafana:
+    image: grafana/grafana:11.3.0@sha256:a0f881232a6fb71a0554a47d0fe2203b6888fe77f4cefb7ea62bed7eb54e13c3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus]
+
+volumes:
+  prometheus_data:
+  grafana_data:

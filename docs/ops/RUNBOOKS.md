@@ -40,6 +40,8 @@ refuses to start on a schema that is not at head: run the migrate step, do not s
 
 ### Backup and restore (read this before you need it)
 
+`BackupTooOld` fires at 26 hours: run `systemctl status aetheros-backup.timer` and read `/var/log/aetheros/backup.log`, then run `deploy/scripts/backup.sh` by hand. The API reads the dump directory read-only (`BACKUP_DIR`, default `/var/backups/aetheros`, mounted in docker-compose); if `aether_backup_age_seconds` is absent from Prometheus the directory is not mounted into the API.
+
 * Backups: `deploy/scripts/backup.sh` (custom-format `pg_dump`, daily by `deploy/aetheros-backup.timer`). Managed Postgres also
   has point-in-time recovery: prefer it for "undo the last hour".
 * Signed ledger checkpoints: copy them out of the database's reach with `CHECKPOINT_DEST=... bash deploy/scripts/backup_checkpoints.sh`
@@ -119,11 +121,11 @@ Nothing is auto-approved: never edit rows to unblock.
 **Fix:** provider returning 5xx: nothing to do, the breaker skips it for 30 s at a time and the fallback chain serves (`ROUTER_BREAKER_FAILURES`,
 `ROUTER_BREAKER_OPEN_SECONDS`). Bad key: the breaker opens for 10 minutes for that scope; fix the key in Settings. 80% budget: tell
 the organisation; the hard stop is at 100% by design; raising a cap is a plan decision for the owner. Kill switch: see `core/llm/budget.py`.
-**Escalate:** every provider down; unexpected spend growth (`aether_llm_cost_usd_total`).
+**Escalate:** `ModelCallsRefused` / `ModelProvidersAllDown` (label `reason`: `no_model` = nothing configured or allowed for this data/plan, `chain_exhausted` = every provider failed, `admission` = kill switch, unknown org or plan, budget stop); every provider down; unexpected spend growth (`aether_llm_cost_usd_total`).
 
 ## Sandbox
 
-**Symptoms:** generated apps do not start; `sandbox: refusing to run generated code`; `docker: not found` in API logs.
+**Symptoms:** `SandboxStartFailures`; generated apps do not start; `sandbox: refusing to run generated code`; `docker: not found` in API logs.
 **Checks:** `docker compose exec api docker version` (goes through the `docker-proxy` service, `DOCKER_HOST=unix:///docker-proxy/docker.sock`; if it fails check `docker compose ps docker-proxy` and `docker compose logs docker-proxy`; a `403` means the proxy denies that endpoint, see "Docker socket proxy" below); `docker image inspect aether-sandbox:1`;
 the isolation probe message in the log (host firewall rules from `core/sandbox/host_firewall.sh` missing).
 **Fix:** build the image (`docker build -f core/sandbox/Dockerfile -t aether-sandbox:1 core/sandbox`); apply `host_firewall.sh` on the
@@ -165,6 +167,15 @@ requires it to be assigned to docker0 or a `br-*` bridge, so a LAN/VPC address o
 `extra_hosts: host.docker.internal:host-gateway`, which is the docker0 address), so it is an alternative upstream host
 there as long as the publish IP is the docker0 address. Check from the API container:
 `docker compose exec api python3 -c "import socket; socket.create_connection(('172.17.0.1', <port>), 2)"` while an app runs.
+
+## Guardian
+
+**Symptoms:** `GuardianTamperDetected`; a critical `file_tamper` event in the guardian event list; log line `Guardian: TAMPER DETECTED`.
+**Checks:** which file (`detail.file`) and whether you changed it (a deploy changes hashes on purpose); the version-control diff of that file
+on the host; `aether_guardian_tamper_total` in Prometheus.
+**Fix:** a deploy you made: restart the API so the baseline is rebuilt. Not yours: treat as an incident, keep the changed file for
+evidence, restore it from the repository, rotate secrets the file could read. The guardian never restores a database on tamper, by design.
+**Escalate:** any unexplained change: call the owner before restoring anything.
 
 ## Preview
 

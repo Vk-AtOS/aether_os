@@ -32,6 +32,7 @@ from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
 from aether_os.core.run_app.sandboxed import pip_install, venv_python
 from aether_os.core.sandbox.docker_backend import labels_for
 from aether_os.core.sandbox.runner import SandboxUnavailable, get_runner, sandbox_dirs
+from aether_os.core.telemetry.events import SANDBOX_START_FAILURES
 from aether_os.core.run_app.process_manager_helpers import (
     api_explorer_html,
     stub_main_py,
@@ -103,6 +104,7 @@ class RunAppManager:
             runner = await asyncio.to_thread(get_runner)
         except SandboxUnavailable as exc:
             logger.error("RunAppManager: refusing to run generated code for %s: %s", run_id, exc)
+            SANDBOX_START_FAILURES.inc()
             raise HTTPException(status_code=503, detail=f"Sandbox unavailable: {exc}") from exc
         port = await acquire_free_port()
 

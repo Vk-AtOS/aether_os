@@ -36,6 +36,21 @@ no workflow or script in the repository calls it.
 - `actionlint` (workflow syntax): only `scripts/ci/run_all.sh` runs it, and only if it is installed.
 - Playwright browser specs (`npm run test:e2e`): see `docs/ci_dashboard.md`.
 
+## Optional CI jobs the buyer can enable (KAN-109, KAN-99)
+
+These checks need a toolchain or infrastructure that the default CI does not have. No code is needed; add a job
+that installs the tool and runs the command. Until then they are listed as unverified.
+
+| Check | Needs | Command |
+|-------|-------|---------|
+| Generated Go operator compiles | Go 1.22+ | `AETHER_GO_BUILD_TEST=1 pytest tests/test_p17_generated.py` |
+| Generated SAM template is valid | AWS SAM CLI | `sam validate --lint -t <generated>/template.yaml` |
+| Generated Rego policy is valid | `opa` binary | `opa check <generated>/policy/*.rego` |
+| Sandbox images build and live sandbox tests run | Docker daemon | `docker build -f core/sandbox/Dockerfile -t aether-sandbox:1 core/sandbox` then `pytest tests/ -m docker` (same for `Dockerfile.browser`, `Dockerfile.builder`) |
+| Canary and SRE remediation on a real cluster | Kubernetes cluster (kind is enough) | `kind create cluster`, then apply the generated manifests with `kubectl apply -f` |
+| Kong, NATS, Terraform output | cluster or `terraform` | `terraform validate` in the generated directory; `kubectl apply --dry-run=server` |
+| Kaniko base image pinned by digest | network | follow the command in `core/sandbox/Dockerfile.builder` |
+
 ## Run everything locally
 
 `bash scripts/ci/run_all.sh` (add `--skip-tests` for the fast checks).
@@ -48,7 +63,7 @@ Known difference: `run_all.sh:9` runs `ruff check . --select E9,F63,F7,F82`, a n
   `-3815` (chromadb server-mode flaws; the script's comment says only the embedded client is used).
 - gitleaks uses a pinned, checksum-verified binary (`scripts/ci/install_gitleaks.sh`), so no `GITLEAKS_LICENSE`
   secret is needed. `.gitleaks.toml` allowlists only entries its header calls verified false positives.
-  Whether the history scan passes today: not measured. Credential rotation steps:
+  Reviewed historic findings are baselined in `.gitleaksignore` (owner decision 22 Nov 2026, see the runbook section 0); new findings still fail. Credential rotation steps:
   `docs/security/ROTATION_RUNBOOK.md`.
 - Not verified from here: the workflow has never run on GitHub (services, caching and the Postgres tests need a
   real run). `COVERAGE_FLOOR=50` is a placeholder; the real coverage is not measured.

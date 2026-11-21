@@ -36,3 +36,15 @@ def test_metrics_used_by_alerts_are_defined_in_code():
             defined.add(obj._name + "_total")
     used = {m for r in _rules() for m in re.findall(r"\baether_[a-z_0-9]+", r["expr"])}
     assert used and not (used - defined), used - defined
+
+
+def test_backup_age_reads_the_newest_dump(tmp_path):
+    assert metrics.newest_backup_age(str(tmp_path / "missing")) is None      # not mounted: no reading, not "fresh"
+    assert metrics.newest_backup_age(str(tmp_path)) == float("inf")          # mounted but empty: stale
+    (tmp_path / "aetheros_20260101_020000.dump").write_text("x")
+    assert 0 <= metrics.newest_backup_age(str(tmp_path)) < 60
+
+
+def test_gap_alerts_exist():
+    names = {r["alert"] for r in _rules()}
+    assert {"ModelCallsRefused", "ModelProvidersAllDown", "BackupTooOld", "SandboxStartFailures", "GuardianTamperDetected"} <= names
