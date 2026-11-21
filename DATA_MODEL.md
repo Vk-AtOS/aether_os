@@ -713,7 +713,7 @@ Model `PrimeCorrection` at `prime/models.py:91`. What a person changed or refuse
 | `on_behalf_of` | VARCHAR(255) | no | indexed |  |
 | `requested_by` | VARCHAR(255) | no |  |  |
 | `corrected_by` | VARCHAR(255) | no |  |  |
-| `good_example` | BOOLEAN | no |  | `False` |
+| `good_example` | BOOLEAN | no |  | `True` (in the eval set until a human removes it) |
 | `used_count` | INTEGER | no |  | `0` |
 | `changed_outcome_count` | INTEGER | no |  | `0` |
 | `created_at` | DATETIME | no |  | `_utcnow()` |
