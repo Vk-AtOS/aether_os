@@ -10,11 +10,12 @@ from aether_os.gateway.routers import questionnaire_router as qr
 
 
 def test_llm_diagnosis_cannot_change_the_process_environment(monkeypatch):
-    monkeypatch.setenv("PRIMARY_LLM", "anthropic")
+    monkeypatch.setenv("OLLAMA_TIMEOUT", "30")
     m = WorkloopMonitor()
+    m._ledger_recommendation = lambda *a: asyncio.sleep(0)
     asyncio.run(m._maybe_apply_fix({"auto_fixable": True, "fix_type": "env_var",
-                                    "fix_action": "PRIMARY_LLM=ollama", "root_cause": "x"}))
-    assert os.environ["PRIMARY_LLM"] == "anthropic"
+                                    "fix_action": "OLLAMA_TIMEOUT=999", "root_cause": "x"}))
+    assert os.environ["OLLAMA_TIMEOUT"] == "30"
     assert m._fix_log[-1]["type"] == "recommendation"
 
 
