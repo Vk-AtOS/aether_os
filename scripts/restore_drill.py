@@ -3,7 +3,8 @@
 
     python3.11 scripts/restore_drill.py --dump /var/backups/aetheros/aetheros_X.dump \
         --admin-url postgresql://USER@HOST:5432/postgres \
-        [--anchor-file /path/kept/separately/ledger_anchors.jsonl] [--record docs/ops/drills] \
+        [--anchor-file /path/kept/separately/ledger_anchors.jsonl --public-key /same/place/ledger_public_key.pem] \
+        [--record docs/ops/drills] \
         --role drill_restore   (DRILL_ROLE_PASSWORD in the environment)
 
 The dump must be `pg_dump --format=custom` (deploy/scripts/backup.sh). The admin URL needs CREATEDB on a server that is NOT
@@ -16,6 +17,7 @@ Exit 0 = every check passed. Passwords are never written to the record.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,6 +29,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_TABLES = ("organisations", "users", "runs", "audit_chain")
@@ -159,8 +164,23 @@ def run(cmd: List[str], url: str = "", **kw: Any) -> subprocess.CompletedProcess
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def public_key_dir(pem: bytes, into: Path) -> Path:
+    """Lay out a verify-only key directory (core/audit/checkpoints.py, retired keys) holding one public key as <key id>.pem.
+
+    The drill runs where the ledger's private key must never be, so without this it cannot check any checkpoint's signature
+    and every external checkpoint reads "not validly signed". backup_checkpoints.sh copies this public key next to the anchors.
+    """
+    pub = serialization.load_pem_public_key(pem)
+    if not isinstance(pub, Ed25519PublicKey):
+        raise ValueError("--public-key is not an Ed25519 public key")
+    raw = pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    into.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (into / f"{hashlib.sha256(raw).hexdigest()[:16]}.pem").write_bytes(pem)
+    return into
+
+
 def drill(dump: Path, admin_url: str, anchor_file: str = "", keep: bool = False, role: str = "",
-          role_password: str = "") -> Dict[str, Any]:
+          role_password: str = "", public_key: str = "") -> Dict[str, Any]:
     name = f"aether_drill_{uuid.uuid4().hex[:8]}"
     scratch = with_db(as_role(admin_url, role, role_password) if role else admin_url, name)
     steps: List[Dict[str, Any]] = []
@@ -223,9 +243,15 @@ def drill(dump: Path, admin_url: str, anchor_file: str = "", keep: bool = False,
         env = {**os.environ, "DATABASE_URL": scratch, "PYTHONPATH": str(ROOT.parent)}
         if anchor_file:
             env["AETHER_LEDGER_ANCHOR_FILE"] = anchor_file
+        keys = tempfile.TemporaryDirectory(prefix="drill-keys-")
+        if public_key:
+            env["AETHER_LEDGER_RETIRED_KEYS_DIR"] = str(public_key_dir(Path(public_key).read_bytes(), Path(keys.name)))
+            # Point the private key at a path that cannot exist: the drill must verify with the public key only.
+            env["AETHER_LEDGER_SIGNING_KEY"] = str(Path(keys.name) / "no-private-key.pem")
         covered = covered_chains(Path(anchor_file)) if anchor_file else []
         code = VERIFY % {"tables": CORE_TABLES, "ini": str(ROOT / "alembic.ini"), "check_anchor": bool(anchor_file), "covered": covered}
         r = run([sys.executable, "-c", code], env=env, cwd=ROOT)
+        keys.cleanup()
         line = next((ln for ln in r.stdout.splitlines() if ln.startswith("RESULT ")), "")
         if not line:
             return False, (r.stderr.strip() or "no result")[-300:]
@@ -255,6 +281,7 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--dump", required=True, type=Path)
     ap.add_argument("--admin-url", required=True)
     ap.add_argument("--anchor-file", default="")
+    ap.add_argument("--public-key", default="", help="ledger public key PEM kept with the anchors (backup_checkpoints.sh)")
     ap.add_argument("--record", type=Path, default=ROOT / "docs/ops/drills")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--role", default="", help="low-privilege role that owns the scratch database and restores the dump")
@@ -274,7 +301,8 @@ def main(argv: List[str] | None = None) -> int:
         print("an untrusted dump must not be restored with admin rights: pass --role <low-privilege role> "
               "(or --allow-admin-restore on a throwaway server)", file=sys.stderr)
         return 2
-    rec = drill(args.dump, args.admin_url, args.anchor_file, args.keep, args.role, os.environ.get(args.role_password_env, ""))
+    rec = drill(args.dump, args.admin_url, args.anchor_file, args.keep, args.role, os.environ.get(args.role_password_env, ""),
+                public_key=args.public_key)
     rec["note"] = args.note
     args.record.mkdir(parents=True, exist_ok=True)
     out = args.record / f"restore-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"

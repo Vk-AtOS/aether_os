@@ -7,7 +7,7 @@
 #
 #   docker build -f core/sandbox/Dockerfile.builder -t aether-builder:1 core/sandbox
 #
-# OWNER-READY: pin the base by digest before production (the tag below is the last release we tested against):
-#   docker buildx imagetools inspect gcr.io/kaniko-project/executor:v1.23.2   # copy the sha256 into the FROM line
-FROM gcr.io/kaniko-project/executor:v1.23.2
+# Pinned by tag AND digest (the multi-arch index), like every other base image (docs/ops/RUNBOOKS.md, 'Images'). To update:
+#   docker buildx imagetools inspect gcr.io/kaniko-project/executor:<new tag>   # copy the Digest line into the FROM line
+FROM gcr.io/kaniko-project/executor:v1.23.2@sha256:9e69fd4330ec887829c780f5126dd80edc663df6def362cd22e79bcdf00ac53f
 # kaniko is a single static binary at /kaniko/executor and needs no other tooling.
