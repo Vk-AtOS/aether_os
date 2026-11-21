@@ -148,5 +148,8 @@ snapshots/
 tests/playwright_audit_report.md
 uv.lock
 
+# Owner scratch file that held credentials (KAN-195); never track
+plans2.md
+
 # Guardian build manifest: generated inside the image at build time (Dockerfile)
 .guardian_build_manifest.json
