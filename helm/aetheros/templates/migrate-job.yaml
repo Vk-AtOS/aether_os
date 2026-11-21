@@ -18,7 +18,10 @@ metadata:
   annotations:
     helm.sh/hook: {{ $phase }}
     helm.sh/hook-weight: "-5"
-    helm.sh/hook-delete-policy: before-hook-creation
+    # Holds DATABASE_URL and AETHER_FIELD_KEY: removed once the hooks succeeded (Helm deletes hook-succeeded resources after
+    # the whole phase finished, so the Job still reads it). Kept after a FAILED run on purpose, so the failed pod can be
+    # inspected; before-hook-creation replaces it on the next attempt.
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 type: Opaque
 stringData:
   DATABASE_URL: {{ include "aetheros.databaseURL" . | quote }}
@@ -47,6 +50,8 @@ spec:
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: OnFailure
+      # The job talks to PostgreSQL only; it needs no Kubernetes API token (and does not use the chart's ServiceAccount).
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

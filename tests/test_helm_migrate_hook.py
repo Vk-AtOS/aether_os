@@ -35,6 +35,11 @@ def test_migrate_job_is_a_pre_install_pre_upgrade_hook_with_an_external_database
     refs = [e["secretRef"]["name"] for e in job["spec"]["template"]["spec"]["containers"][0]["envFrom"]]
     assert refs == [secret["metadata"]["name"]]
     assert {"DATABASE_URL", "AETHER_FIELD_KEY"} <= set(secret["stringData"])
+    # the copy of the credentials must not outlive a successful install/upgrade
+    assert "hook-succeeded" in _ann(secret)["helm.sh/hook-delete-policy"]
+    pod = job["spec"]["template"]["spec"]
+    assert pod["automountServiceAccountToken"] is False
+    assert "serviceAccountName" not in pod
 
 
 def test_bundled_postgres_first_install_cannot_be_pre_install_but_every_upgrade_is_pre_upgrade():
