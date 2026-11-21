@@ -254,7 +254,9 @@ def _check_domain_specificity(src_dir: Path, root: Path) -> float:
     root = require_project_root(root)
     frontend_dir = src_dir.parent / "frontend"
 
-    widget = _read(root, frontend_dir / "src" / "components" / "DomainWidget.jsx")
+    # .tsx since p05 writes typed sources; .jsx kept for projects generated before that.
+    widget = (_read(root, frontend_dir / "src" / "components" / "DomainWidget.tsx")
+              or _read(root, frontend_dir / "src" / "components" / "DomainWidget.jsx"))
     if widget is not None and len(widget.strip().splitlines()) > 10:
         score += 0.25
 

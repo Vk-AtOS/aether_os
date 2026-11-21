@@ -251,7 +251,7 @@ async def generate_domain_widget(
             accumulated_context=accumulated_context,
         )
         if domain_component:
-            write_with_guard_fn(src_dir / "components" / "DomainWidget.jsx", domain_component)
+            write_with_guard_fn(src_dir / "components" / "DomainWidget.tsx", domain_component)
             dashboard_file = src_dir / "pages" / "Dashboard.tsx"
             if dashboard_file.exists():
                 content = dashboard_file.read_text()
