@@ -2,8 +2,8 @@
 
 Mermaid diagrams drawn from the code as it is, not from older documents. Jira KAN-55.
 
-- Commit: `e5c23fd` (branch `r3/a_docs`)
-- Date: 15 Nov 2026
+- First drawn: `e5c23fd`, 15 Nov 2026. Re-checked against main `245985d`, 21 Nov 2026 (sandboxes, PostgreSQL breaker, loopback port, pipeline split, testbed).
+- Moved from `docs/diagrams/` to `docs/architecture/` (KAN-55).
 
 | File | What it shows |
 | --- | --- |
@@ -16,8 +16,8 @@ Mermaid diagrams drawn from the code as it is, not from older documents. Jira KA
 ## How to render
 
 - GitHub shows each Mermaid block in the file view.
-- In VS Code, use a Mermaid preview extension.
-- On the command line, if installed: `mmdc -i 01_system_context.md -o 01.svg` (Mermaid CLI). It was not available when these were written, so the blocks were checked by reading only.
+- Rendered SVG copies of every block are in [svg/](svg/). All 10 blocks were rendered with Mermaid CLI 10.9.1 (`mmdc`), so none has a syntax error. Regenerate with `mmdc -i 01_system_context.md -o svg/01_system_context.md` (it writes `<name>-<n>.svg`, one per block, in order).
+- The same diagrams are on the Confluence page "Platform Vision and Architecture" (space SD), as code blocks plus the source file list, because Confluence does not draw Mermaid.
 
 ## Rules used
 

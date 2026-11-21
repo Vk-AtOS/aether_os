@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Loader2, CheckCircle2, AlertTriangle, Lightbulb,
   ChevronDown, ChevronRight, GitMerge, Wrench, RotateCcw, Play, Sparkles,
@@ -6,6 +6,7 @@ import {
 import { api } from '../../api';
 import { apiError } from '../../apiError';
 import { normPct } from './normPct';
+import { findResolved } from './conflictHelpers';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 export const ScoreBadge = ({ score }) => {
@@ -96,6 +97,13 @@ export const ConflictResolverTool = () => {
   const [resolveInputId, setResolveInputId] = useState(null);
   const [resolveText, setResolveText] = useState('');
   const [resolveError, setResolveError] = useState('');
+  // Resolutions are shared by the whole organisation: conflicts someone already resolved, and who did.
+  const [shared, setShared] = useState({});
+  useEffect(() => {
+    api.client.get('/intelligence/conflict-resolver/resolved')
+      .then((r) => setShared(r.data?.resolved || {}))
+      .catch(() => {});
+  }, []);
 
   const detect = async () => {
     setDetecting(true);
@@ -113,16 +121,13 @@ export const ConflictResolverTool = () => {
     }
   };
 
-  const resolve = async (conflict_id) => {
+  const resolve = async (conflict_id, description = '') => {
     if (!resolveText.trim()) { setResolveError('Write the resolution first.'); return; }
     setResolving(conflict_id);
     setResolveError('');
     try {
-      await api.client.post('/intelligence/conflict-resolver/resolve', { conflict_id, resolution: resolveText, run_id: '' });
-      setConflicts(c => {
-        const items = c?.conflicts || c?.items || [];
-        return { ...c, conflicts: items.map(ci => ci.id === conflict_id ? { ...ci, resolved: true } : ci) };
-      });
+      const r = await api.client.post('/intelligence/conflict-resolver/resolve', { conflict_id, resolution: resolveText, description, run_id: '' });
+      setShared(s => ({ ...s, [r.data.key]: { resolution: resolveText, resolved_by: r.data.resolved_by, description } }));
       setResolveInputId(null);
       setResolveText('');
     } catch (e) {
@@ -170,12 +175,15 @@ export const ConflictResolverTool = () => {
             : conflictList.map((c, i) => {
               const id = c.id || String(i);
               const msg = typeof c === 'string' ? c : c.description || c.message || JSON.stringify(c);
+              const done = findResolved(shared, msg);
               return (
-                <div key={id} className={`p-3 rounded-lg border text-xs space-y-2 ${c.resolved ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                <div key={id} className={`p-3 rounded-lg border text-xs space-y-2 ${done ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
                   <div className="flex items-start gap-3">
-                    {c.resolved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />}
-                    <span className="flex-1 text-bright/90">{msg}</span>
-                    {!c.resolved && resolveInputId !== id && (
+                    {done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 shrink-0" />}
+                    <span className="flex-1 text-bright/90">{msg}
+                      {done && <span className="block text-[10px] text-muted mt-1" data-testid="resolved-by">Resolved{done.resolved_by ? ` by ${done.resolved_by}` : ''}: {done.resolution}</span>}
+                    </span>
+                    {!done && resolveInputId !== id && (
                       <button
                         onClick={() => { setResolveInputId(id); setResolveText(''); setResolveError(''); }}
                         className="shrink-0 text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors"
@@ -184,7 +192,7 @@ export const ConflictResolverTool = () => {
                       </button>
                     )}
                   </div>
-                  {!c.resolved && resolveInputId === id && (
+                  {!done && resolveInputId === id && (
                     <div className="space-y-2 pl-6">
                       <input
                         value={resolveText}
@@ -195,7 +203,7 @@ export const ConflictResolverTool = () => {
                       {resolveError && <p className="text-[10px] text-danger">{resolveError}</p>}
                       <div className="flex gap-2">
                         <button
-                          onClick={() => resolve(id)}
+                          onClick={() => resolve(id, msg)}
                           disabled={resolving === id || !resolveText.trim()}
                           className="text-[10px] font-bold text-accent hover:text-bright border border-accent/30 px-2 py-1 rounded transition-colors disabled:opacity-50"
                         >

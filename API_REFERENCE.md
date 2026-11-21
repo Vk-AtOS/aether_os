@@ -494,6 +494,7 @@ Tags: intelligence. Routes: 14.
 | POST | `/intelligence/arch-governor/review` | `get_current_user`; floor: member+ (viewer denied); handler calls `assert_run_in_org`, `enforce` | T9-01: Review generated code against architecture spec. |
 | POST | `/intelligence/conflict-resolver/detect` | `get_current_user`; floor: member+ (viewer denied) | T9-03: Detect conflicts in requirements or architecture. |
 | POST | `/intelligence/conflict-resolver/resolve` | `get_current_user`; floor: member+ (viewer denied); handler calls `assert_run_in_org` | T9-03: Record a conflict resolution. |
+| GET | `/intelligence/conflict-resolver/resolved` | `get_current_user`; floor: any role; scoped to the caller's `org_id` | Conflicts already resolved in the caller's organisation, with who resolved them (KAN-154). |
 | GET | `/intelligence/global-insights` | `get_current_user`; floor: any role | Authenticated intelligence feed - aggregated from GlobalPattern + completed runs. |
 | GET | `/intelligence/global-patterns` | `get_current_user`; floor: any role | Return all learned GlobalPattern entries for the platform. |
 | POST | `/intelligence/global-patterns` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Admin: create a GlobalPattern override to manually tune learned behaviors. |
@@ -560,6 +561,7 @@ Tags: llm-controls. Routes: 5.
 | POST | `/admin/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Global kill. |
 | PUT | `/admin/llm/orgs/{org_id}/cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Set org cap. |
 | GET | `/admin/llm/status` | `get_current_user`; floor: any role; handler calls `_superadmin`; handler checks role inline | Status for `/admin/llm/status`. |
+| PUT | `/settings/llm/cap` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org admin sets the org's own lower-only cap (`llm_org_cap_usd`); effective cap is the minimum with the platform cap. |
 | POST | `/settings/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org kill. |
 | GET | `/settings/llm/usage` | `get_current_user`; floor: any role | Usage for `/settings/llm/usage`. |
 

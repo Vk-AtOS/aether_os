@@ -1,9 +1,14 @@
 """Conflict Resolver — detects and resolves contradictions in requirements or design."""
 from __future__ import annotations
+import hashlib
 import logging
 from typing import Any, Dict, Optional
 
+from aether_os.core.audit.ledger import get_ledger
+
 logger = logging.getLogger(__name__)
+
+RESOLVED_ACTION = "conflict.resolved"
 
 _instance: Optional["ConflictResolver"] = None
 
@@ -54,10 +59,26 @@ class ConflictResolver:
                 "note": "LLM unavailable — static fallback assumes no conflicts",
             }
 
-    async def resolve(self, conflict_id: str, resolution: str, run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
-        """Record a human-provided resolution for a conflict."""
+    @staticmethod
+    def conflict_key(conflict_id: str, description: str = "") -> str:
+        """Stable key for a conflict. Detection ids ("C1") repeat between detections, so when the
+        description is known the key is derived from it."""
+        if description.strip():
+            return "d-" + hashlib.sha256(description.strip().lower().encode()).hexdigest()[:16]
+        return conflict_id
+
+    async def resolve(self, conflict_id: str, resolution: str, run_id: str, org_id: Optional[str] = None,
+                      user_id: str = "", description: str = "") -> Dict[str, Any]:
+        """Record a human-provided resolution. It is stored as an org-scoped audit event, so the conflict
+        counts as resolved for everyone in the organisation, and records who resolved it."""
+        key = self.conflict_key(conflict_id, description)
+        if org_id:
+            await get_ledger().async_log_audit_event(
+                org_id=org_id, user_id=user_id or "-", action=RESOLVED_ACTION,
+                resource_type="conflict", resource_id=key,
+                metadata={"conflict_id": conflict_id, "resolution": resolution[:2000], "run_id": run_id,
+                          "description": description.strip()[:500]})
         try:
-            from aether_os.core.audit.ledger import get_ledger
             get_ledger().log_event(
                 run_id, "conflict_resolver", "conflict_resolved",
                 {"conflict_id": conflict_id, "resolution": resolution},
@@ -65,7 +86,21 @@ class ConflictResolver:
             )
         except Exception as exc:
             logger.warning("ConflictResolver.resolve audit log failed: %s", exc)
-        return {"resolved": True, "conflict_id": conflict_id, "resolution": resolution}
+        return {"resolved": True, "conflict_id": conflict_id, "key": key,
+                "resolution": resolution, "resolved_by": user_id}
+
+    async def list_resolved(self, org_id: str) -> Dict[str, Any]:
+        """Conflicts any member of the org has resolved: key -> {resolution, resolved_by, resolved_at}."""
+        res = await get_ledger().async_get_audit_logs(org_id, page=1, limit=500, action=RESOLVED_ACTION)
+        out: Dict[str, Any] = {}
+        for row in reversed(res.get("logs", [])):  # oldest first, so the latest resolution wins
+            out[row["resource_id"]] = {
+                "resolution": (row.get("metadata") or {}).get("resolution", ""),
+                "description": (row.get("metadata") or {}).get("description", ""),
+                "resolved_by": row.get("user_id", ""),
+                "resolved_at": row.get("created_at"),
+            }
+        return {"resolved": out}
 
 
 def get_conflict_resolver() -> ConflictResolver:
