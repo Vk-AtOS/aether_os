@@ -20,7 +20,6 @@ from aether_os.core.security.safe_http import UnsafeURL
 
 class RepoError(Exception):
     """Raised when repository operations fail."""
-    pass
 
 
 def _auth_env(host: str) -> dict[str, str]:

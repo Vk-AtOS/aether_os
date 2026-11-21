@@ -95,7 +95,8 @@ Return a JSON object with this structure:
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -149,7 +150,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -193,7 +195,8 @@ Return JSON: {{"files": {{}}, "dependencies": ["stripe"], "env_vars": ["STRIPE_S
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -235,7 +238,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -275,7 +279,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -319,7 +324,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -360,7 +366,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -402,7 +409,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -442,7 +450,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
@@ -486,7 +495,8 @@ Return JSON: {{"files": {{}}, "dependencies": [], "env_vars": []}}"""
             return {"files": {}, "metadata": {}, "error": str(exc), "skill_failed": True}
 
     def _parse_output(self, raw: str) -> Dict[str, Any]:
-        import json, re
+        import json
+        import re
         try:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:

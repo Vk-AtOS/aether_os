@@ -78,8 +78,10 @@ jobs:
         run: sudo bash core/sandbox/host_firewall.sh
 
       - name: Lint with ruff (blocking)
-        # Pyflakes (F), syntax errors (E9) and B904 (raise ... from) are clean (KAN-59): zero tolerance.
-        run: ruff check . --select F,E9,B904
+        # Pyflakes (F), syntax errors (E9), B904 (raise ... from), E401 (one import per line), PIE790 (needless pass) and
+        # W605 (invalid escape) are clean: zero tolerance. The wider style set (line length, import order, typing
+        # modernisation) has thousands of findings and is not enforced; add a rule here only once it is clean.
+        run: ruff check . --select F,E9,B904,E401,PIE790,W605
 
       - name: Docs match code (routes, paths, env vars, scripts named in the docs exist)
         run: python scripts/ci/check_docs.py
@@ -122,6 +124,85 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  migrations:
+    # The schema path compose, deploy.sh and Helm all run (scripts/db_migrate.py) against an empty scratch Postgres.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: aether_migrate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d aether_migrate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci-only-password@localhost:5432/aether_migrate
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.lock
+      - name: Empty database, then upgrade path, ledger triggers
+        run: bash scripts/ci/check_migrations.sh
+
+  container-scan:
+    # The image that compose and Helm run, scanned for known OS and Python package vulnerabilities. Blocking for
+    # CRITICAL and HIGH that already have a fix; unfixed ones are not reported as failures.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the API image
+        run: docker build -t aetheros-api:ci .
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0.36.0   # tags carry a leading v; 0.28.0 depended on setup-trivy@v0.2.1, which no longer exists
+        with:
+          image-ref: aetheros-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
+
+  deploy-files:
+    # Helm chart renders and lints; shell scripts parse; the compose file resolves.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Helm lint and template
+        run: |
+          helm lint helm/aetheros --set config.AETHER_PREVIEW_ORIGIN=https://preview.example.com
+          helm template ci helm/aetheros --set config.AETHER_PREVIEW_ORIGIN=https://preview.example.com --set secrets.AETHER_LEDGER_SIGNING_KEY_PEM=x > /dev/null
+      - name: Shell syntax
+        run: for f in deploy/*.sh deploy/scripts/*.sh deploy/kubernetes/apply.sh scripts/*.sh scripts/ci/*.sh; do bash -n "$f"; done
+      - name: Compose file resolves
+        env:
+          POSTGRES_PASSWORD: x
+          REDIS_PASSWORD: x
+          AETHER_FIELD_KEY: x
+          AETHER_ADMIN_PASS: x
+          CORS_ORIGINS: https://example.com
+          FRONTEND_URL: https://example.com/dashboard
+          AETHER_PREVIEW_ORIGIN: https://preview.example.com
+          AETHER_PREVIEW_SECRET: x
+          DOCKER_GID: "999"
+          # every ${VAR:?} in docker-compose.yml must have a value here, or `config` fails before checking anything
+          VELARIS_ORG: ci-org
+          VELARIS_API_SECRET: x
+          VELARIS_IMAGE: velaris:ci
+        run: docker compose -f docker-compose.yml config -q
 
   generated-npm-build:
     # KAN-180: a generated frontend must really build (npm install + vite build), not only pass the static checks.

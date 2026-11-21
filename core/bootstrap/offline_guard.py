@@ -32,7 +32,6 @@ logger = logging.getLogger("aether_os.offline_guard")
 
 class NetworkViolationError(Exception):
     """Raised when a network access violation is detected."""
-    pass
 
 
 @dataclass

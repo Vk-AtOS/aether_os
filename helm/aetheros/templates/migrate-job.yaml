@@ -1,7 +1,34 @@
 {{- if .Values.migrate.enabled }}
-# Schema job (KAN-47). Runs after the ConfigMap and Secret exist, on install and on every upgrade. An empty database is
-# created from the models and stamped; an existing one gets `alembic upgrade head` (scripts/db_migrate.py). The API pods
-# refuse to start on a database that is not at head, so they restart until this finishes; that is the expected order.
+{{- $bundled := and .Values.postgresql.enabled (not .Values.secrets.DATABASE_URL) }}
+{{- $phase := .Values.migrate.hook | default (ternary "post-install,pre-upgrade" "pre-install,pre-upgrade" $bundled) }}
+# Schema job (KAN-47, KAN-102). Runs as a Helm hook BEFORE the API rolls out (see values.yaml migrate.hook): an empty
+# database is created from the models and stamped; an existing one gets `alembic upgrade head` (scripts/db_migrate.py).
+# Root cause of the earlier deadlock: as a post-install,post-upgrade hook it only started after the release's resources were
+# Ready, but the API pods refuse to start on a database that is not at head, so `helm install --wait` never finished.
+# Hook ordering: weight -5 hook Secret (only what the job reads: the regular Secret and ConfigMap do not exist yet on
+# the first install), then this Job (weight 0). The Job uses the namespace default ServiceAccount for the same reason.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "aetheros.fullname" . }}-migrate-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aetheros.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: {{ $phase }}
+    helm.sh/hook-weight: "-5"
+    # Holds DATABASE_URL and AETHER_FIELD_KEY: removed once the hooks succeeded (Helm deletes hook-succeeded resources after
+    # the whole phase finished, so the Job still reads it). Kept after a FAILED run on purpose, so the failed pod can be
+    # inspected; before-hook-creation replaces it on the next attempt.
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+type: Opaque
+stringData:
+  DATABASE_URL: {{ include "aetheros.databaseURL" . | quote }}
+  # the encrypt_sensitive_columns revision refuses to run without it
+  AETHER_FIELD_KEY: {{ .Values.secrets.AETHER_FIELD_KEY | quote }}
+  ENVIRONMENT: {{ .Values.config.ENVIRONMENT | quote }}
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,7 +38,7 @@ metadata:
     {{- include "aetheros.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook: {{ $phase }}
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
@@ -23,24 +50,25 @@ spec:
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: OnFailure
+      # The job talks to PostgreSQL only; it needs no Kubernetes API token (and does not use the chart's ServiceAccount).
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "aetheros.serviceAccountName" . }}
       containers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ include "aetheros.imageTag" . }}"
           workingDir: /srv/aether_os
           command: ["python", "scripts/db_migrate.py"]
           envFrom:
-            - configMapRef:
-                name: {{ include "aetheros.configMapName" . }}
             - secretRef:
-                name: {{ include "aetheros.secretName" . }}
+                name: {{ include "aetheros.fullname" . }}-migrate-env
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            runAsUser: {{ .Values.securityContext.runAsUser }}
+            runAsGroup: {{ .Values.securityContext.runAsGroup }}
             capabilities:
               drop: ["ALL"]
 {{- end }}

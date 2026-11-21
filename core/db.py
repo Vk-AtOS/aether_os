@@ -35,7 +35,6 @@ _session_factory: async_sessionmaker | None = None
 
 class Base(DeclarativeBase):
     """Shared declarative base for all AetherOS ORM models."""
-    pass
 
 
 def _build_db_url() -> str:

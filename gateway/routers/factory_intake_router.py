@@ -153,7 +153,10 @@ async def fetch_repo(req: Dict[str, Any], user: Dict[str, Any] = _current_user()
       gitlab_url: self-hosted GitLab base URL (optional, default https://gitlab.com)
       max_files:  max files to include (default 15)
     """
-    import httpx, base64, tempfile, shutil
+    import httpx
+    import base64
+    import tempfile
+    import shutil
 
     rtype = req.get("type", "github").lower()
     url   = (req.get("url") or req.get("repo_url") or "").strip().rstrip("/")
