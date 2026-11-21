@@ -25,7 +25,7 @@ Two repositories: AetherOS (`aether_os`) and Velaris (`velaris_knackforge`). Bot
 Known blockers found while preparing this list (fix or accept before step 7):
 
 1. `ruff check --select F,E9,B904 .` reports 2 F401 errors in `alembic/versions/merge_r3_heads_merge_r3_integration_heads.py` (KAN-59), so the blocking CI lint step fails. `python3.11 -m ruff check --select F,E9,B904 --fix alembic/versions/merge_r3_heads_merge_r3_integration_heads.py` removes both.
-2. `docker-compose.yml` mounts the host Docker socket into the `api` service (root-equivalent on the host). `scripts/production_readiness.py` reports this as FAIL for "sandbox isolation". It is an architecture decision (KAN-66, C7); until then it is an accepted, written-down risk.
+2. Only the `docker-proxy` service mounts the host Docker socket (read-only); the `api` reaches it through `DOCKER_HOST=unix:///docker-proxy/docker.sock` (KAN-65/66/101). The proxy filters endpoints, not request bodies, so a compromised API can still ask for a privileged container: residual risk, to be removed by a remote or rootless runner (KAN-204). `scripts/production_readiness.py` checks the socket is mounted only by the proxy.
 3. `core/models.py` is 621 lines, over the 600-line rule and not on the exception list (KAN-57).
 
 ## 1. Verify r3/int before anything leaves the machine
@@ -78,7 +78,7 @@ Expected: `bash scripts/ci/secret_scan.sh` finishes clean (the gitleaks CI job t
 
 ## 4. Prepare production configuration
 
-AetherOS `.env` (never committed; `.env.example` lists every variable). Compose refuses to start without these: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AETHER_FIELD_KEY`, `CORS_ORIGINS`, `FRONTEND_URL`, `AETHER_ADMIN_PASS`, `AETHER_PREVIEW_ORIGIN`, `AETHER_PREVIEW_SECRET`, `DOCKER_GID`. Also set `ENVIRONMENT=production` (then the API refuses to start without Redis and without `AETHER_FIELD_KEY`, and rate-limit or revocation-store failures answer 503 instead of passing) and one LLM provider (`PRIMARY_LLM` plus its key, or a local model). RS256 token signing needs `AETHER_JWT_PRIVATE_KEY_B64` and `AETHER_JWT_PUBLIC_KEY_B64` (otherwise the HS256 fallback is only for CI).
+AetherOS `.env` (never committed; `.env.example` lists every variable). Compose refuses to start without these: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `AETHER_FIELD_KEY`, `CORS_ORIGINS`, `FRONTEND_URL`, `AETHER_ADMIN_PASS`, `AETHER_PREVIEW_ORIGIN`, `AETHER_PREVIEW_SECRET`. Also set `ENVIRONMENT=production` (then the API refuses to start without Redis and without `AETHER_FIELD_KEY`, and rate-limit or revocation-store failures answer 503 instead of passing) and one LLM provider (`PRIMARY_LLM` plus its key, or a local model). RS256 token signing needs `AETHER_JWT_PRIVATE_KEY_B64` and `AETHER_JWT_PUBLIC_KEY_B64` (otherwise the HS256 fallback is only for CI).
 
 Velaris link (both repositories), generated once and kept in the secret store:
 
