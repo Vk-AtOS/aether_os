@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from aether_os.core.plugins.connectors import BaseConnector, ConnectorError
+from aether_os.core.plugins.connectors import BaseConnector, ConnectorError, generic_failure
 from aether_os.core.security.safe_http import safe_request
 
 logger = logging.getLogger(__name__)
@@ -80,11 +80,10 @@ class SalesforceConnector(BaseConnector):
                 }
             return {
                 "ok": False,
-                "message": f"HTTP {r.status_code}: {r.text[:200]}",
+                "message": f"HTTP {r.status_code}",
             }
         except Exception as exc:
-            logger.warning("salesforce_connector validate failed: %s", exc)
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": generic_failure(exc, "salesforce validate")}
 
     async def test(self) -> Dict[str, Any]:
         """BaseConnector compatibility — delegates to validate()."""
