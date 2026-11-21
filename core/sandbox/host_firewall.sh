@@ -44,6 +44,30 @@ for CIDR in $BLOCKED; do
   rule DOCKER-USER -i "$EGR_IF" -d "$CIDR" -j DROP
 done
 
+# Published app ports. With the gateway in a container (docker compose on Linux) the ports are
+# published on the docker0 bridge address instead of 127.0.0.1 (core/sandbox/endpoints.py), so the
+# API container can reach them. Pass the same AETHER_SANDBOX_PUBLISH_IP to this script: packets for
+# that address are accepted only from this host's own interfaces (loopback, docker0, the compose
+# bridges), never from the outside network.
+PUB_IP="${AETHER_SANDBOX_PUBLISH_IP:-127.0.0.1}"
+case "$PUB_IP" in
+  0.0.0.0|::|"[::]"|"*")
+    echo "refusing AETHER_SANDBOX_PUBLISH_IP=$PUB_IP: sandboxed apps must not be published on every interface" >&2
+    exit 1 ;;
+  127.*) ;;  # loopback: unreachable from outside by construction
+  *)
+    iptables -t raw -N AETHER-SBX-PUB 2>/dev/null || true
+    iptables -t raw -F AETHER-SBX-PUB
+    iptables -t raw -A AETHER-SBX-PUB -i lo -j RETURN
+    iptables -t raw -A AETHER-SBX-PUB -i docker0 -j RETURN
+    iptables -t raw -A AETHER-SBX-PUB -i br+ -j RETURN
+    iptables -t raw -A AETHER-SBX-PUB -j DROP
+    iptables -t raw -C PREROUTING -d "$PUB_IP" -j AETHER-SBX-PUB 2>/dev/null \
+      || iptables -t raw -I PREROUTING 1 -d "$PUB_IP" -j AETHER-SBX-PUB
+    echo "published sandbox ports on $PUB_IP accepted only from local interfaces"
+    ;;
+esac
+
 # The sandbox networks are IPv4-only (Docker's default); refuse IPv6 from them regardless.
 if command -v ip6tables >/dev/null; then
   for IF in "$RUN_IF" "$EGR_IF"; do

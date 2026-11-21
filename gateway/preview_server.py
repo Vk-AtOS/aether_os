@@ -46,10 +46,10 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import RedirectResponse, Response  # noqa: E402
 
 from aether_os.core.run_app import preview_state, preview_token  # noqa: E402
+from aether_os.core.sandbox.endpoints import app_url  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-UPSTREAM_HOST = os.environ.get("AETHER_SANDBOX_UPSTREAM_HOST", "127.0.0.1")
 _PROBE_PATH = "/__aether_preview_probe"
 _DROP_REQUEST_HEADERS = {
     "host", "content-length", "cookie", "connection",
@@ -188,7 +188,7 @@ def create_preview_app() -> FastAPI:
         launch = await asyncio.to_thread(preview_state.read_launch, claims["run_id"])
         if not launch:
             return _page("This app is not running. Start it from the dashboard.", 503)
-        base = f"http://{UPSTREAM_HOST}:{launch['port']}"
+        base = app_url(launch["port"])
         nonce = launch["nonce"]
         qs = f"?{request.url.query}" if request.url.query else ""
         try:
