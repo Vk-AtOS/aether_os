@@ -37,12 +37,14 @@ sed -e "s|__DBHOST__|$(terraform output -raw db_endpoint)|" \
 
 `bootstrap.sh` writes `.env` with fresh random secrets, points the API and migrations at RDS through
 `docker-compose.override.yml`, applies the sandbox host firewall, builds the sandbox and Velaris images, starts the stack,
-issues the certificate and starts nginx (`deploy/nginx.conf` rendered for the sslip.io name).
+and puts the front end in place. By default that is `FRONT=caddy` (`deploy/sslip`): Caddy on 80/443 with on-demand
+certificates for per-run preview hosts and `velaris.<host>` for the Velaris public app, nginx behind it on loopback.
+`FRONT=nginx` keeps the original single-nginx front (certbot certificate for `<host>` and `preview.<host>` only).
 
 ## Known limits
 
-* Per-run preview hosts (`<run-id>.preview.<host>`) need a wildcard certificate, which needs a real domain with DNS-01
-  validation (KAN-75). Only `preview.<host>` has a certificate here.
+* Per-run preview certificates are issued on demand (Let's Encrypt rate limits apply: about 50 new certificates per
+  week per registered name). A real domain with a DNS-01 wildcard removes that limit (KAN-75).
 * One host: a host failure is an outage until a new host is bootstrapped (RDS keeps the data). Restore steps:
   `docs/ops/RUNBOOKS.md`.
 * The model provider is the OpenAI-compatible NVIDIA endpoint until Bedrock access is granted on the account.
