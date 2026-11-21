@@ -46,7 +46,7 @@ FRONTEND_URL=https://$HOST/dashboard
 APP_BASE_URL=https://$HOST
 DOCKER_GID=$(stat -c %g /var/run/docker.sock)
 VELARIS_IMAGE=velaris:prod
-VELARIS_ORG=aetheros
+VELARIS_ORG=__SET_AFTER_FIRST_START__
 VELARIS_API_URL=http://velaris:8730
 VELARIS_API_SECRET=$(openssl rand -hex 32)
 PRIMARY_LLM=openrouter
@@ -96,6 +96,13 @@ chmod 600 secrets/vault.key
 UIDA=1000
 mkdir -p /home/aether/.aether_os
 s=$(date +%s); docker compose --profile velaris up -d --build > /srv/logs/up.log 2>&1 && echo "compose up ok in $(( $(date +%s)-s ))s" || { echo "compose up FAILED"; tail -20 /srv/logs/up.log; }
+# Velaris serves exactly one AetherOS organisation and refuses every other (403 wrong_organisation), so VELARIS_ORG must be
+# the id of the organisation the platform created on first start, not a made-up name (production showed the dashboard's
+# Velaris pages refused, 22 Nov 2026).
+if grep -q '^VELARIS_ORG=__SET_AFTER_FIRST_START__$' .env; then
+  ORG=$(psql "postgresql://aether_user:$(aws secretsmanager get-secret-value --secret-id '__DBSECRET__' --query SecretString --output text | python3 -c 'import sys,json,urllib.parse;print(urllib.parse.quote(json.load(sys.stdin)["password"],safe=""))')@__DBHOST__:5432/aether_os" -tAc "select id from organisations order by created_at limit 1" 2>/dev/null)
+  if [ -n "$ORG" ]; then sed -i "s/^VELARIS_ORG=.*/VELARIS_ORG=$ORG/" .env && docker compose --profile velaris up -d --no-deps velaris velaris_public >/dev/null 2>&1 && echo "VELARIS_ORG set to $ORG"; else echo "VELARIS_ORG: no organisation yet; set it in .env and restart velaris"; fi
+fi
 APIIMG=$(docker compose images -q api | head -1)
 UIDA=$(docker run --rm --entrypoint id "$APIIMG" -u); GIDA=$(docker run --rm --entrypoint id "$APIIMG" -g)
 chown -R "$UIDA:$GIDA" /home/aether/.aether_os
