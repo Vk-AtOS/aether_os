@@ -1,8 +1,8 @@
 """Prime API — correction memory (KAN-24) and the eval sets built from it (KAN-25).
 
 Signed-in people and organisation API keys (a system such as Velaris asking before an agent
-proposes an action) read corrections of their OWN organisation only. Marking a correction a
-good example and exporting eval sets change or expose organisation-wide data, so they need
+proposes an action) read corrections of their OWN organisation only. Removing a correction from the
+eval set (every one is in it by default, KAN-25) and exporting eval sets change or expose organisation-wide data, so they need
 an owner or admin (D7); the API key may export, for the eval script.
 """
 from __future__ import annotations
@@ -64,6 +64,7 @@ async def outcome(body: OutcomeIn, user: Dict[str, Any] = Depends(get_current_us
 @router.put("/{correction_id}/good-example")
 async def mark_good_example(correction_id: str, body: GoodIn,
                             user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """good=False removes the correction from its agent's eval set (it stays in memory); True puts it back."""
     org = _admin(user)
     async with get_session_factory()() as session:
         n = (await session.execute(update(PrimeCorrection).where(
@@ -81,7 +82,7 @@ async def eval_set(
     limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Good examples as test cases: input, expected corrected output. Edits only (a rejection
+    """The eval set: every edit not removed by a human, as test cases: input, expected corrected output. Edits only (a rejection
     has no corrected output). Pseudonymised exactly as stored."""
     if user.get("role") not in (*_ADMIN, "api"):
         raise HTTPException(status_code=403, detail="Only an organisation owner or admin can do this")
