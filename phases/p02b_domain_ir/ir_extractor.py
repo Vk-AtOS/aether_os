@@ -24,6 +24,8 @@ from aether_os.core.domain_ir import (
     IRNotification, IRClarifyingQuestion, AetherType,
 )
 
+from aether_os.phases.p02b_domain_ir.ir_cleanup import drop_unnamed
+
 logger = logging.getLogger(__name__)
 
 
@@ -293,9 +295,9 @@ def _build_ir_from_passes(
     relationships_raw = source.get("relationships") or pass2.get("relationships", [])
     rules_raw = source.get("business_rules") or pass3.get("business_rules", [])
     permissions_raw = source.get("permissions") or pass3.get("permissions", [])
-    workflows_raw = source.get("workflows") or pass3.get("workflows", [])
+    workflows_raw = drop_unnamed(source.get("workflows") or pass3.get("workflows", []), "entity", "workflow")
     metrics_raw = source.get("dashboard_metrics") or pass3.get("dashboard_metrics", [])
-    notif_raw = source.get("notifications") or pass3.get("notifications", [])
+    notif_raw = drop_unnamed(source.get("notifications") or pass3.get("notifications", []), "event", "notification")
     questions_raw = source.get("clarifying_questions", [])
 
     ir = DomainIR(domain=domain, app_name=app_name)
