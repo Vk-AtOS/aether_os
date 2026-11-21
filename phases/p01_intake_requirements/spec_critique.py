@@ -11,10 +11,10 @@ caught, logged, and the original spec is returned unchanged.
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -56,31 +56,22 @@ _PASSTHROUGH_SENTINEL = "__PASSTHROUGH__"
 
 def _parse_critique_response(raw: str, original_spec: str) -> Dict[str, Any]:
     """Parse the LLM critique JSON response, falling back gracefully."""
-    raw = raw.strip()
-
-    # Try direct parse
-    parsed: Optional[Dict[str, Any]] = None
+    # The model often follows the JSON with an explanation or a second object; take the first
+    # complete object rather than json.loads-ing the whole reply ("Extra data" in run 09297aa3).
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning("[spec_critique] direct JSON parse failed: %s", e)
-
-    if parsed is None:
-        # Extract JSON object from prose
-        match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-            except json.JSONDecodeError as e:
-                logger.warning("[spec_critique] JSON extraction from prose failed: %s", e)
-
-    if parsed is None:
-        logger.warning("[spec_critique] Could not parse LLM response as JSON: %s", raw[:200])
+        parsed = extract_first_json(raw, expect=dict)
+    except ValueError as e:
+        logger.warning("[spec_critique] Could not parse LLM response as JSON (%s): %s", e, (raw or "")[:200])
         return {"issues": [], "improved_spec": original_spec}
 
     # Normalise: ensure keys are present
     issues = parsed.get("issues") or []
+    if not isinstance(issues, list):
+        issues = [issues]
     improved = parsed.get("improved_spec") or original_spec
+    if not isinstance(improved, str):
+        logger.warning("[spec_critique] improved_spec is %s, not text — keeping the original", type(improved).__name__)
+        improved = original_spec
 
     # If the LLM echoed the passthrough sentinel, keep original
     if _PASSTHROUGH_SENTINEL in improved or not improved.strip():
