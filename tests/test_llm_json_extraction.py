@@ -15,6 +15,10 @@ from aether_os.core.council.council import _ERROR_RESULT, _parse_council_respons
 from aether_os.core.llm.json_enforcer import extract_first_json, extract_json, parse_llm_json
 from aether_os.core.llm.token_counter import safe_parse_json
 from aether_os.phases.p01_intake_requirements.spec_critique import _parse_critique_response
+from aether_os.phases.p02b_domain_ir.ir_extractor import _extract_json as p02b_extract
+from aether_os.phases.p05_frontend.build_loop import _extract_json_array
+from aether_os.phases.p05_frontend.design_brief import _parse as design_brief_parse
+from aether_os.phases.p06_review_security.task_agent import _extract_json as p06_extract
 
 _CRITIQUE = {
     "issues": [{"category": "auth", "description": "no roles", "suggested_fix": "add roles"}],
@@ -87,3 +91,17 @@ def test_safe_parse_json_keeps_whole_object_not_nested_one():
     # Old fallback regex \{[^{}]*\} returned {"name": "auth"} (the first brace-free object).
     reply = '{"services": [{"name": "auth"}], "message_bus": ""}\n\nThis design separates auth.'
     assert safe_parse_json(reply) == {"services": [{"name": "auth"}], "message_bus": ""}
+
+
+# ── Phase-local parsers that had the same json.loads / first-to-last-brace pattern ──────────
+
+def test_phase_parsers_take_first_object_and_ignore_trailing_text():
+    obj = {"entities": [{"name": "Order"}], "summary": "ok"}
+    reply = "```json\n" + json.dumps(obj) + "\n```\nI picked {Order} because it is central."
+    assert p02b_extract(reply) == obj
+    assert p06_extract(reply) == obj
+    assert design_brief_parse(reply) == obj
+
+    patches = [{"file": "src/a.ts", "find": "x", "replace": "y"}]
+    # The old first-[ to last-] slice also swallowed the "[1]" in the explanation.
+    assert _extract_json_array(json.dumps(patches) + "\nSee note [1].") == patches
