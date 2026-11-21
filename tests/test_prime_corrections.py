@@ -109,10 +109,10 @@ async def test_a_correction_cannot_break_out_of_the_prompt_block(svc, counting):
 async def test_outcome_is_counted_and_the_api_is_org_scoped(svc, counting):
     await grant()
     await edited(svc)
-    out = await api.relevant(agent="payables", action_type="invoice.approve", q="", k=3, user=API_KEY)
+    out = await api.relevant(agent="payables", action_type="invoice.approve", q="", k=3, also=[], user=API_KEY)
     cid = out["corrections"][0]["id"]
     assert "Past corrections by your approvers" in out["prompt_block"]
-    assert await api.relevant(agent="payables", action_type="invoice.approve", q="", k=3, user=OUTSIDER) \
+    assert await api.relevant(agent="payables", action_type="invoice.approve", q="", k=3, also=[], user=OUTSIDER) \
         == {"corrections": [], "prompt_block": ""}
     await api.outcome(api.OutcomeIn(ids=[cid], changed=True), user=API_KEY)
     r = (await rows())[0]
@@ -120,7 +120,7 @@ async def test_outcome_is_counted_and_the_api_is_org_scoped(svc, counting):
     assert (await api.outcome(api.OutcomeIn(ids=[cid], changed=True), user=OUTSIDER))["updated"] == 0
 
 
-async def test_good_examples_export_as_eval_cases_for_admins_and_the_api_key_only(svc, counting):
+async def test_corrections_feed_the_eval_set_automatically_and_an_admin_can_remove_one(svc, counting):
     await grant()
     await edited(svc)
     cid = (await rows())[0].id
@@ -130,10 +130,29 @@ async def test_good_examples_export_as_eval_cases_for_admins_and_the_api_key_onl
     with pytest.raises(HTTPException) as e:                                 # another organisation's admin
         await api.mark_good_example(cid, api.GoodIn(good=True), user={**ADMIN, "org_id": OTHER_ORG})
     assert e.value.status_code == 404
-    assert (await api.eval_set(agent=None, limit=100, offset=0, user=API_KEY))["cases"] == []   # not marked yet
-    await api.mark_good_example(cid, api.GoodIn(good=True), user=ADMIN)
+    # KAN-25 owner decision: in the set automatically, nobody marked it
     cases = (await api.eval_set(agent="payables", limit=100, offset=0, user=API_KEY))["cases"]
     assert len(cases) == 1 and cases[0]["agent"] == "payables" and '"amount": "300"' in cases[0]["expected"]
     with pytest.raises(HTTPException):
         await api.eval_set(agent=None, limit=100, offset=0, user=MEMBER)
     assert (await api.eval_set(agent=None, limit=100, offset=0, user={**API_KEY, "org_id": OTHER_ORG}))["cases"] == []
+    # a human removes it from the set (the correction itself stays in memory), and can put it back
+    await api.mark_good_example(cid, api.GoodIn(good=False), user=ADMIN)
+    assert (await api.eval_set(agent=None, limit=100, offset=0, user=API_KEY))["cases"] == []
+    assert len(await corrections.relevant(ORG, "payables", "invoice.approve")) == 1
+    await api.mark_good_example(cid, api.GoodIn(good=True), user=ADMIN)
+    assert len((await api.eval_set(agent=None, limit=100, offset=0, user=API_KEY))["cases"]) == 1
+
+
+async def test_corrections_filed_under_a_tool_name_are_reachable_by_a_flow_that_names_the_tool(svc, counting):
+    """Rows stored before agent_of() preferred params.agent carry the Velaris tool name; a flow asking by its agent
+    name never found them. It now passes the tool names as `also`, and still only gets its own org and action type."""
+    await grant()
+    await edited(svc, agent="", params={"tool": "send_mail"})
+    assert await corrections.relevant(ORG, "flow-agent", "invoice.approve") == []
+    got = await corrections.relevant(ORG, "flow-agent", "invoice.approve", also=["send_mail"])
+    assert len(got) == 1 and got[0]["reason"] == "wrong amount"
+    assert await corrections.relevant(OTHER_ORG, "flow-agent", "invoice.approve", also=["send_mail"]) == []
+    assert await corrections.relevant(ORG, "flow-agent", "leave.approve", also=["send_mail"]) == []
+    out = await api.relevant(agent="flow-agent", action_type="invoice.approve", q="", k=3, also=["send_mail"], user=API_KEY)
+    assert len(out["corrections"]) == 1

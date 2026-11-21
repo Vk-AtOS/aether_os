@@ -17,7 +17,7 @@ export const ApiKeyPanel = ({
       {[
         { id: 'anthropic',  label: 'Anthropic API Key',             storeKey: 'anthropic'  },
         { id: 'gemini',     label: 'Google Gemini Key',             storeKey: 'google'     },
-        { id: 'openrouter', label: 'OpenRouter Key (5 free models)', storeKey: 'openrouter' },
+        { id: 'openrouter', label: 'OpenRouter / OpenAI-compatible endpoint key', storeKey: 'openrouter' },
       ].map(({ id, label, storeKey }) => (
         <div key={id} className="space-y-2">
           <label className="text-xs font-bold text-muted uppercase tracking-wider flex items-center gap-2">
@@ -38,7 +38,7 @@ export const ApiKeyPanel = ({
               disabled={keyStatus[id] === 'saving'}
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors min-w-[80px]"
             >
-              {keyStatus[id] === 'saving' ? '...' : keyStatus[id] === 'saved' ? '✓ SAVED' : keyStatus[id] === 'error' ? '✗ ERROR' : 'UPDATE'}
+              {keyStatus[id] === 'saving' ? '...' : keyStatus[id] === 'saved' ? '✓ SAVED' : keyStatus[id] === 'error' ? '✗ ERROR' : orgKeys?.[storeKey] ? 'ROTATE' : 'ADD'}
             </button>
             <button
               onClick={() => onTestKey(id)}
