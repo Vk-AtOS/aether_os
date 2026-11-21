@@ -27,6 +27,17 @@ class ConnectorError(Exception):
     pass
 
 
+GENERIC_CONNECTOR_ERROR = "The connector request failed. Check the connector settings and credentials."
+
+
+def generic_failure(exc: BaseException, context: str) -> str:
+    """Log the detail, return the text safe for the caller. Connector errors carry upstream
+    response bodies and resolver output (which private address a name resolved to), which would
+    let an org admin probe the platform network from the error text (KAN-69)."""
+    logger.warning("connector failure [%s]: %s", context, exc)
+    return GENERIC_CONNECTOR_ERROR
+
+
 # Config keys that hold an address the ORG typed in (everything else points at a fixed vendor API).
 _ORG_URL_KEYS = ("base_url", "url", "instance_url")
 
