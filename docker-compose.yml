@@ -291,6 +291,10 @@ services:
       VELARIS_API_SECRET: ${VELARIS_API_SECRET:?VELARIS_API_SECRET is required for the velaris profile}
       VELARIS_IDENTITY_PUBLIC_KEY: /run/identity/velaris_identity.pub.pem
       VELARIS_VAULT_KEY_FILE: /run/vault/vault.key      # outside the data volume, so HR, mail and chat can be sealed
+      # "provider:model" for task classes without a chain (velaris/intel/llm.py default_model). Empty: Anthropic if its key
+      # is set, else local Ollama, which a server install usually does not have, so set it to a registered provider
+      # (POST /model-providers), e.g. nvidia:nvidia/nemotron-3-ultra-550b-a55b.
+      VELARIS_MODEL: ${VELARIS_MODEL:-}
     volumes:
       - velaris_data:/data
       - ./secrets/vault.key:/run/vault/vault.key:ro
