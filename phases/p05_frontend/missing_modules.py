@@ -10,6 +10,8 @@ import logging
 import re
 from pathlib import Path
 
+from aether_os.core.errors import SandboxViolation
+from aether_os.core.run_app.safe_fs import safe_makedirs, safe_write_text
 from aether_os.phases.p05_frontend.ui_primitives import UI_PRIMITIVES, UTIL_MODULES
 
 logger = logging.getLogger(__name__)
@@ -53,12 +55,21 @@ def _parse_clause(clause: str) -> tuple[set[str], set[str], bool]:
 
 
 def _resolve(spec: str, importer: Path, src: Path) -> Path | None:
-    """Base path (no extension) a local specifier points to, or None when it is not a local import."""
+    """Base path (no extension) a local specifier points to, or None when it is not a local import.
+    Specifiers come from model-written code: the result must stay inside src after resolving symlinks and `..`
+    (otherwise PermissionError is raised for the caller to log and skip)."""
     if spec.startswith("@/"):
-        return src / spec[2:]
-    if spec.startswith("."):
-        return (importer.parent / spec).resolve()
-    return None
+        if ".." in spec[2:].split("/"):
+            raise PermissionError("'..' in alias import")
+        base = src / spec[2:]
+    elif spec.startswith("."):
+        base = importer.parent / spec
+    else:
+        return None
+    resolved = base.resolve()
+    if resolved != src and not resolved.is_relative_to(src):
+        raise PermissionError("import resolves outside src")
+    return resolved
 
 
 def _has(path: Path) -> bool:
@@ -130,11 +141,12 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
         for m in _DYN_RE.finditer(text):
             found.append((m.group("spec"), set(), set(), True))  # React.lazy needs a default export
         for spec, values, types, default in found:
-            base = _resolve(spec, f, src)
-            if base is None or _exists(base):
+            try:
+                base = _resolve(spec, f, src)
+            except PermissionError as exc:
+                logger.warning("p05 missing_modules: %s imports %r: %s; skipped", f.name, spec, exc)
                 continue
-            if not base.is_relative_to(src):
-                logger.warning("p05 missing_modules: %s imports %r outside src; skipped", f.name, spec)
+            if base is None or _exists(base):
                 continue
             ext = Path(spec).suffix
             if ext and ext not in _SRC_EXT:
@@ -154,8 +166,15 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
         if path.exists():  # case-insensitive disk with a differently-cased file: writing would overwrite it
             logger.warning("p05 missing_modules: %s differs only by case from an existing file; skipped", path)
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        # Containment is re-checked here with the extension added; safe_fs refuses planted symlinks on the way.
+        try:
+            if not path.resolve().is_relative_to(src):
+                raise SandboxViolation(f"{path} is outside src")
+            safe_makedirs(src, path.parent)
+            safe_write_text(src, path, text)
+        except (SandboxViolation, OSError) as exc:
+            logger.warning("p05 missing_modules: refused to write %s: %s", path, exc)
+            continue
         written.append(path.relative_to(frontend_dir.resolve()).as_posix())
         if known:
             logger.info("p05 missing_modules: wrote UI primitive %s", written[-1])
