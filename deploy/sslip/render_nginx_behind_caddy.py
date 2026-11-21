@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Render deploy/nginx.conf for an install without its own domain, where Caddy terminates TLS (KAN-75).
 
-Usage: render_nginx_behind_caddy.py <host> <out_nginx_conf> <out_caddyfile> [email]
+Usage: render_nginx_behind_caddy.py <host> <out_dir> [email]
   host: the public name, e.g. 3-105-82-63.sslip.io
+  writes <out_dir>/nginx.conf (app), velaris_public.conf + velaris_public_proxy.conf (KAN-128), Caddyfile
 
 deploy/nginx.conf stays the single source of the app's routing, rate limits and security headers. This script only:
   * drops the port-80 redirect server and both preview servers (Caddy redirects to HTTPS and serves previews itself),
@@ -77,6 +78,33 @@ def render_nginx(source: str, host: str) -> str:
     return rendered
 
 
+def render_velaris_public(source: str, proxy_include: str, host: str) -> tuple[str, str]:
+    """deploy/nginx_velaris_public.conf behind Caddy on 127.0.0.1:8081 (KAN-128): same path allowlist, header stripping,
+    rate limits and masked access log; only the TLS and port-80 parts move to Caddy, which serves velaris.<host>."""
+    out, pos, kept = [], 0, False
+    for start, end in _server_blocks(source):
+        body = source[start:end]
+        out.append(source[pos:start])
+        pos = end
+        if re.search(r"listen\s+80;", body) and "return 301 https" in body:
+            continue
+        if re.search(r"listen\s+443\s+ssl", body):
+            kept = True
+            body = re.sub(r"(?m)^\s*listen\s+(\[::\]:)?443\s+ssl[^;]*;\n", "", body)
+            body = re.sub(r"(?m)^\s*ssl_[a-z_]+\s+[^;]*;\n", "", body)
+            body = body.replace("server {", "server {\n    listen 127.0.0.1:8081;\n"
+                                "    set_real_ip_from 127.0.0.1;\n    real_ip_header X-Forwarded-For;\n", 1)
+        out.append(body)
+    out.append(source[pos:])
+    if not kept:
+        raise SystemExit("nginx_velaris_public.conf: no `listen 443 ssl` server found; refusing to render")
+    conf = "".join(out).replace("VELARIS_PUBLIC_DOMAIN_PLACEHOLDER", f"velaris.{host}")
+    proxy = re.sub(r"(X-Forwarded-Proto\s+)\$scheme", r"\1https", proxy_include)
+    if "PLACEHOLDER" in re.sub(r"(?m)^\s*#.*$", "", conf) or re.search(r"listen\s+(\[::\]:)?(80|443)\b", conf):
+        raise SystemExit("nginx_velaris_public.conf: still binds 80/443 or has a placeholder; refusing")
+    return conf, proxy
+
+
 def render_caddy(template: str, host: str, email: str = "") -> str:
     host_re = re.escape(host).replace("\\-", "-")
     email_line = f"email {email}" if email else "# no ACME account e-mail configured"
@@ -85,16 +113,21 @@ def render_caddy(template: str, host: str, email: str = "") -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (4, 5):
+    if len(argv) not in (3, 4):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
-    host, out_nginx, out_caddy = argv[1].lower(), Path(argv[2]), Path(argv[3])
-    email = argv[4] if len(argv) == 5 else ""
+    host, out = argv[1].lower(), Path(argv[2])
+    email = argv[3] if len(argv) == 4 else ""
     if not HOST_RE.match(host):
         raise SystemExit(f"not a host name: {host!r}")
-    out_nginx.write_text(render_nginx(SOURCE.read_text(), host))
-    out_caddy.write_text(render_caddy(CADDY_TEMPLATE.read_text(), host, email))
-    print(f"rendered {out_nginx} and {out_caddy} for {host}")
+    out.mkdir(parents=True, exist_ok=True)
+    vconf, vproxy = render_velaris_public((SOURCE.parent / "nginx_velaris_public.conf").read_text(),
+                                          (SOURCE.parent / "velaris_public_proxy.conf").read_text(), host)
+    (out / "nginx.conf").write_text(render_nginx(SOURCE.read_text(), host))
+    (out / "velaris_public.conf").write_text(vconf)
+    (out / "velaris_public_proxy.conf").write_text(vproxy)
+    (out / "Caddyfile").write_text(render_caddy(CADDY_TEMPLATE.read_text(), host, email))
+    print(f"rendered nginx.conf, velaris_public.conf, velaris_public_proxy.conf and Caddyfile in {out} for {host}")
     return 0
 
 

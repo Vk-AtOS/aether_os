@@ -38,3 +38,21 @@ def test_render_refuses_a_source_without_an_app_server():
     import pytest
     with pytest.raises(SystemExit):
         render.render_nginx("server {\n    listen 80;\n    return 301 https://$host$request_uri;\n}\n", HOST)
+
+
+def test_velaris_public_behind_caddy_keeps_its_allowlist_and_scrubbing():
+    conf, proxy = render.render_velaris_public((ROOT / "deploy" / "nginx_velaris_public.conf").read_text(),
+                                               (ROOT / "deploy" / "velaris_public_proxy.conf").read_text(), HOST)
+    directives = "\n".join(l for l in conf.splitlines() if not l.lstrip().startswith("#"))
+    assert "listen 127.0.0.1:8081;" in directives and not re.search(r"listen\s+(\[::\]:)?(80|443)\b", directives)
+    assert f"server_name velaris.{HOST};" in directives and "PLACEHOLDER" not in directives
+    for path in ("/careers/", "/schedule/", "/interview/", "/sign/"):
+        assert f"location ^~ {path}" in directives
+    assert "location /          { return 404; }" in directives            # everything else stays closed
+    assert "log_format velaris_public" in directives                       # masked access log kept
+    assert "X-Forwarded-Proto https" in proxy and 'proxy_set_header Authorization "";' in proxy
+
+
+def test_caddy_serves_the_velaris_public_host():
+    caddy = render.render_caddy((ROOT / "deploy" / "sslip" / "Caddyfile.template").read_text(), HOST)
+    assert f"velaris.{HOST} {{" in caddy and "reverse_proxy 127.0.0.1:8081" in caddy
