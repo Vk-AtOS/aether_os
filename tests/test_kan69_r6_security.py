@@ -33,3 +33,14 @@ def test_portal_feedback_body_is_bounded():
         FeedbackBody(feedback="x" * 5001)
     with pytest.raises(ValidationError):
         FeedbackBody(feedback="ok", phase="p" * 129)
+
+
+def test_nginx_portal_location_is_rate_limited_and_body_capped():
+    """The portal location is reachable with only a portal token: it needs the same limits as /api/."""
+    import re
+    from pathlib import Path
+
+    conf = re.sub(r"#[^\n]*", "", (Path(__file__).resolve().parent.parent / "deploy" / "nginx.conf").read_text())
+    block = conf.split("location /portal/ {", 1)[1].split("\n    }", 1)[0]
+    assert "limit_req zone=api" in block
+    assert "client_max_body_size" in block
