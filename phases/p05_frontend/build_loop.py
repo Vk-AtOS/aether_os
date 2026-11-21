@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _TS_ERROR_RE = re.compile(r"error TS\d+:")
 _MAX_ERR_CHARS = 3000
+MAX_TSC_MESSAGES = 10
 _PROMPT_TEMPLATE = (
     "You are a TypeScript/React developer. The following errors occurred "
     "during `tsc --noEmit` and/or `vite build`. List the exact file:line "
@@ -96,15 +97,47 @@ async def _llm_fix(error_output: str) -> list[dict[str, Any]]:
     return _extract_json_array(raw)
 
 
-async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
-    """tsc --noEmit + vite build → parse errors → LLM fix per round → max_rounds.
+def _tsc_messages(tsc_result: subprocess.CompletedProcess) -> list[str]:
+    out = (tsc_result.stdout or "") + (tsc_result.stderr or "")
+    lines = [ln.strip()[:300] for ln in out.splitlines() if "error TS" in ln]
+    if not lines and tsc_result.returncode != 0:  # tsc died without TS diagnostics: still a type-check failure
+        lines = [out.strip().splitlines()[-1][:300] if out.strip() else f"tsc exited {tsc_result.returncode}"]
+    return lines
 
-    Returns: {"success": bool, "tsc_errors": int, "rounds": int}
+
+def _outcome(built: bool, tsc_lines: list[str], rounds: int) -> dict:
+    return {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
+            "rounds": rounds}
+
+
+def result_summary(loop: dict) -> tuple[dict, list[str]]:
+    """(metadata, issues) the phase reports for a build_loop outcome: the tsc count and first messages are visible in
+    the run result, and a bundled app with leftover type errors carries a warning instead of a failure."""
+    n = int(loop.get("tsc_errors", 0))
+    meta = {"build_ok": bool(loop.get("built", loop.get("success"))), "tsc_errors": n,
+            "tsc_messages": list(loop.get("tsc_messages", []))}
+    issues = []
+    if n and meta["build_ok"]:
+        issues.append(f"p05 warning: vite build succeeded but {n} TypeScript error(s) remain. First: "
+                      + " | ".join(meta["tsc_messages"][:3]))
+    return meta, issues
+
+
+async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
+    """tsc --noEmit + vite build -> parse errors -> LLM fix per round -> max_rounds.
+
+    Policy: the phase SUCCEEDS when `vite build` exits 0 and produced dist/index.html (the app bundles and can be
+    previewed). tsc errors never fail it: they are returned as a count plus the first MAX_TSC_MESSAGES messages (they
+    lower the confidence and are reported as warnings) while the loop keeps asking the model to fix them.
+
+    Returns: {"success", "built", "tsc_errors", "tsc_messages", "rounds"}
     """
     if os.environ.get("ENVIRONMENT") == "test":
-        return {"success": True, "tsc_errors": 0, "rounds": 0}
+        return {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "rounds": 0}
 
-    tsc_errors = 0
+    tsc_lines: list[str] = []
+    built = False
+    round_num = 0
     for round_num in range(1, max_rounds + 1):
         ensure_local_modules(frontend_dir)  # LLM patches/revisions may add imports of files that do not exist
         if ensure_npm_deps(frontend_dir):  # ...or of packages package.json lacks: they need an install first
@@ -124,21 +157,23 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
             raise  # generated code was not run: fail the phase with this message
         except Exception as exc:
             logger.error("p05 build_loop: subprocess raised in round %d: %s", round_num, exc)
-            return {"success": False, "tsc_errors": tsc_errors, "rounds": round_num}
+            return _outcome(False, tsc_lines, round_num)
 
-        tsc_errors = _count_tsc_errors(tsc_result.stderr or "") + _count_tsc_errors(tsc_result.stdout or "")
-        if tsc_result.returncode == 0 and build_result.returncode == 0:
-            return {"success": True, "tsc_errors": 0, "rounds": round_num}
+        tsc_lines = _tsc_messages(tsc_result) if tsc_result.returncode != 0 else []
+        built = build_result.returncode == 0 and (frontend_dir / "dist" / "index.html").is_file()
+        if built and not tsc_lines:
+            return _outcome(True, [], round_num)
+        if round_num == max_rounds:
+            break  # patches made now would never be rebuilt, so do not apply them
 
         combined = (_combine_output(tsc_result) + "\n" + _combine_output(build_result))[-_MAX_ERR_CHARS:]
         patches = await _llm_fix(combined)
         applied = sum(1 for p in patches if isinstance(p, dict) and _apply_patch(frontend_dir, p))
-        logger.info("p05 build_loop: round %d — applied %d patches", round_num, applied)
+        logger.info("p05 build_loop: round %d - applied %d patches", round_num, applied)
         if applied == 0:
-            # No progress possible — bail early rather than burn rounds.
-            return {"success": False, "tsc_errors": tsc_errors, "rounds": round_num}
-
-    return {"success": False, "tsc_errors": tsc_errors, "rounds": max_rounds}
+            break  # no progress possible: do not burn rounds
+    logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])
+    return _outcome(built, tsc_lines, round_num)
 
 
 if __name__ == "__main__":
@@ -154,5 +189,5 @@ if __name__ == "__main__":
         assert not _apply_patch(root, {"file": "src/x.ts", "find": "missing", "replace": "y"})
         assert not _apply_patch(root, {"file": "src/missing.ts", "find": "a", "replace": "b"})
     os.environ["ENVIRONMENT"] = "test"
-    assert asyncio.run(run_build_loop(Path("."))) == {"success": True, "tsc_errors": 0, "rounds": 0}
+    assert asyncio.run(run_build_loop(Path(".")))["success"]
     print("build_loop self-check OK")

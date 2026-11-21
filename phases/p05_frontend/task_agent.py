@@ -16,7 +16,7 @@ from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
-from aether_os.phases.p05_frontend.build_loop import run_build_loop
+from aether_os.phases.p05_frontend.build_loop import result_summary, run_build_loop
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
 from aether_os.phases.p05_frontend.cloud_console_generator import (
@@ -512,6 +512,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     frontend_dir_final = project_dir / 'frontend'
     build_success = True
     tsc_errors: int = 0
+    _loop_result: dict = {"success": True, "tsc_errors": 0}
     if os.environ.get("ENVIRONMENT") != "test":
         async with get_npm_semaphore():
             try:
@@ -565,7 +566,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         async with get_npm_semaphore():
             _re_loop = await run_build_loop(frontend_dir_final, max_rounds=2)
         if _re_loop["success"] or not build_success:
-            build_success, tsc_errors = _re_loop["success"], _re_loop["tsc_errors"]
+            build_success, tsc_errors, _loop_result = _re_loop["success"], _re_loop["tsc_errors"], _re_loop
         else:
             logger.warning("p05: Gate 2 revisions broke the build — restoring the pre-revision source")
             shutil.rmtree(frontend_dir_final / "src")
@@ -576,4 +577,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     template_debt_pct: float = meta.get("template_debt_pct", 1.0)
     _confidence = build_success * 0.6 + (1 if tsc_errors == 0 else 0) * 0.3 + (1 - template_debt_pct) * 0.1
     _confidence = max(0.0, min(1.0, _confidence))
-    return TaskResult(output_path=str(frontend_dir_final), confidence=_confidence, success=build_success, metadata=meta)
+    # Policy: a bundled app succeeds; leftover tsc errors are a warning + a count in the run result, not a failure.
+    _build_meta, _warnings = result_summary({**_loop_result, "success": build_success, "tsc_errors": tsc_errors})
+    meta.update(_build_meta)
+    (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
+    return TaskResult(output_path=str(frontend_dir_final), confidence=_confidence, success=build_success,
+                      metadata=meta, issues=_warnings)
