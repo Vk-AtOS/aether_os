@@ -109,7 +109,8 @@ class PrimeCorrection(Base):
     on_behalf_of: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
     corrected_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    good_example: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    # In the agent's eval set (KAN-25). True for every new correction (owner decision); a human removes one with False.
+    good_example: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=false())
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     changed_outcome_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0,
                                                        server_default=text("0"))
