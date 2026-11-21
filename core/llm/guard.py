@@ -57,7 +57,7 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
             raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
         if policy.disabled:
             raise LLMUnavailable("LLM calls are disabled for this organisation")
-        plan, cap = plan or policy.plan, policy.cap_usd
+        plan, cap = plan or policy.plan, policy.effective_cap_usd()
     else:
         # Platform-owned call (no tenant): charged to the platform budget (PLATFORM_ORG row, plan "platform",
         # monthly cap PLATFORM_LLM_MONTHLY_CAP_USD or the plan default), so a runaway platform job stops too.

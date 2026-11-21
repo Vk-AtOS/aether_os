@@ -18,6 +18,7 @@ from typing import Dict, Optional, Tuple
 from sqlalchemy import select
 
 from aether_os.core.db import get_session_factory
+from aether_os.core.llm.plans import PLAN_LIMITS
 from aether_os.core.models import Organisation
 from aether_os.core.rate_limiter import _get_async_redis
 
@@ -33,9 +34,18 @@ _orgs: Dict[str, Tuple[float, "OrgPolicy"]] = {}
 @dataclass(frozen=True)
 class OrgPolicy:
     plan: str
-    cap_usd: Optional[float]
+    cap_usd: Optional[float]       # platform (superadmin) override of the plan cap
     disabled: bool
     deleted: bool
+    org_cap_usd: Optional[float] = None   # org admin's own, lower-only cap
+
+    def effective_cap_usd(self) -> Optional[float]:
+        """min(platform cap or plan cap, org cap); None when the plan is unknown (the call is refused elsewhere)."""
+        limit = PLAN_LIMITS.get(self.plan)
+        base = self.cap_usd if self.cap_usd is not None else (limit.usd if limit else None)
+        if base is None or self.org_cap_usd is None:
+            return base
+        return min(base, self.org_cap_usd)
 
 
 def env_kill_switch() -> bool:
@@ -80,11 +90,11 @@ async def org_policy(org_id: str) -> Optional[OrgPolicy]:
     async with get_session_factory()() as session:
         row = (await session.execute(
             select(Organisation.plan, Organisation.llm_monthly_cap_usd, Organisation.llm_disabled,
-                   Organisation.is_deleted).where(Organisation.id == org_id)
+                   Organisation.is_deleted, Organisation.llm_org_cap_usd).where(Organisation.id == org_id)
         )).first()
     if row is None:
         return None
-    policy = OrgPolicy(plan=row[0] or "", cap_usd=row[1], disabled=bool(row[2]), deleted=bool(row[3]))
+    policy = OrgPolicy(plan=row[0] or "", cap_usd=row[1], disabled=bool(row[2]), deleted=bool(row[3]), org_cap_usd=row[4])
     if len(_orgs) > 5000:
         _orgs.clear()
     _orgs[org_id] = (time.monotonic(), policy)
