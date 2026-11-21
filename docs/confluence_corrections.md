@@ -748,3 +748,9 @@ These pages are in the set (sample or doubt) but I did not get to them. Most hav
 ## Pages with a credential
 
 No page I read contained a credential or secret.
+
+---
+
+## Update 21 Nov 2026 (KAN-56, KAN-172)
+
+The 48 agent pages whose code changed between Velaris b85f76e and main ac55e58 were re-read in full against main and corrected in Confluence (space SD): 807 claims, 151 wrong, 108 partly wrong (32.1 percent; a change-based pool, so an upper bound). Per department table and method: Confluence page "Agent pages accuracy review (KAN-56, 21 Nov 2026)" under "Deployment, Security and Operations". Phase pages p04b_business_logic, p07_testing, p08_cicd, p08_cicd_deployment, p09_documentation and p00c_architecture_planner were re-verified against AetherOS main 245985d (p00c: code unchanged since 14 Nov). Still open: tax-law pages (accountant), the roughly 5,000 lines of embedded pattern strings in `phases/patterns/` (reading work), agent pages whose code did not change (keep their earlier line).
