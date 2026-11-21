@@ -46,7 +46,7 @@ The earlier figures (883 commits, 9,190 Python files, 756,428 Python lines, 650 
 - **Backend:** FastAPI, Python 3.11, SQLAlchemy async, Alembic. PostgreSQL via `DATABASE_URL`; SQLite for local dev (`core/db.py`). Redis is used for the message bus. Not run against real PostgreSQL or Redis in this work.
 - **Frontend:** React 18 and Vite in `dashboard/`.
 - **Pipeline:** 12 stages (`stages/s01` to `s12`) over 49 phase directories (`phases/p<digit>*/`).
-- **LLM routing:** `core/model_router.py` and `core/model_router_providers.py` hold the provider chain, timeouts and retries. The default `PRIMARY_LLM` in code is `bedrock`; Anthropic, Gemini, OpenRouter and Ollama are added by configuration. Not run against a real model in this work.
+- **LLM routing:** `core/model_router.py` and `core/model_router_providers.py` hold the provider chain, timeouts and retries. The default `PRIMARY_LLM` in code is `bedrock`; Anthropic, Gemini, Ollama and any OpenAI-compatible endpoint (the `openrouter` client with `OPENROUTER_BASE_URL`, for example NVIDIA) are added by configuration. As of 21 Nov 2026 runs use an OpenAI-compatible endpoint (NVIDIA free-tier models) or Bedrock; output quality on those models is not measured here.
 - **Auth:** JWT, bcrypt/passlib, TOTP MFA, SCIM v2 (`gateway/routers/scim_router.py`), SAML (`gateway/auth_saml.py`).
 - **Security code:** field-level Fernet encryption, hash-chained audit log (`core/audit/`), rate limiting (slowapi).
 
