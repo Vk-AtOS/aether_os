@@ -53,3 +53,17 @@ def test_hot_filter_migration_and_init_db_define_the_same_indexes():
     joined = " ".join(schema_ddl.INDEXES[n] for n in names)
     for needle in ("runs(org_id, status)", "runs(org_id, started_at)", "notifications(", "artifact_embeddings(", "marketplace_profiles("):
         assert needle in joined
+
+
+def test_client_side_timeouts_bound_a_partitioned_database(monkeypatch):
+    # KAN-52: statement_timeout lives on the server; with the server unreachable only client-side timeouts end the wait.
+    for pgb in ("", "true"):
+        monkeypatch.setenv("DB_PGBOUNCER", pgb)
+        monkeypatch.setenv("DB_STATEMENT_TIMEOUT_MS", "30000")
+        monkeypatch.setenv("DB_CONNECT_TIMEOUT_S", "4")
+        ca = db._postgres_engine_kwargs()["connect_args"]
+        assert ca["timeout"] == 4.0 and ca["command_timeout"] == 35.0
+
+
+def test_a_query_timeout_is_answered_as_dependency_down():
+    assert isinstance(TimeoutError("no answer"), db.DEPENDENCY_DOWN)

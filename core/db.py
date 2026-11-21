@@ -75,7 +75,11 @@ def asyncpg_url_and_ssl(url: str) -> tuple:
 def _postgres_engine_kwargs() -> dict:
     """Pool + per-connection settings for PostgreSQL.
 
-    DB_STATEMENT_TIMEOUT_MS (default 30000) caps every query. Behind PgBouncer in transaction mode
+    DB_STATEMENT_TIMEOUT_MS (default 30000) caps every query on the server. It cannot help when the server is unreachable
+    (a network partition drops packets, nothing answers), so the client side is capped too: DB_CONNECT_TIMEOUT_S (default 5)
+    for a new connection and command_timeout (the statement timeout plus 5 s) for every query, including the pool pre-ping.
+    Without these the first request after a partition waited for TCP retransmission (over 60 s on the AWS testbed, KAN-52)
+    before the breaker could count a failure. Behind PgBouncer in transaction mode
     (DB_PGBOUNCER=true) asyncpg's prepared-statement cache must be off (statement_cache_size=0) or
     queries fail with "prepared statement does not exist", and startup parameters are not kept per
     server connection, so the timeout is enforced by PgBouncer's query_timeout instead
@@ -85,7 +89,10 @@ def _postgres_engine_kwargs() -> dict:
     max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", "7"))
     timeout_ms = int(os.environ.get("DB_STATEMENT_TIMEOUT_MS", "30000"))
     behind_pgbouncer = os.environ.get("DB_PGBOUNCER", "").lower() in ("1", "true", "yes")
-    connect_args: dict = {}
+    connect_args: dict = {
+        "timeout": float(os.environ.get("DB_CONNECT_TIMEOUT_S", "5")),
+        "command_timeout": timeout_ms / 1000 + 5,
+    }
     if behind_pgbouncer:
         connect_args["statement_cache_size"] = 0
         connect_args["prepared_statement_cache_size"] = 0
@@ -136,7 +143,9 @@ def install_postgres_breaker(engine: AsyncEngine, breaker: CircuitBreaker | None
 
     @event.listens_for(sync_engine, "handle_error")
     def _on_error(ctx):
-        if ctx.is_disconnect:          # an established connection dropped: the database went away mid-flight
+        # An established connection dropped, or a query got no answer within command_timeout (partition): either way
+        # the database is not serving, and the breaker must count it so the next callers fail fast.
+        if ctx.is_disconnect or isinstance(ctx.original_exception, TimeoutError):
             breaker.record_failure(ctx.original_exception)
 
     return breaker
@@ -231,7 +240,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # "The database cannot be reached" (not "the query is wrong"): the API answers these with 503, see gateway/api.py.
 # DBAPIError is only included through its connection-level subclasses so that a bad query stays a 500.
-DEPENDENCY_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, ConnectionError, CircuitOpen)
+# TimeoutError: asyncpg's client-side command_timeout (an unreachable server never answers, see _postgres_engine_kwargs).
+DEPENDENCY_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, ConnectionError, TimeoutError,
+                   CircuitOpen)
 
 
 class SchemaNotMigrated(RuntimeError):

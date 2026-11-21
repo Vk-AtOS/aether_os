@@ -1,9 +1,16 @@
 #!/usr/bin/env python3.11
-"""Fault injection (KAN-52): stop each service of the compose stack in turn, probe what still works, compare with the design.
+"""Fault injection (KAN-52): break each service of the compose stack in turn, probe what still works, compare with the design.
 
     python3.11 scripts/fault_injection.py --table                      # print the design table (docs/ops/BLAST_RADIUS.md)
     python3.11 scripts/fault_injection.py --run --token "$TOKEN" \
-        [--compose-file docker-compose.yml] [--api http://127.0.0.1:8000] [--preview http://127.0.0.1:8100]
+        [--compose-file docker-compose.yml] [--api http://127.0.0.1:8000] [--preview http://127.0.0.1:8100] \
+        [--faults stop,slow,partition] [--disk-full /var/lib/docker/aether-fill]
+
+Faults: "stop" stops the service; "slow" adds SLOW_MS of delay to every packet it sends (tc netem, run from a helper container in
+the service's network namespace, so the service image needs nothing); "partition" disconnects it from the compose network
+(packets vanish: callers see timeouts, not refusals); --disk-full fills the filesystem holding PATH (root, same filesystem as
+the Docker data root) to a few MB free, probes, then deletes the file. "dropped" = the connection closed without a response. A probe that takes longer than PROBE_TIMEOUT is "hang":
+the design never allows a hang, because a request stuck on a dead dependency holds a worker.
 
 --run needs Docker, a running stack (`docker compose up -d`, add `--profile velaris` for the Velaris rows) and a user token for the
 authenticated probes. Without Docker or a reachable stack it prints SKIP and exits 0 (the in-process version of the same
@@ -17,14 +24,16 @@ Postgres + Redis), /velaris/agents (Velaris through the gateway), preview /__pre
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
+import os
 import shutil
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 PROBES = ["healthz", "readyz", "authed read", "velaris", "preview"]
 
@@ -38,6 +47,22 @@ DESIGN: Dict[str, Dict[str, str]] = {
     "preview": {"healthz": "up", "readyz": "up", "authed read": "up", "velaris": "up", "preview": "down"},
     "api": {"healthz": "down", "readyz": "down", "authed read": "down", "velaris": "down", "preview": "up"},
 }
+# A partitioned dependency must fail closed inside the client timeouts (core/db.py, Redis socket_timeout 5 s, Velaris breaker),
+# never hang: the same row as stopped.
+for _svc in ("db", "redis", "velaris"):
+    DESIGN[f"partition {_svc}"] = dict(DESIGN[_svc])
+# Slow (SLOW_MS per packet) but inside each caller's budget: the work still gets done, more slowly. Exceptions: /readyz
+# checks with short timeouts, so a slow dependency takes the instance out of rotation; a new PostgreSQL connection needs
+# several round trips (TCP, startup, SCRAM) and does not fit DB_CONNECT_TIMEOUT_S, so requests fail closed like a stopped
+# database (observed on the AWS testbed, 21 Nov 2026).
+DESIGN["slow db"] = dict(DESIGN["db"])
+DESIGN["slow redis"] = {**DESIGN["(nothing)"], "readyz": "refused"}
+DESIGN["slow velaris"] = dict(DESIGN["(nothing)"])
+# A full disk stops writes; reads, health and previews keep working.
+DESIGN["disk full"] = dict(DESIGN["(nothing)"])
+SLOW_MS = 3000
+PROBE_TIMEOUT = 40.0   # past the API's own budget (statement timeout 30 s + 5 s client margin, core/db.py)
+NETEM_IMAGE = "aether-netem:1"
 # Compose service names; velaris needs `--profile velaris`.
 SERVICE = {"db": "db", "redis": "redis", "velaris": "velaris", "preview": "preview", "api": "api"}
 
@@ -47,14 +72,20 @@ def table() -> str:
     return head + "".join(f"| {k} | " + " | ".join(v[p] for p in PROBES) + " |\n" for k, v in DESIGN.items())
 
 
-def probe(url: str, token: Optional[str] = None, timeout: float = 5.0) -> str:
+def probe(url: str, token: Optional[str] = None, timeout: float = PROBE_TIMEOUT) -> str:
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return "up" if r.status == 200 else f"http {r.status}"
     except urllib.error.HTTPError as e:
         return "refused" if e.code in (502, 503, 504) else f"http {e.code}"
-    except (urllib.error.URLError, OSError, TimeoutError):
+    except TimeoutError:
+        return "hang"
+    except urllib.error.URLError as e:
+        return "hang" if isinstance(e.reason, TimeoutError) else "down"
+    except http.client.RemoteDisconnected:
+        return "dropped"      # the server accepted the request and closed the connection without an answer
+    except OSError:
         return "down"
 
 
@@ -73,7 +104,78 @@ def compare(stopped: str, actual: Dict[str, str]) -> List[str]:
             for p, want in DESIGN[stopped].items() if actual.get(p) != want]
 
 
-def run(api: str, preview: str, token: str, file: str, settle: float = 12.0) -> int:
+def container_of(svc: str, file: str) -> str:
+    return compose(["ps", "-q", svc], file).stdout.strip()
+
+
+def docker(args: List[str], timeout: int = 120) -> subprocess.CompletedProcess:
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def netem(cid: str, on: bool) -> None:
+    """Add or remove SLOW_MS delay on the container's network interface, from a helper sharing its network namespace."""
+    if docker(["image", "inspect", NETEM_IMAGE]).returncode != 0:
+        subprocess.run(["docker", "build", "-q", "-t", NETEM_IMAGE, "-"], input="FROM alpine:3.20\nRUN apk add --no-cache iproute2\n",
+                       text=True, capture_output=True, check=True)
+    # replace, not add: a delay left behind by an interrupted run must not make the next run fail. The interface is looked
+    # up, not assumed: after a partition (disconnect + connect) the container's interface is eth1, not eth0.
+    tc = f"tc qdisc replace dev $DEV root netem delay {SLOW_MS}ms" if on else "tc qdisc del dev $DEV root"
+    script = "DEV=$(ip -o link show | awk -F': ' '$2 !~ /^lo/ {sub(/@.*/, \"\", $2); print $2; exit}'); " + tc
+    r = docker(["run", "--rm", "--net", f"container:{cid}", "--cap-add", "NET_ADMIN", NETEM_IMAGE, "sh", "-c", script])
+    if r.returncode != 0 and on:
+        raise RuntimeError(f"tc failed: {r.stderr.strip()}")
+
+
+def networks_of(cid: str) -> List[str]:
+    out = docker(["inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}", cid]).stdout
+    return out.split()
+
+
+def inject(fault: str, svc: str, file: str) -> Callable[[], None]:
+    """Break svc with the given fault; return the function that repairs it."""
+    if fault == "stop":
+        compose(["stop", svc], file)
+
+        def start() -> None:
+            compose(["start", svc], file)
+        return start
+    cid = container_of(svc, file)
+    if fault == "slow":
+        netem(cid, True)
+        return lambda: netem(cid, False)
+    nets = networks_of(cid)
+    for n in nets:
+        docker(["network", "disconnect", n, cid]).check_returncode()
+
+    def heal() -> None:
+        for n in nets:
+            # Reconnect with the service name as alias, or callers cannot resolve it again.
+            docker(["network", "connect", "--alias", svc, n, cid])
+    return heal
+
+
+def fill_disk(path: str) -> Callable[[], None]:
+    """Fill the filesystem holding path to FREE_LEFT bytes free (fallocate: instant, no real writes)."""
+    free_left = 8 * 1024 * 1024
+    size = shutil.disk_usage(os.path.dirname(path) or "/").free - free_left
+    with open(path, "wb") as f:
+        os.posix_fallocate(f.fileno(), 0, max(size, 0))
+    return lambda: os.remove(path)
+
+
+def wait_recovered(api: str, preview: str, token: str, limit: float = 120.0) -> None:
+    """Wait until every probe is back to the nothing-broken row. Breakers stay open for their cool-down (Velaris 30 s) after
+    a fault is repaired; probing the next fault before that would blame it for the previous one."""
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        if probe_all(api, preview, token) == DESIGN["(nothing)"]:
+            return
+        time.sleep(5)
+    print(f"WARNING: the stack did not recover within {limit:.0f} s; the next row may show the previous fault")
+
+
+def run(api: str, preview: str, token: str, file: str, faults: List[str], disk_full: str = "",
+        settle: float = 12.0) -> int:
     if not shutil.which("docker") or subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
         print("SKIP: Docker is not available (the in-process version runs in tests/test_blast_radius.py)")
         return 0
@@ -83,20 +185,30 @@ def run(api: str, preview: str, token: str, file: str, settle: float = 12.0) -> 
         return 0
     gaps: List[str] = compare("(nothing)", base)
     rows = {"(nothing)": base}
-    for name in ("db", "redis", "velaris", "preview", "api"):
-        svc = SERVICE[name]
-        if compose(["ps", "-q", svc], file).stdout.strip() == "":
-            print(f"skip {name}: service not running in this stack")
+    plan = [(f, n) for f in faults for n in (("db", "redis", "velaris", "preview", "api") if f == "stop"
+                                               else ("db", "redis", "velaris"))]
+    for fault, name in plan:
+        svc, row = SERVICE[name], (name if fault == "stop" else f"{fault} {name}")
+        if not container_of(svc, file):
+            print(f"skip {row}: service not running in this stack")
             continue
+        heal = inject(fault, svc, file)
         try:
-            compose(["stop", svc], file)
             time.sleep(settle)
-            rows[name] = probe_all(api, preview, token)
-            gaps += compare(name, rows[name])
+            rows[row] = probe_all(api, preview, token)
+            gaps += compare(row, rows[row])
         finally:
-            compose(["start", svc], file)
+            heal()
+            wait_recovered(api, preview, token)
+    if disk_full:
+        heal = fill_disk(disk_full)
+        try:
             time.sleep(settle)
-    print("| stopped | " + " | ".join(PROBES) + " |\n|---|" + "---|" * len(PROBES))
+            rows["disk full"] = probe_all(api, preview, token)
+            gaps += compare("disk full", rows["disk full"])
+        finally:
+            heal()
+    print("| broken | " + " | ".join(PROBES) + " |\n|---|" + "---|" * len(PROBES))
     for k, v in rows.items():
         print(f"| {k} | " + " | ".join(v[p] for p in PROBES) + " |")
     for g in gaps:
@@ -113,6 +225,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--preview", default="http://127.0.0.1:8100")
     ap.add_argument("--token", default="")
     ap.add_argument("--compose-file", default="docker-compose.yml")
+    ap.add_argument("--faults", default="stop,slow,partition", help="comma list of stop, slow, partition")
+    ap.add_argument("--disk-full", default="", metavar="PATH", help="also fill the filesystem holding PATH (needs root)")
     args = ap.parse_args(argv)
     if args.table:
         print(table(), end="")
@@ -121,7 +235,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not args.token:
             print("--token is required for the authenticated probes", file=sys.stderr)
             return 2
-        return run(args.api, args.preview, args.token, args.compose_file)
+        faults = [f for f in args.faults.split(",") if f]
+        unknown = set(faults) - {"stop", "slow", "partition"}
+        if unknown:
+            print(f"unknown fault(s): {sorted(unknown)}", file=sys.stderr)
+            return 2
+        return run(args.api, args.preview, args.token, args.compose_file, faults, args.disk_full)
     ap.print_help()
     return 2
 

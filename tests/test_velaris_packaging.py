@@ -38,6 +38,13 @@ def test_identity_key_can_come_from_env_as_pem(env, monkeypatch):
         VelarisClient.from_env()                       # garbage fails closed, it is not silently ignored
 
 
+def test_one_line_pem_with_literal_backslash_n_is_accepted(env, monkeypatch):
+    # The .env form ("-----BEGIN...\\n...") reaches the process unchanged through a shell export or systemd EnvironmentFile;
+    # on the AWS testbed, `. ./.env` in the shell before `docker compose up` made every Velaris call answer 503.
+    monkeypatch.setenv("VELARIS_IDENTITY_PRIVATE_KEY_PEM", _pem().strip().replace("\n", "\\n"))
+    assert VelarisClient.from_env() is not None
+
+
 def test_path_wins_over_pem_and_missing_key_is_not_connected(env, monkeypatch, tmp_path):
     with pytest.raises(VelarisUnavailable, match="not connected"):
         VelarisClient.from_env()

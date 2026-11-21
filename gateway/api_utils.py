@@ -10,8 +10,17 @@ Exported:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import uuid
+from pathlib import Path
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from aether_os.core.db import get_session_factory
+from aether_os.core.models import GoldenBuild
 
 logger = logging.getLogger(__name__)
 
@@ -69,58 +78,79 @@ def _get_cors_origins() -> list:
 
 # ── Golden example seeder ─────────────────────────────────────────────────────
 
-async def _seed_golden_examples_if_empty() -> None:
-    """Seed GoldenBuild table from JSON files on disk if the table is empty.
+# Build examples only: bug_to_fix and entity_to_sqlalchemy files are read straight from JSON by
+# core/llm/retrieval_ranker.py and have a different shape (dict input, str output).
+_GOLDEN_SEED_SKIP_TYPES = frozenset({"bug_to_fix", "entity_to_sqlalchemy"})
+_GOLDEN_SEED_NS = uuid.UUID("6f0c1a52-6c1e-4f3b-9a51-1f3f2b7d9e10")
 
-    Reads core/knowledge_graph/golden_examples/*.json (written by
-    scripts/seed_golden_examples.py) and inserts one GoldenBuild row per
-    example.  Only runs when the table contains zero rows, so it is safe
-    to call on every startup.
+
+def golden_seed_rows(examples_dir: Path) -> list[dict]:
+    """GoldenBuild column values for every build example under examples_dir.
+
+    run_id is a uuid5 of file and example id (or position): 36 characters, fits runs-sized
+    String(36) columns, and is the same on every start. Most examples have no id; the old
+    "seed-" + uuid4 run id was 41 characters, PostgreSQL refused it and the one shared commit
+    rolled back the whole seed (SQLite does not enforce lengths, so tests never saw it).
     """
-    import json as _json
-    import uuid as _uuid
-    from pathlib import Path as _Path
-    from sqlalchemy import select as _select, func as _func
-    from aether_os.core.db import get_session_factory as _gsf
-    from aether_os.core.models import GoldenBuild as _GB
+    rows: list[dict] = []
+    for jf in sorted(examples_dir.glob("*.json")):
+        try:
+            data = json.loads(jf.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("golden seed: skipping %s: %s", jf.name, exc)
+            continue
+        file_domain = data.get("domain", jf.stem) if isinstance(data, dict) else jf.stem
+        examples = data.get("examples", []) if isinstance(data, dict) else []
+        for pos, ex in enumerate(examples):
+            # Entity records (name/fields, from the sql-create-context corpus) carry no "input": they feed the
+            # retrieval ranker, not the few-shot build table.
+            if not isinstance(ex, dict) or ex.get("type") in _GOLDEN_SEED_SKIP_TYPES or "input" not in ex:
+                continue
+            prompt, out = ex.get("input"), ex.get("output")
+            if not isinstance(prompt, str) or not isinstance(out, dict):
+                logger.warning("golden seed: %s example %d is not a build example, skipped", jf.name, pos)
+                continue
+            key = f"{jf.stem}:{ex.get('id') or pos}"
+            rows.append({
+                "run_id": str(uuid.uuid5(_GOLDEN_SEED_NS, key)),
+                "org_id": "system",
+                "domain": str(out.get("domain") or file_domain)[:50],
+                "project_name": str(ex.get("id") or f"{jf.stem}_{pos}")[:255],
+                "prompt_summary": prompt[:500],
+                "quality_score": float(ex.get("quality_score", 1.0)) * 100,
+                "domain_ir_summary": out,
+                "is_active": True,
+            })
+    return rows
 
-    _sf = _gsf()
-    async with _sf() as _sess:
-        count = await _sess.scalar(_select(_func.count()).select_from(_GB))
-        if count and count > 0:
-            return  # table already populated
 
-    logger.info("GoldenBuild table empty — seeding golden examples from JSON files")
-    _examples_dir = _Path(__file__).parent.parent / "core" / "knowledge_graph" / "golden_examples"
-    if not _examples_dir.exists():
-        logger.warning("golden examples dir not found at %s — skipping seed", _examples_dir)
+async def _seed_golden_examples_if_empty() -> None:
+    """Seed the GoldenBuild table from core/knowledge_graph/golden_examples/*.json when it is empty.
+
+    Runs on every startup; does nothing once the table has rows.
+    """
+    sf = get_session_factory()
+    async with sf() as sess:
+        count = await sess.scalar(select(func.count()).select_from(GoldenBuild))
+        if count:
+            return
+
+    examples_dir = Path(__file__).parent.parent / "core" / "knowledge_graph" / "golden_examples"
+    if not examples_dir.exists():
+        logger.warning("golden examples dir not found at %s - skipping seed", examples_dir)
         return
-
-    _rows_added = 0
-    async with _sf() as _sess:
-        for _jf in sorted(_examples_dir.glob("*.json")):
-            try:
-                _data = _json.loads(_jf.read_text())
-                _domain = _data.get("domain", _jf.stem)
-                for _ex in _data.get("examples", []):
-                    _out = _ex.get("output", {})
-                    _gb = _GB(
-                        id=str(_uuid.uuid4()),
-                        run_id=f"seed-{_ex.get('id', _uuid.uuid4())}",
-                        org_id="system",
-                        domain=_out.get("domain") or _domain,
-                        project_name=_ex.get("id", "golden_example"),
-                        prompt_summary=(_ex.get("input") or "")[:500],
-                        quality_score=float(_ex.get("quality_score", 1.0)) * 100,
-                        domain_ir_summary=_out,
-                        is_active=True,
-                    )
-                    _sess.add(_gb)
-                    _rows_added += 1
-            except Exception as _exc:
-                logger.warning("golden seed: skipping %s: %s", _jf.name, _exc)
-        await _sess.commit()
-    logger.info("Golden examples seeded successfully: %d rows from %s", _rows_added, _examples_dir)
+    rows = golden_seed_rows(examples_dir)
+    async with sf() as sess:
+        sess.add_all(GoldenBuild(**r) for r in rows)
+        try:
+            await sess.commit()
+        except IntegrityError:
+            # Every uvicorn worker runs this at start; the stable run ids make the losers collide on
+            # uq_golden_build_run instead of inserting duplicate copies. One worker seeded: that is success.
+            await sess.rollback()
+            logger.info("Golden examples already seeded by another worker")
+            return
+    logger.info("Golden examples seeded: %d rows from %s", len(rows), examples_dir)
 
 
 # ── JSON serialisation helper ──────────────────────────────────────────────────
