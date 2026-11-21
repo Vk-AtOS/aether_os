@@ -290,7 +290,7 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
         for _ in range(16):
             await asyncio.sleep(0.5)
             try:
-                with socket.create_connection(("127.0.0.1", probe_port), timeout=0.3):
+                with socket.create_connection((phase_exec.app_host(), probe_port), timeout=0.3):
                     _ready = True
                     break
             except OSError as e:
@@ -302,13 +302,13 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
 
         # Hit /health
         async with httpx.AsyncClient(timeout=5.0) as _c:
-            _r = await _c.get(f"http://127.0.0.1:{probe_port}/health")
+            _r = await _c.get(phase_exec.app_url(probe_port, "/health"))
         _health_ok = _r.status_code == 200
 
         # Also probe /docs to verify OpenAPI schema generates cleanly
         _docs_ok = False
         try:
-            _dr = await _c.get(f"http://127.0.0.1:{probe_port}/docs")
+            _dr = await _c.get(phase_exec.app_url(probe_port, "/docs"))
             _docs_ok = _dr.status_code == 200
         except Exception as _docs_exc:
             logger.debug("[p04a] /docs probe failed: %s", _docs_exc)

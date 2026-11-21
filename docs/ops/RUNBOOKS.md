@@ -130,6 +130,29 @@ the isolation probe message in the log (host firewall rules from `core/sandbox/h
 Docker host; orphaned containers: `docker ps --filter label=aether.run` and `docker rm -f` those whose run is gone.
 **Escalate:** any sign a generated app reached the host or the platform network: stop the sandbox host, call the owner.
 
+### Sandbox reachability (API in a container)
+
+**Symptoms:** stage 3 (p04a) fails with `Server did not start in 8s` while `probe.log` shows the app started (e.g.
+"Database seeding complete"); API logs repeat `live HTTP probe connection attempt failed ... Connection refused`.
+**Cause:** sandbox app ports are published on the host at `AETHER_SANDBOX_PUBLISH_IP` (default `127.0.0.1`) and the
+platform connects to `AETHER_SANDBOX_UPSTREAM_HOST` (default `127.0.0.1`, `core/sandbox/endpoints.py`). Inside the API
+container 127.0.0.1 is the container itself, so the defaults only work when the gateway runs directly on the host.
+**Fix:** set in `.env` (compose passes both to `api`; `preview` takes the upstream host):
+
+| Deployment | `AETHER_SANDBOX_PUBLISH_IP` | `AETHER_SANDBOX_UPSTREAM_HOST` |
+|---|---|---|
+| Gateway on the host (no compose) | unset (`127.0.0.1`) | unset (`127.0.0.1`) |
+| Linux docker compose | docker0 address, usually `172.17.0.1` (`ip -4 addr show docker0`) | same address |
+| Docker Desktop (macOS / Windows) | unset (`127.0.0.1`) | `host.docker.internal` |
+
+On Linux, then re-run the firewall with the same address so the published ports stay unreachable from outside the
+host: `sudo AETHER_SANDBOX_PUBLISH_IP=172.17.0.1 core/sandbox/host_firewall.sh` (it drops packets for that address that
+do not arrive on loopback, docker0 or a Docker bridge, and refuses `0.0.0.0`). Never use `0.0.0.0`: the gateway
+refuses it (`SandboxViolation`). `host.docker.internal` also resolves on Linux (compose sets
+`extra_hosts: host.docker.internal:host-gateway`, which is the docker0 address), so it is an alternative upstream host
+there as long as the publish IP is the docker0 address. Check from the API container:
+`docker compose exec api python3 -c "import socket; socket.create_connection(('172.17.0.1', <port>), 2)"` while an app runs.
+
 ## Preview
 
 **Symptoms:** previews blank or refused; preview server will not start ("preview server refuses to start").
