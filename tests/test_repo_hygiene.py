@@ -7,7 +7,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FORBIDDEN = ("snapshots/", "_snapshot.md", "vkatos_deploy/", "playwright_audit_report.md",
-             "uv.lock", "settings-deep.yml", "VENDOR_MANIFEST.json")
+             "uv.lock", "plans2.md", "settings-deep.yml", "VENDOR_MANIFEST.json")
 
 
 def test_tests_do_not_write_guardian_dumps_into_the_repo():
