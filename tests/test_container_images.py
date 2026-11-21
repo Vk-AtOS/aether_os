@@ -42,3 +42,18 @@ def test_images_run_as_non_root_and_bake_no_secrets():
 def test_api_image_healthcheck_is_the_liveness_endpoint_not_a_dependency_check():
     text = (ROOT / "Dockerfile").read_text()
     assert "HEALTHCHECK" in text and "/healthz" in text and "/readyz" not in text
+
+
+def test_observability_stack_is_opt_in_and_out_of_the_main_compose_file():
+    """Compose interpolates ${VAR:?...} in every service of a file, profile or not. When Prometheus and Grafana lived in
+    docker-compose.yml behind a profile, their required variables broke every plain `docker compose up` (production
+    redeploy, 22 Nov 2026). They now live in docker-compose.observability.yml, used only with an explicit -f."""
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[1]
+    main = yaml.safe_load((root / "docker-compose.yml").read_text())
+    assert not {"prometheus", "grafana"} & set(main["services"])
+    obs = yaml.safe_load((root / "docker-compose.observability.yml").read_text())
+    assert {"prometheus", "grafana"} <= set(obs["services"])
+    for svc in obs["services"].values():
+        assert "@sha256:" in svc["image"]
