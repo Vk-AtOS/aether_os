@@ -3,7 +3,10 @@ version: "3.9"
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
-    image: postgres:15-alpine@sha256:fc41cfa8a90c09e84dd723ee764be4b2f59ba6c98b1e5b3fca540adddf68a5ba
+    # PostgreSQL 15 with the pgvector extension: the schema has a vector column (core/models.py ArtifactEmbedding), so a
+    # plain postgres image cannot create it. Same image CI tests against. An existing volume made by postgres:15-alpine
+    # (musl) needs `REINDEX DATABASE` after the switch to this Debian (glibc) image: text collation order differs.
+    image: pgvector/pgvector:pg15@sha256:e0b617fffc06dd37323ee99873c7a8683f19f1dce34633670262b0113ce32638
     restart: unless-stopped
     environment:
       POSTGRES_DB: aether_os
@@ -178,6 +181,8 @@ services:
   #   mkdir -p secrets && openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
   #   openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
   #   openssl rand -base64 32 > secrets/vault.key && chmod 600 secrets/vault.key   (vault key; back it up apart from the data volume)
+  #   chown 10001:10001 secrets/vault.key   (Velaris runs as uid 10001 and refuses a key that is not mode 0600; root-owned, it
+  #   cannot read it, and every Velaris call answers 503 with TraceHeadError)
   #   put VELARIS_API_SECRET (openssl rand -hex 32) and the private key as VELARIS_IDENTITY_PRIVATE_KEY_PEM in .env
   velaris: &velaris
     profiles: ["velaris"]

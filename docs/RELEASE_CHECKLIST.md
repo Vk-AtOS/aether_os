@@ -96,8 +96,9 @@ openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_ident
 The master key lives OUTSIDE `VELARIS_DATA`. A restore without it is unreadable by design, so the key backup is part of the release.
 
 ```bash
-install -d -m 0700 /etc/velaris
+install -d -m 0700 -o velaris -g velaris /etc/velaris
 python3.11 -c "from velaris.core import vault; print(vault.new_key())" > /etc/velaris/vault.key
+chown velaris:velaris /etc/velaris/vault.key   # the units run as User=velaris; a root-owned 0600 key is unreadable
 chmod 0600 /etc/velaris/vault.key        # the file must not be inside VELARIS_DATA
 ```
 

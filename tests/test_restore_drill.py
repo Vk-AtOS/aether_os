@@ -95,10 +95,31 @@ def test_a_real_backup_restores_verifies_and_is_recorded(tmp_path):
         subprocess.run(["pg_dump", "--format=custom", "-f", str(dump), src_url], check=True)
         rec = rd.drill(dump, PG)
         assert rec["passed"], rec
-        assert [s["step"] for s in rec["steps"]] == ["preflight (role, dump contents)", "create scratch database", "restore dump", "verify restored data",
-                                                     "drop scratch database"]
+        assert [s["step"] for s in rec["steps"]] == ["preflight (role, dump contents)", "create scratch database",
+                                                     "create schema extensions (admin)", "restore dump",
+                                                     "verify restored data", "drop scratch database"]
         assert rec["checks"]["schema_at_head"] and rec["checks"]["chains_verify"]
         json.dumps(rec)                                    # serialisable: it is written as the drill record
     finally:
         with admin.connect() as c:
             c.execute(text(f'DROP DATABASE IF EXISTS "{src}" WITH (FORCE)'))
+
+
+TOC = """;
+; Archive created at 2026-11-21 08:05:11 UTC
+3; 3079 16385 EXTENSION - vector
+4; 0 0 COMMENT - EXTENSION vector
+220; 1259 16400 TABLE public users aether_user
+"""
+
+
+def test_extensions_are_created_by_the_admin_and_skipped_by_the_low_privilege_restore():
+    # Seen on RDS: the restore role got "permission denied to create extension vector, must be rds_superuser".
+    assert rd.toc_extensions(TOC) == ["vector"]
+    kept = rd.toc_without_extensions(TOC)
+    assert "EXTENSION" not in kept and "TABLE public users" in kept
+
+
+def test_a_dump_asking_for_other_extensions_is_refused_before_anything_is_created():
+    toc = TOC + "5; 3079 16390 EXTENSION - plpython3u\n"
+    assert sorted(set(rd.toc_extensions(toc)) - rd.SCHEMA_EXTENSIONS) == ["plpython3u"]

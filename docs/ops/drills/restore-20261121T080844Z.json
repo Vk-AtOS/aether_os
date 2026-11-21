@@ -1,0 +1,60 @@
+{
+  "dump": "aetheros_20261121_080511.dump",
+  "dump_bytes": 128486,
+  "server": "postgresql://aether_user@aetheros-testbed.<id>.ap-southeast-2.rds.amazonaws.com:5432/postgres",
+  "started_at": "2026-11-21T08:08:41Z",
+  "steps": [
+    {
+      "step": "preflight (role, dump contents)",
+      "seconds": 0.04,
+      "ok": true,
+      "detail": "no event triggers, untrusted languages or unexpected extensions"
+    },
+    {
+      "step": "create scratch database",
+      "seconds": 0.08,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "create schema extensions (admin)",
+      "seconds": 0.06,
+      "ok": true,
+      "detail": "vector"
+    },
+    {
+      "step": "restore dump",
+      "seconds": 1.68,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "verify restored data",
+      "seconds": 0.68,
+      "ok": true,
+      "detail": "schema_at_head=True, core_tables_present=True, chains_verify=True"
+    },
+    {
+      "step": "drop scratch database",
+      "seconds": 0.06,
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": true,
+  "row_counts": {
+    "organisations": 1,
+    "users": 1,
+    "runs": 0,
+    "audit_chain": 16
+  },
+  "chain_entries": 16,
+  "checks": {
+    "schema_at_head": true,
+    "core_tables_present": true,
+    "chains_verify": true
+  },
+  "total_seconds": 2.6,
+  "note": "AWS testbed ap-southeast-2: compose db (pgvector) -> S3 off-site copy -> RDS PostgreSQL 15 db.t4g.micro, low-privilege restore role"
+}
+

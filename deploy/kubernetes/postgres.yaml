@@ -36,7 +36,8 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:15-alpine
+          # pgvector: the schema has a vector column (see docker-compose.yml)
+          image: pgvector/pgvector:pg15@sha256:e0b617fffc06dd37323ee99873c7a8683f19f1dce34633670262b0113ce32638
           ports:
             - containerPort: 5432
           env:
