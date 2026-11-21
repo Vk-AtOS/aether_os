@@ -229,7 +229,8 @@ class SystemSpecProfilerAgent(Agent):
         super().__init__(AgentName.SYSTEM_SPEC_PROFILER, AgentKind.INTERNAL)
 
     async def run(self, ctx: AgentContext) -> AgentResult:
-        import platform, sys
+        import platform
+        import sys
         specs = {
             "python_version": sys.version.split()[0],
             "platform": platform.platform(),

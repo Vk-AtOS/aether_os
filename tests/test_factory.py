@@ -261,7 +261,8 @@ def test_project_not_found(tmp_path):
 
 def _tracker_with_sqlite(tmp_path, db_name):
     """Return an isolated UsageTracker backed by a per-test SQLite file."""
-    import asyncio, os
+    import asyncio
+    import os
     import aether_os.core.db as _db_mod
     old_db = os.environ.get("DATABASE_URL")
     _db_mod._engine = None

@@ -217,7 +217,8 @@ Return ONLY the JSON array, no markdown."""
             result = await router.call(prompt, task_type="summarize", max_tokens=1024)
             text = result[0] if isinstance(result, (list, tuple)) else result
 
-            import json, re
+            import json
+            import re
             # Strip markdown fences if any
             text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
             findings = json.loads(text)
