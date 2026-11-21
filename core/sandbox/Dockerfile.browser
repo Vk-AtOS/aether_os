@@ -10,8 +10,12 @@ ARG BASE=aether-sandbox:1
 FROM ${BASE}
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw
+# The pip package is used only as a library (entry.py: sync_playwright) and to download Chromium. Its console script
+# /usr/local/bin/playwright collides with the npm @playwright/test bin (npm EEXIST), and `npx playwright test` must reach
+# the Node one, so the Python script is removed once Chromium is installed. Both packages are 1.48.0: one shared browser.
 RUN pip install --no-cache-dir "playwright==1.48.0" \
  && playwright install --with-deps chromium \
+ && rm /usr/local/bin/playwright \
  && chmod -R a+rX /opt/pw \
  && mkdir -p /opt/axe /opt/aether \
  && npm install --prefix /opt/axe --no-audit --no-fund "axe-core@4.10.0" \

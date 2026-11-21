@@ -39,7 +39,9 @@ ENV PYTHONPATH=/srv PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 RUN pip install -e ./aether_os/
 
-RUN addgroup --system aether && adduser --system --ingroup aether aether
+# --home: a system user otherwise gets HOME=/nonexistent, and the code keeps its state under ~/.aether_os (compose mounts
+# /home/aether/.aether_os); the API and preview crashed at import with PermissionError: '/nonexistent'.
+RUN addgroup --system aether && adduser --system --ingroup aether --home /home/aether aether
 USER aether
 
 EXPOSE 8000

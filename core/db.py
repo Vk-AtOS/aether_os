@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from sqlalchemy import event, exc as sa_exc, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
@@ -55,6 +56,20 @@ def _build_db_url() -> str:
     db_path = Path.home() / ".aether_os" / "aether_os.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite+aiosqlite:///{db_path}"
+
+
+def asyncpg_url_and_ssl(url: str) -> tuple:
+    """(url without ?sslmode=, the sslmode or None) for the asyncpg engine.
+
+    Managed databases (RDS, DigitalOcean, Supabase) hand out libpq URLs with ?sslmode=require. SQLAlchemy passes query
+    parameters to asyncpg.connect() as keyword arguments, and asyncpg has no `sslmode` argument (TypeError on every
+    connection); it takes the same values as `ssl`. Only the async engine converts: Alembic's sync driver needs sslmode.
+    """
+    u = make_url(url)
+    mode = u.query.get("sslmode")
+    if mode is None:
+        return url, None
+    return u.difference_update_query(["sslmode"]).render_as_string(hide_password=False), mode
 
 
 def _postgres_engine_kwargs() -> dict:
@@ -106,6 +121,13 @@ def install_postgres_breaker(engine: AsyncEngine, breaker: CircuitBreaker | None
         breaker.before_call()          # raises CircuitOpen while open; in half-open exactly one caller probes
         try:
             conn = dialect.connect(*cargs, **cparams)
+        except OSError as exc:
+            breaker.record_failure(exc)
+            if isinstance(exc, ConnectionError):
+                raise
+            # A host name that does not resolve (socket.gaierror) or a connect timeout is an OSError but not a
+            # ConnectionError, so it missed DEPENDENCY_DOWN and every request answered 500 until the breaker opened.
+            raise ConnectionError(f"database connect failed: {type(exc).__name__}: {exc}") from exc
         except Exception as exc:
             breaker.record_failure(exc)
             raise
@@ -148,6 +170,9 @@ def get_engine() -> AsyncEngine:
             # DB_POOL_SIZE default=3 → 8×(3+7)=80 connections, safe under PG default of 100.
             # Use PgBouncer in production to allow larger effective concurrency.
             engine_kwargs.update(_postgres_engine_kwargs())
+            url, sslmode = asyncpg_url_and_ssl(url)
+            if sslmode:
+                engine_kwargs["connect_args"]["ssl"] = sslmode
 
         _engine = create_async_engine(url, **engine_kwargs)
         if is_postgres:

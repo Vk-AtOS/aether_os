@@ -77,3 +77,27 @@ def test_postgres_breaker_opens_after_repeated_connect_failures_and_then_fails_f
     assert breaker.state == "open"
     assert any(isinstance(e, CircuitOpen) for e in errors[2:]), errors
     assert fast < 0.1
+
+
+def test_a_database_host_that_does_not_resolve_is_dependency_down_not_a_500():
+    """Seen on the AWS testbed: with the db container stopped its name stops resolving, asyncpg raised socket.gaierror
+    (an OSError, not a ConnectionError), and authenticated routes answered 500 until the breaker opened."""
+    import asyncio
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from aether_os.core.db import DEPENDENCY_DOWN, install_postgres_breaker
+    from aether_os.core.resilience.breaker import CircuitBreaker
+
+    async def go():
+        engine = create_async_engine("postgresql+asyncpg://u:p@db-that-does-not-exist.invalid:5432/db")
+        install_postgres_breaker(engine, CircuitBreaker("pg-dns-test", failure_threshold=50, reset_after_s=60))
+        try:
+            async with engine.connect() as c:
+                await c.execute(text("select 1"))
+        except Exception as exc:   # the test inspects the error class
+            return exc
+        finally:
+            await engine.dispose()
+
+    exc = asyncio.run(go())
+    assert isinstance(exc, DEPENDENCY_DOWN), type(exc)

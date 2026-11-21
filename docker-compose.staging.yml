@@ -12,7 +12,10 @@ services:
   # ── PostgreSQL (staging) ────────────────────────────────────────────────────
   db_staging:
     container_name: aetheros_db_staging
-    image: postgres:15-alpine@sha256:fc41cfa8a90c09e84dd723ee764be4b2f59ba6c98b1e5b3fca540adddf68a5ba
+    # PostgreSQL 15 with the pgvector extension: the schema has a vector column (core/models.py ArtifactEmbedding), so a
+    # plain postgres image cannot create it. Same image CI tests against. An existing volume made by postgres:15-alpine
+    # (musl) needs `REINDEX DATABASE` after the switch to this Debian (glibc) image: text collation order differs.
+    image: pgvector/pgvector:pg15@sha256:e0b617fffc06dd37323ee99873c7a8683f19f1dce34633670262b0113ce32638
     restart: unless-stopped
     env_file: .env.staging
     environment:
