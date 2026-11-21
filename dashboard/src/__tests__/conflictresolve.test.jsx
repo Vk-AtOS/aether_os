@@ -7,7 +7,8 @@ import { ok } from './helpers';
 const client = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('../api', () => ({ api: { client }, default: { client } }));
 
-import { ConflictResolverTool, findResolved } from '../components/intelligence/IntelligenceTools';
+import { ConflictResolverTool } from '../components/intelligence/IntelligenceTools';
+import { findResolved } from '../components/intelligence/conflictHelpers';
 
 beforeEach(() => { cleanup(); vi.clearAllMocks(); });
 
