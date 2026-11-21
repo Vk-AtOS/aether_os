@@ -34,3 +34,17 @@ export const providerError = (e, fallback) =>
 
 // Cost is an estimate from the catalogue; unknown prices show as "unknown", never as 0.
 export const costText = (day) => (day.unpriced_calls > 0 && day.cost_usd === 0 ? 'unknown' : `$${day.cost_usd.toFixed(4)}`);
+
+// AHM / breaker state of a platform provider (GET /settings/provider-status). Fixed sentences, no provider text.
+export const HEALTH_TEXT = {
+  healthy: 'Healthy',
+  degraded: 'Degraded: recent calls are failing, the router tries it last',
+  down: 'Circuit breaker open: calls are skipped until it recovers',
+  unknown: 'No calls yet',
+};
+export const healthText = (h) => HEALTH_TEXT[h?.state] || HEALTH_TEXT.unknown;
+export const keyStatusText = (p) => {
+  if (p.uses_platform_credentials) return "Uses the platform's AWS credentials";
+  if (p.has_org_key) return "Your organisation's key is on file";
+  return p.platform_key ? 'No key of your own: the platform key is used' : 'No key';
+};
