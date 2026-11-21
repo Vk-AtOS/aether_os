@@ -30,7 +30,10 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
 COPY --from=docker:29.10.0-cli@sha256:34507eb5069d8be82c95dd3b6987d4250fd5fee49b82e2509b7d7a7030740d6d /usr/local/bin/docker /usr/local/bin/docker
 
 COPY requirements.lock .
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir -r requirements.lock \
+    # Build and venv tooling in the image (setuptools' vendored jaraco.context and wheel, virtualenv for per-run app
+    # environments) is upgraded past the HIGH advisories that container-scan reported (22 Nov 2026).
+    && pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "virtualenv>=21.14.9"
 
 # Copy source into a directory named `aether_os` so `import aether_os` resolves
 COPY . ./aether_os/
