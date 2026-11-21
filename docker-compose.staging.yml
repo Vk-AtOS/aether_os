@@ -88,6 +88,15 @@ services:
       AETHER_ONE_ZT_SECRET: ${AETHER_ONE_ZT_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # Any OpenAI-compatible endpoint (e.g. NVIDIA https://integrate.api.nvidia.com/v1); model names are that provider's.
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      OPENROUTER_FALLBACK_MODELS: ${OPENROUTER_FALLBACK_MODELS:-}
+      OPENROUTER_HEAVY_MODEL: ${OPENROUTER_HEAVY_MODEL:-}
+      OPENROUTER_LIGHT_MODEL: ${OPENROUTER_LIGHT_MODEL:-}
+      OPENROUTER_COUNCIL_MODELS: ${OPENROUTER_COUNCIL_MODELS:-}
+      OPENROUTER_TIMEOUT: ${OPENROUTER_TIMEOUT:-25}
+      # Free/community model pools may log what they receive: off unless the operator opts in (restricted data never goes).
+      ALLOW_COMMUNITY_LLM: ${ALLOW_COMMUNITY_LLM:-}
       PRIMARY_LLM: ${PRIMARY_LLM:-anthropic}
       BEDROCK_ENABLED: ${BEDROCK_ENABLED:-false}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
