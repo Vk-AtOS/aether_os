@@ -24,7 +24,7 @@ PLAN_LIMITS = {
     "trial":      PlanLimit(500_000, 5.0),
     "starter":    PlanLimit(5_000_000, 50.0),
     "growth":     PlanLimit(25_000_000, 250.0),
-    "pro":        PlanLimit(25_000_000, 250.0),
+    "pro":        PlanLimit(25_000_000, 200.0),
     "enterprise": PlanLimit(999_999_999, 2_000.0),
     PLATFORM_PLAN: PlanLimit(999_999_999, 500.0),
 }

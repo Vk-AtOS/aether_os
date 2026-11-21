@@ -39,6 +39,15 @@ ENV PYTHONPATH=/srv PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 RUN pip install -e ./aether_os/
 
+# Guardian file-integrity baseline belongs to this build, not to the first boot of the (persistent) Redis volume: hash
+# the critical files now, into a root-owned read-only manifest the app user cannot rewrite. AETHER_BUILD_ID (e.g. the git
+# commit) is optional; it lives in the image config, so a restart from inside the container cannot change it. Declared
+# here, after the heavy layers, so changing it only re-runs this step. See docs/codebase_map/sections/10_core_platform_governance.md §3.8.
+ARG AETHER_BUILD_ID=""
+ENV AETHER_BUILD_ID=${AETHER_BUILD_ID}
+RUN python -c "from aether_os.core.guardian.build_identity import write_manifest; write_manifest()" \
+    && chmod 0444 ./aether_os/.guardian_build_manifest.json
+
 # --home: a system user otherwise gets HOME=/nonexistent, and the code keeps its state under ~/.aether_os (compose mounts
 # /home/aether/.aether_os); the API and preview crashed at import with PermissionError: '/nonexistent'.
 RUN addgroup --system aether && adduser --system --ingroup aether --home /home/aether aether

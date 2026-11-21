@@ -1,7 +1,7 @@
 # aether_os — Claude Context File
 Last updated: 2026-04-29 (STALE: describes the project as of April 2026; corrected below on 15 Nov 2026)
 
-> Corrections at 15 Nov 2026, commit `e5c23fd`: the pipeline is 12 stages over 50 phase directories (`ls stages`, `ls -d phases/p*/`), not 10 phases; `tests/` has 217 test files and 1954 collected tests, not 61; `agents/` holds `base.py`, `implementations.py` and `tools/`, not p01 to p11 agents. Test results are in `SALE_READINESS.md`.
+> Corrections at 15 Nov 2026, commit `e5c23fd`: the pipeline is 12 stages over 49 phase directories (`ls stages`; `ls -d phases/p*/` also counts `phases/patterns`, which is not a phase), not 10 phases; `tests/` has 217 test files and 2357 collected tests, not 61; `agents/` holds `base.py`, `implementations.py` and `tools/`, not p01 to p11 agents. Test results are in `SALE_READINESS.md`.
 
 ## What this project is
 AetherOS — Unified Multi-Agent Software Development System. Takes a software requirement and executes a development pipeline (as of April 2026: 10 phases; now 12 stages) (Requirements → Architecture → Scaffold → Codegen → Review → Security → Testing → CI/CD → Docs → Package).
@@ -22,7 +22,7 @@ AetherOS — Unified Multi-Agent Software Development System. Takes a software r
 - `gateway/` — FastAPI app, routes, client portal
 - `orchestrator/` — pipeline orchestration logic
 - `phases/` — phase definitions and execution
-- `tests/` — 61 tests as of 2026-04-19 (now 1954 collected)
+- `tests/` — 61 tests as of 2026-04-19 (2357 collected at 21 Nov 2026)
 - `.env.example` — required env vars
 
 ## Current status

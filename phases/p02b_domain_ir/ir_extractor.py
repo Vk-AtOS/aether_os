@@ -18,11 +18,14 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from aether_os.core.llm.json_enforcer import extract_first_json
 from aether_os.core.domain_ir import (
     DomainIR, IREntity, IRField, IRRelationship, IRBusinessRule,
     IRPermission, IRWorkflow, IRWorkflowStep, IRDashboardMetric,
     IRNotification, IRClarifyingQuestion, AetherType,
 )
+
+from aether_os.phases.p02b_domain_ir.ir_cleanup import drop_unnamed
 
 logger = logging.getLogger(__name__)
 
@@ -231,28 +234,11 @@ The clarifying_questions list should be EMPTY if there is no genuine ambiguity."
 # ---------------------------------------------------------------------------
 
 def _extract_json(text: str) -> dict:
-    """Extract the first JSON object from LLM response text."""
-    text = text.strip()
-    # Try direct parse first
+    """Extract the first JSON object from LLM response text ({} when there is none)."""
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.warning("[p02b] _extract_json: direct parse failed: %s", e)
-    # Strip markdown fences
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.warning("[p02b] _extract_json: parse after markdown strip failed: %s", e)
-    # Find first { ... } block
-    match = re.search(r"\{[\s\S]+\}", text)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError as e:
-            logger.warning("[p02b] _extract_json: JSON block extraction failed: %s", e)
+        return extract_first_json(text, expect=dict)
+    except ValueError as e:
+        logger.warning("[p02b] _extract_json: no JSON object in model reply: %s", e)
     return {}
 
 
@@ -293,9 +279,9 @@ def _build_ir_from_passes(
     relationships_raw = source.get("relationships") or pass2.get("relationships", [])
     rules_raw = source.get("business_rules") or pass3.get("business_rules", [])
     permissions_raw = source.get("permissions") or pass3.get("permissions", [])
-    workflows_raw = source.get("workflows") or pass3.get("workflows", [])
+    workflows_raw = drop_unnamed(source.get("workflows") or pass3.get("workflows", []), "entity", "workflow")
     metrics_raw = source.get("dashboard_metrics") or pass3.get("dashboard_metrics", [])
-    notif_raw = source.get("notifications") or pass3.get("notifications", [])
+    notif_raw = drop_unnamed(source.get("notifications") or pass3.get("notifications", []), "event", "notification")
     questions_raw = source.get("clarifying_questions", [])
 
     ir = DomainIR(domain=domain, app_name=app_name)

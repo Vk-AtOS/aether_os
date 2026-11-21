@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.sandbox.endpoints import app_url
 from aether_os.phases.base import TaskResult
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             metadata={"phase": "p07b_performance_testing", "skipped": True, "data": result},
         )
 
-    base_url = f"http://localhost:{backend_port}"
+    # The app runs in a sandbox container: reach it where the sandbox publishes, not on our own loopback.
+    base_url = app_url(backend_port)
     health_url = f"{base_url}/health"
 
     results: Dict = {

@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -120,25 +121,11 @@ def _is_strict() -> bool:
 
 
 def _parse_council_response(raw: str) -> Dict[str, Any]:
-    """Extract the JSON council result from an LLM response."""
-    import re
-    raw = raw.strip()
-
-    # Try direct parse
+    """Extract the JSON council result from an LLM response (first complete object; trailing text ignored)."""
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.warning("council: direct JSON parse of council response failed: %s", e)
-
-    # Extract JSON object from prose
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError as e:
-            logger.warning("council: JSON extraction from prose failed: %s", e)
-
-    logger.warning("Council: could not parse LLM response as JSON: %s", raw[:200])
+        return extract_first_json(raw, expect=dict)
+    except ValueError as e:
+        logger.warning("Council: could not parse LLM response as JSON (%s): %s", e, (raw or "")[:200])
     return _ERROR_RESULT.copy()
 
 
