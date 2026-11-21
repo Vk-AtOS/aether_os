@@ -130,8 +130,8 @@ services:
       # Generated apps run in Docker sandbox containers (core/sandbox/docker_backend.py) and are
       # served only from the preview origin (gateway/preview_server.py, service `preview`).
       AETHER_SANDBOX: docker
-      # Docker API through the filtered proxy on the internal sandbox_ctl network (no host socket in this container).
-      DOCKER_HOST: tcp://docker-proxy:2375
+      # Docker API through the filtered proxy's unix socket on a private volume (no host socket, no TCP listener).
+      DOCKER_HOST: unix:///docker-proxy/docker.sock
       AETHER_SANDBOX_IMAGE: ${AETHER_SANDBOX_IMAGE:-aether-sandbox:1}
       # Where sandbox app ports are published on the host, and where this container connects to them
       # (core/sandbox/endpoints.py). Empty = 127.0.0.1, which inside this container is the container
@@ -158,9 +158,6 @@ services:
     # service that mounts the socket (KAN-65/66/101). The API has no docker group and no socket. The run
     # directories are bind-mounted from the host at the SAME path, because sandbox containers mount them by
     # the path the gateway sees (the daemon resolves that path on the host).
-    networks:
-      - default
-      - sandbox_ctl
     # host.docker.internal resolves to the docker0 address on Linux too (built in on Docker Desktop).
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -168,6 +165,7 @@ services:
       # INFRA-H1: container runs as non-root user 'aether'; the host directory must exist and
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
       - /home/aether/.aether_os:/home/aether/.aether_os
+      - docker_proxy_sock:/docker-proxy
     # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
     init: true
     stop_grace_period: 60s
@@ -184,10 +182,12 @@ services:
   # (create/start/stop/kill/remove/inspect/logs/wait/ps), images (inspect, load), networks (inspect/create) and
   # /info + /version; POST/DELETE are needed for those. Denied (the image defaults, spelled out): exec, volumes,
   # build, swarm, services, tasks, secrets, configs, plugins, system, session, auth, distribution, commit, nodes.
-  # Reachable only on the internal sandbox_ctl network (no route out, nothing published on the host).
+  # It listens on a UNIX socket in the docker_proxy_sock volume, shared only with the api, and has network_mode none: no
+  # TCP port, no network interface, so nothing else on the host or on any bridge can reach it (an unauthenticated
+  # root-equivalent TCP API on a bridge was the alternative; rejected in the PR #29 security review).
   # LIMIT: the proxy filters endpoints, not request bodies, so a caller that can reach it can still ask for a
   # privileged container or a host bind mount. It narrows the attack surface (no exec, no volumes, no swarm,
-  # no image build, no host-side file API) but is not a sandbox: keep it unreachable from anything but the api.
+  # no image build, no host-side file API) but is not a sandbox. Tracked residual risk: KAN-204 (remote or rootless runner).
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest@sha256:be1ac64f33bd82043beb504822a17ba6b71668ea1ad7cf51a9a01d27bb7ab047
     restart: unless-stopped
@@ -213,10 +213,12 @@ services:
       SYSTEM: "0"
       TASKS: "0"
       AUTH: "0"
+      # unix socket for the api (mode 666 is safe: the directory is a volume only api and this service mount)
+      BIND_CONFIG: unix@/docker-proxy/docker.sock mode 666
+    network_mode: none
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - sandbox_ctl
+      - docker_proxy_sock:/docker-proxy
     read_only: true
     tmpfs:
       - /run
@@ -225,8 +227,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    expose:
-      - "2375"
 
   # ── Preview server: the only thing that serves generated apps, on its own origin ──
   # Host network so it reaches the apps' ports published on the host (127.0.0.1 or AETHER_SANDBOX_PUBLISH_IP); it listens
@@ -324,12 +324,8 @@ services:
       timeout: 5s
       retries: 3
 
-networks:
-  # Internal: no route to the internet or the host; only the api and docker-proxy are attached.
-  sandbox_ctl:
-    internal: true
-
 volumes:
+  docker_proxy_sock:
   velaris_data:
   pg_data:
   redis_data:

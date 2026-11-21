@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Use the pinned lockfile for reproducible builds (requirements.txt is unpinned)
-# The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) through DOCKER_HOST=tcp://docker-proxy:2375, the filtered socket proxy (see docker-compose.yml); the API has no socket.
+# The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) through DOCKER_HOST=unix:///docker-proxy/docker.sock, the filtered socket proxy (unix socket on a private volume, no TCP) (see docker-compose.yml); the API has no socket.
 COPY --from=docker:27.5.1-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c /usr/local/bin/docker /usr/local/bin/docker
 
 COPY requirements.lock .

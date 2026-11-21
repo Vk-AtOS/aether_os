@@ -25,7 +25,7 @@ Two repositories: AetherOS (`aether_os`) and Velaris (`velaris_knackforge`). Bot
 Known blockers found while preparing this list (fix or accept before step 7):
 
 1. `ruff check --select F,E9,B904 .` reports 2 F401 errors in `alembic/versions/merge_r3_heads_merge_r3_integration_heads.py` (KAN-59), so the blocking CI lint step fails. `python3.11 -m ruff check --select F,E9,B904 --fix alembic/versions/merge_r3_heads_merge_r3_integration_heads.py` removes both.
-2. Only the `docker-proxy` service mounts the host Docker socket (read-only); the `api` reaches it through `DOCKER_HOST=tcp://docker-proxy:2375` (KAN-65/66/101). The proxy filters endpoints, not request bodies, so a compromised API can still ask for a privileged container: residual risk, to be removed by a remote or rootless runner (KAN-204). `scripts/production_readiness.py` checks the socket is mounted only by the proxy.
+2. Only the `docker-proxy` service mounts the host Docker socket (read-only); the `api` reaches it through `DOCKER_HOST=unix:///docker-proxy/docker.sock` (KAN-65/66/101). The proxy filters endpoints, not request bodies, so a compromised API can still ask for a privileged container: residual risk, to be removed by a remote or rootless runner (KAN-204). `scripts/production_readiness.py` checks the socket is mounted only by the proxy.
 3. `core/models.py` is 621 lines, over the 600-line rule and not on the exception list (KAN-57).
 
 ## 1. Verify r3/int before anything leaves the machine
