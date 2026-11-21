@@ -314,9 +314,7 @@ async def get_scim_config(user: Dict[str, Any] = _current_user()) -> Dict[str, A
     async with get_session_factory()() as session:
         org = await session.get(Organisation, org_id)
     # DB-H1: never return plaintext token — only report whether one is configured
-    configured = bool(
-        getattr(org, "scim_token_hash", None) or getattr(org, "scim_token", None)
-    )
+    configured = bool(getattr(org, "scim_token_hash", None))
     _public_host = os.environ.get("PUBLIC_HOST", "").rstrip("/")
     scim_base_url = f"{_public_host}/api/scim/v2" if _public_host else "/api/scim/v2"
     return {"configured": configured, "scim_base_url": scim_base_url}
@@ -335,10 +333,9 @@ async def rotate_scim_token(user: Dict[str, Any] = _current_user()) -> Dict[str,
     async with get_session_factory()() as session:
         org = await session.get(Organisation, org_id)
         if org:
-            # DB-H1: store only the hash; clear legacy plaintext column
+            # DB-H1: store only the hash
             org.scim_token_hash = token_hash
             org.scim_token_lookup = lookup
-            org.scim_token = None
             await session.commit()
     # Plaintext returned here only — never stored, never logged
     return {"token": new_token}

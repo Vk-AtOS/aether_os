@@ -1,17 +1,31 @@
-"""Frontend dimension scoring — static TS/TSX analysis for type-safety, a11y, and correctness."""
-# ponytail: subprocess tsc/eslint/axe-core would be more accurate but requires npm installed in CI
-# upgrade when we have a guaranteed npm environment in the s05 scoring context
+"""Frontend dimension scoring: type-safety, a11y and correctness of one TS/TSX file.
+
+Each scorer starts from pattern matching on the file text and, when the caller passes the
+project's FrontendToolReport (frontend_tools.collect: real tsc, eslint and axe-core results),
+deducts that file's real findings for its own dimension. Without a report, or for a tool the
+report says did not run, the score is the pattern-matching one only.
+"""
 from __future__ import annotations
 
 import logging
 import re
+from typing import Optional
 
 from aether_os.core.quality.dimension_critic_types import DimensionScore, PASSING_THRESHOLD
+from aether_os.core.quality.frontend_tools import FrontendToolReport, apply_tools
 
 logger = logging.getLogger(__name__)
 
 
-def score_typescript_types(content: str, file_path: str | None = None) -> DimensionScore:
+def _with_tools(ds: DimensionScore, file_path: Optional[str], tools: Optional[FrontendToolReport]) -> DimensionScore:
+    """Deduct the real tool findings of this file for ds's dimension (apply_tools skips the others)."""
+    if tools is not None and file_path:
+        apply_tools([ds], *tools.for_file(file_path), tools.axe_violations)
+    return ds
+
+
+def score_typescript_types(content: str, file_path: str | None = None,
+                           tools: Optional[FrontendToolReport] = None) -> DimensionScore:
     """Scan for TypeScript anti-patterns: any, @ts-ignore, non-null assertions."""
     findings: list[str] = []
     score = 1.0
@@ -52,13 +66,14 @@ def score_typescript_types(content: str, file_path: str | None = None) -> Dimens
             findings=[f"Critic error (fail-open): {exc}"], passed=True,
         )
 
-    return DimensionScore(
+    return _with_tools(DimensionScore(
         dimension="typescript_types", score=score, findings=findings,
         passed=score >= PASSING_THRESHOLD,
-    )
+    ), file_path, tools)
 
 
-def score_frontend_a11y(content: str, file_path: str | None = None) -> DimensionScore:
+def score_frontend_a11y(content: str, file_path: str | None = None,
+                        tools: Optional[FrontendToolReport] = None) -> DimensionScore:
     """Scan TSX for accessibility anti-patterns: missing alt, aria-label, key={index}."""
     findings: list[str] = []
     score = 1.0
@@ -110,13 +125,14 @@ def score_frontend_a11y(content: str, file_path: str | None = None) -> Dimension
             findings=[f"Critic error (fail-open): {exc}"], passed=True,
         )
 
-    return DimensionScore(
+    return _with_tools(DimensionScore(
         dimension="frontend_a11y", score=score, findings=findings,
         passed=score >= PASSING_THRESHOLD,
-    )
+    ), file_path, tools)
 
 
-def score_frontend_correctness(content: str, file_path: str | None = None) -> DimensionScore:
+def score_frontend_correctness(content: str, file_path: str | None = None,
+                               tools: Optional[FrontendToolReport] = None) -> DimensionScore:
     """Scan for console.log leaks, TODOs, empty catches, and unhandled fetch calls."""
     findings: list[str] = []
     score = 1.0
@@ -175,7 +191,7 @@ def score_frontend_correctness(content: str, file_path: str | None = None) -> Di
             findings=[f"Critic error (fail-open): {exc}"], passed=True,
         )
 
-    return DimensionScore(
+    return _with_tools(DimensionScore(
         dimension="frontend_correctness", score=score, findings=findings,
         passed=score >= PASSING_THRESHOLD,
-    )
+    ), file_path, tools)

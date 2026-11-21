@@ -1,33 +1,34 @@
 # AetherOS — Pinned dependency lockfile
-# Rebuilt 2026-11-18 from a CLEAN install of requirements.txt in a fresh virtual environment (the one the test suite was run in).
-# Every direct dependency in requirements.txt is pinned here (an earlier lock was missing seven, e.g. stripe, and pinned fastapi/starlette
-# versions that conflicted with prometheus-fastapi-instrumentator). Use:  pip install -r requirements.lock
-# Rebuild: python3.11 -m venv v && v/bin/pip install -r requirements.txt-with-pins && v/bin/pip freeze (direct dependencies only)
+# Rebuilt 2026-11-19 (KAN-205): every direct dependency in requirements.txt is pinned here, at versions with no known
+# vulnerability (bash scripts/ci/audit_deps.sh). fastapi/pydantic/sqlalchemy and the other clean pins are unchanged from the
+# 18 Nov lock; only the vulnerable packages moved, plus what they force (websockets 15, google-genai, httpx 0.28, anthropic).
+# Checked by installing this file into a fresh virtual environment and running the full suite there.
+# Use:  pip install -r requirements.lock
+# Rebuild: python3.11 -m venv v && v/bin/pip install -r requirements.txt -c <this file, minus the pins you want to move>
+#          then write name==version for each direct dependency (v/bin/pip freeze), and re-run the audit and the suite.
 aiofiles==25.1.0
-aiohttp==3.13.5
+aiohttp==3.14.5
 aiosqlite==0.20.0
 alembic==1.18.4
-anthropic==0.39.0
+anthropic==0.102.0
 asyncpg==0.31.0
 axe-playwright-python==0.1.8
 bandit==1.9.4
 boto3==1.43.28
 chromadb==1.5.5
 cookiecutter==2.7.1
-cryptography==43.0.3
+cryptography==50.0.2
 diagrams==0.25.1
 email-validator==2.4.0
 fastapi==0.115.0
 fpdf2==2.9.0
-google-genai==1.2.0
+google-genai==1.47.0
 growthbook==4.0.1
-httpx==0.27.2
+httpx==0.28.1
 hypothesis==6.170.15
-langsmith==0.1.147
+langsmith==0.15.0
 ldap3==2.9.1
 locust==2.46.6
-mcp==1.12.4
-mem0ai==0.1.115
 networkx==3.6.1
 passlib==1.7.4
 pdoc==16.0.0
@@ -39,21 +40,20 @@ prometheus_client==0.25.0
 psutil==7.2.2
 psycopg2-binary==2.9.13
 pydantic==2.9.0
-PyJWT==2.8.0
+PyJWT==2.15.1
 PyOTP==2.10.0
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-json-report==1.5.0
 pytest-timeout==2.4.0
-pytest==9.0.2
-python-dotenv==1.0.1
-python-jose==3.5.0
-python-multipart==0.0.12
+pytest==9.2.0
+python-dotenv==1.2.4
+python-multipart==0.0.34
 python3-saml==1.16.0
 PyYAML==6.0.3
 razorpay==1.4.2
 redis==8.0.0
-requests==2.32.5
+requests==2.34.2
 rich==13.9.4
 ruff==0.15.18
 sentry-sdk==2.63.0
@@ -66,6 +66,6 @@ typer==0.20.0
 UnleashClient==6.9.1
 uvicorn==0.32.0
 watchdog==6.0.0
-websockets==13.1
+websockets==15.0.1
 whatthepatch==1.0.7
 z3-solver==5.4.1.0

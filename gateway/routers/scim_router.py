@@ -48,20 +48,12 @@ LEGACY_PER_MINUTE = 30     # bcrypt compares of legacy (no sha256 lookup) tokens
 router = APIRouter(tags=["scim"])
 def _match_org_token(token: str, orgs) -> Optional[str]:
     """Blocking (bcrypt): run in a thread. Returns the org id whose SCIM token matches."""
-    for org_id, token_hash, plaintext in orgs:
-        if token_hash:
-            try:
-                if _bcrypt.checkpw(token.encode(), token_hash.encode()):
-                    return org_id
-            except Exception as _bce:
-                logger.warning("SCIM bcrypt compare failed for org %s: %s", org_id, _bce)
-        # Legacy plaintext fallback (only during migration window)
-        elif plaintext and secrets.compare_digest(token.encode(), plaintext.encode()):
-            logger.warning(
-                "SCIM: org %s is using deprecated plaintext scim_token — "
-                "rotate via /settings/scim to migrate to hashed storage", org_id
-            )
-            return org_id
+    for org_id, token_hash in orgs:
+        try:
+            if _bcrypt.checkpw(token.encode(), token_hash.encode()):
+                return org_id
+        except Exception as _bce:
+            logger.warning("SCIM bcrypt compare failed for org %s: %s", org_id, _bce)
     return None
 
 
@@ -109,13 +101,13 @@ async def _verify_scim_auth(request: Request) -> Dict[str, Any]:
             orgs = (await session.execute(
                 select(Organisation).where(
                     Organisation.scim_token_lookup.is_(None),
-                    Organisation.scim_token_hash.isnot(None) | Organisation.scim_token.isnot(None))
+                    Organisation.scim_token_hash.isnot(None))
             )).scalars().all()
         # bcrypt is ~250 ms of CPU per compare per legacy org: bounded per client address, or a wrong token is a
         # CPU-exhaustion tool (KAN-69 F20); and off the event loop, or one IdP sync stalls the worker.
         if orgs and not await get_rate_limiter().allow(f"scim_legacy:{get_client_ip(request)}", LEGACY_PER_MINUTE, 60):
             raise HTTPException(status_code=429, detail="SCIM: too many attempts", headers={"Retry-After": "60"})
-        org_id = await asyncio.to_thread(_match_org_token, token, [(o.id, o.scim_token_hash, o.scim_token) for o in orgs])
+        org_id = await asyncio.to_thread(_match_org_token, token, [(o.id, o.scim_token_hash) for o in orgs])
         if org_id:
             return {"org_id": org_id, "role": "admin", "sub": "scim-provisioner"}
     except HTTPException:

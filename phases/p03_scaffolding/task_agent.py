@@ -321,7 +321,7 @@ async def health():
     (project_dir / "main.py").write_text(main_content)
     
     # Create requirements.txt
-    reqs = ["fastapi", "uvicorn", "pydantic", "pytest", "python-jose", "passlib[bcrypt]"]
+    reqs = ["fastapi", "uvicorn", "pydantic", "pytest", "PyJWT[crypto]", "passlib[bcrypt]"]
     db = tech_stack.get("database", "")
     if "postgres" in db.lower() or "timescale" in db.lower():
         reqs.extend(["sqlalchemy[asyncio]", "asyncpg", "alembic"])

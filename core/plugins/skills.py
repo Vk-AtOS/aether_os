@@ -83,7 +83,7 @@ Return a JSON object with this structure:
     "auth/utils.py": "...",
     "auth/schemas.py": "..."
   }},
-  "dependencies": ["python-jose[cryptography]", "passlib[bcrypt]", "pyotp"],
+  "dependencies": ["PyJWT[crypto]", "passlib[bcrypt]", "pyotp"],
   "env_vars": ["JWT_SECRET_KEY", "JWT_ALGORITHM"]
 }}"""
 

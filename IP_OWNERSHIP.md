@@ -47,7 +47,7 @@ Selected dependency licenses for reference:
 | SQLAlchemy | MIT |
 | Alembic | MIT |
 | uvicorn | BSD 3-Clause |
-| python-jose | MIT |
+| PyJWT | MIT |
 | passlib | BSD |
 | anthropic | MIT |
 | google-genai | Apache 2.0 |

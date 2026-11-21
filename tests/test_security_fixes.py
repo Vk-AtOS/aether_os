@@ -527,11 +527,15 @@ def test_created_webhook_secret_is_recoverable_for_signing(env):
     assert env.client.portal.call(_get_org_webhooks, env.b.org_id, "pipeline.complete") == []
 
 
-def test_signing_secret_handles_missing_and_legacy_rows():
+def test_signing_secret_handles_missing_and_undecryptable_rows():
+    """KAN-131: a stored value that does not decrypt is never used as the signing key itself (plaintext rows were
+    encrypted by the hash_legacy_plaintext_tokens migration); "" makes send() refuse the delivery."""
+    from aether_os.core.encryption import encrypt
     from aether_os.core.webhooks.delivery import _signing_secret
     assert _signing_secret(None) == ""
     assert _signing_secret("") == ""
-    assert _signing_secret("legacy-plaintext") == "legacy-plaintext"
+    assert _signing_secret("legacy-plaintext") == ""
+    assert _signing_secret(encrypt("k3y")) == "k3y"
 
 
 # ── Feature flags are process-wide: platform operator only ────────────────────

@@ -135,16 +135,17 @@ async def deliver_event(
 def _signing_secret(stored: Optional[str]) -> str:
     """Recover the HMAC key from webhooks.secret (Fernet-encrypted by the gateway).
 
-    Rows created while only a bcrypt hash was kept have no recoverable key and
-    return "" (send() refuses those — the webhook must be re-created). Rows older
-    than that hold the plaintext secret, which is used as-is.
+    A value that does not decrypt (written under another key, or damaged) returns "" and send() refuses the
+    delivery: it is never used as the key itself. Plaintext rows from before encryption were encrypted by the
+    hash_legacy_plaintext_tokens migration.
     """
     if not stored:
         return ""
     try:
         return decrypt(stored)
-    except ValueError:
-        return stored
+    except ValueError as exc:
+        logger.warning("webhook signing secret cannot be decrypted (re-create the webhook): %s", exc)
+        return ""
 
 
 async def _get_org_webhooks(org_id: str, event_type: str) -> List[Dict[str, Any]]:
