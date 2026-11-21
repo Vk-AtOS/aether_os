@@ -232,8 +232,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         logger.info("p00: Applied user input to design brief")
                     except Exception:
                         logger.warning("p00: Could not parse user input from decision")
-            elif resolved.status == "denied":
-                raise PipelineBlockedError("Gate 1: Design Brief was denied by user.")
+            elif resolved.status in ("denied", "timeout"):
+                # An unanswered gate must not fall through as approved.
+                raise PipelineBlockedError(f"Gate 1: Design Brief not approved ({resolved.status}).")
     except PipelineBlockedError:
         raise
     except Exception as e:
