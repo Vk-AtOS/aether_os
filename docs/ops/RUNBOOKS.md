@@ -124,11 +124,22 @@ the organisation; the hard stop is at 100% by design; raising a cap is a plan de
 ## Sandbox
 
 **Symptoms:** generated apps do not start; `sandbox: refusing to run generated code`; `docker: not found` in API logs.
-**Checks:** `docker compose exec api docker version` (needs the socket and `DOCKER_GID`); `docker image inspect aether-sandbox:1`;
+**Checks:** `docker compose exec api docker version` (goes through the `docker-proxy` service, `DOCKER_HOST=tcp://docker-proxy:2375`; if it fails check `docker compose ps docker-proxy` and `docker compose logs docker-proxy`; a `403` means the proxy denies that endpoint, see "Docker socket proxy" below); `docker image inspect aether-sandbox:1`;
 the isolation probe message in the log (host firewall rules from `core/sandbox/host_firewall.sh` missing).
 **Fix:** build the image (`docker build -f core/sandbox/Dockerfile -t aether-sandbox:1 core/sandbox`); apply `host_firewall.sh` on the
 Docker host; orphaned containers: `docker ps --filter label=aether.run` and `docker rm -f` those whose run is gone.
 **Escalate:** any sign a generated app reached the host or the platform network: stop the sandbox host, call the owner.
+
+### Docker socket proxy (KAN-65/66/101)
+
+The API container has no Docker socket. Only the `docker-proxy` service (tecnativa/docker-socket-proxy, pinned by digest) mounts
+`/var/run/docker.sock` read-only; the API reaches it at `tcp://docker-proxy:2375` on the internal `sandbox_ctl` network. It allows
+containers, images, networks, `/info`, `/version` (with POST/DELETE) and denies exec, volumes, build, swarm, secrets, plugins, system.
+**Limit:** it filters by endpoint, not request body, so it does not stop a caller from asking for a privileged container or a host
+bind mount: keep `sandbox_ctl` to the api and the proxy only. No `DOCKER_GID` is needed any more.
+**Check after deploy:** `docker compose exec api docker version`; `docker compose exec api docker volume ls` must answer 403;
+`docker compose exec api sh -c 'ls /var/run/docker.sock'` must fail; one generated run reaches the preview.
+**Pin bump:** `docker buildx imagetools inspect tecnativa/docker-socket-proxy:latest` and put the index digest in `docker-compose.yml`.
 
 ### Sandbox reachability (API in a container)
 

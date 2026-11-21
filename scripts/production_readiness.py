@@ -21,6 +21,8 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 Result = Tuple[str, str]   # (PASS|FAIL|UNVERIFIED, evidence)
 
@@ -60,11 +62,13 @@ def least_privilege() -> Result:
 
 
 def sandbox_isolation() -> Result:
-    # A known blocker, kept visible on purpose: the API container drives the HOST Docker daemon (docker-compose.yml),
-    # and whoever controls that socket is root on the host. Fix = a separate rootless/remote sandbox runner (owner decision).
-    return ok("/var/run/docker.sock" not in text("docker-compose.yml"), "no host docker.sock in compose",
-              "docker-compose.yml mounts /var/run/docker.sock into the api service (root-equivalent on the host); "
-              "move sandbox runs to a rootless or remote runner")
+    # Only the docker-proxy service (endpoint-filtered, read-only) may mount the host Docker socket; the api reaches it
+    # through DOCKER_HOST. Residual risk: the proxy does not inspect request bodies (see docs/ops/RUNBOOKS.md).
+    services = yaml.safe_load(text("docker-compose.yml"))["services"]
+    holders = [n for n, d in services.items() if any("docker.sock" in str(v) for v in d.get("volumes", []))]
+    return ok(holders == ["docker-proxy"] and "DOCKER_HOST: tcp://docker-proxy" in text("docker-compose.yml"),
+              "host docker.sock mounted only by docker-proxy; api uses DOCKER_HOST",
+              f"docker.sock is mounted by {holders}; only docker-proxy may, and the api needs DOCKER_HOST=tcp://docker-proxy:2375")
 
 
 def rate_limits() -> Result:
