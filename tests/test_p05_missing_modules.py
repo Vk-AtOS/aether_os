@@ -47,7 +47,8 @@ def test_existing_files_not_overwritten_and_cn_util(tmp_path):
         "src/components/ui/card.tsx": "export const Card = () => null // mine\n",
     })
     ensure_local_modules(root)
-    assert (root / "src/components/ui/card.tsx").read_text() == "export const Card = () => null // mine\n"
+    # existing exports are never rewritten; names the page imports that the file lacks are appended after them
+    assert (root / "src/components/ui/card.tsx").read_text().startswith("export const Card = () => null // mine\n")
     assert "export function cn" in (root / "src/lib/utils.ts").read_text()
 
 
