@@ -1,0 +1,12 @@
+# Reviewed container-scan findings that stay open on purpose (22 Nov 2026). Each entry expires, so CI fails again on
+# that date unless someone re-reviews it. Fixing both needs starlette >= 1.3.1, which needs FastAPI 0.16x: a 50-release
+# jump that is scheduled as its own change, not slipped in before a release.
+
+# starlette StaticFiles SSRF / NTLM leak through UNC paths: Windows only (os.path.realpath on \\host\share). The image
+# runs Linux, where UNC paths do not exist.
+CVE-2026-48818 exp:2027-02-28
+
+# starlette request.form() ignores max_fields / max_part_size for application/x-www-form-urlencoded (resource use).
+# Bounded in deployment: nginx caps request bodies on every API route (client_max_body_size 10m, /portal 256k) and
+# per-IP request rates (limit_req). Remove when starlette >= 1.3.1 lands.
+CVE-2026-54283 exp:2027-02-28
