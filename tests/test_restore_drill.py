@@ -95,8 +95,9 @@ def test_a_real_backup_restores_verifies_and_is_recorded(tmp_path):
         subprocess.run(["pg_dump", "--format=custom", "-f", str(dump), src_url], check=True)
         rec = rd.drill(dump, PG)
         assert rec["passed"], rec
-        assert [s["step"] for s in rec["steps"]] == ["preflight (role, dump contents)", "create scratch database", "restore dump", "verify restored data",
-                                                     "drop scratch database"]
+        assert [s["step"] for s in rec["steps"]] == ["preflight (role, dump contents)", "create scratch database",
+                                                     "create schema extensions (admin)", "restore dump",
+                                                     "verify restored data", "drop scratch database"]
         assert rec["checks"]["schema_at_head"] and rec["checks"]["chains_verify"]
         json.dumps(rec)                                    # serialisable: it is written as the drill record
     finally:
