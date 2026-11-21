@@ -62,26 +62,28 @@ async def get_api_key(provider: str, org_id: Optional[str] = None) -> Optional[s
     if org_id:
         # Check cache first
         cached = _cache_get(org_id, provider)
-        if cached is not None:
-            return cached or None  # empty string = "no key"
-
-        # Query DB
-        try:
-            session_factory = get_session_factory()
-            async with session_factory() as session:
-                row = await session.execute(
-                    select(OrgApiKey).where(
-                        OrgApiKey.org_id == org_id,
-                        OrgApiKey.provider == provider,
+        if cached:
+            return cached
+        # A cached "" means "this org has no key of its own": skip the DB, but still fall back to the platform key
+        # below. It used to return None here, so only an org's FIRST call found the platform key and every later
+        # call failed with "not configured" (AWS testbed, 21 Nov 2026: council passed, the pipeline then had no model).
+        if cached is None:
+            try:
+                session_factory = get_session_factory()
+                async with session_factory() as session:
+                    row = await session.execute(
+                        select(OrgApiKey).where(
+                            OrgApiKey.org_id == org_id,
+                            OrgApiKey.provider == provider,
+                        )
                     )
-                )
-                rec = row.scalar_one_or_none()
-                key = rec.api_key if rec else ""
-                _cache_set(org_id, provider, key)
-                if key:
-                    return key
-        except Exception as exc:
-            logger.warning("api_key_store: DB lookup failed for %s/%s: %s", org_id, provider, exc)
+                    rec = row.scalar_one_or_none()
+                    key = rec.api_key if rec else ""
+                    _cache_set(org_id, provider, key)
+                    if key:
+                        return key
+            except Exception as exc:
+                logger.warning("api_key_store: DB lookup failed for %s/%s: %s", org_id, provider, exc)
 
     # Fallback to the platform's own keys (set by the operator, never by an org)
     for var in _ENV_VARS.get(provider, []):
