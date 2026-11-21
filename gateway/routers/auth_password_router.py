@@ -219,6 +219,10 @@ async def password_reset_confirm(req: PasswordResetConfirm, request: Request) ->
 async def change_password(req: Dict[str, Any], request: Request, user: Dict[str, Any] = _auth()) -> Dict[str, str]:
     """Change the authenticated user's password with HIBP breach check."""
     user_id = user.get("user_id", "")
+    # The current password is checked here: a stolen access token must not become an online guessing oracle
+    # for it (KAN-69 R6). 10 attempts per user per 15 minutes.
+    if not await _get_rl().allow(f"change_pw:{user_id}", 10, 900):
+        raise HTTPException(status_code=429, detail="Too many password change attempts. Please wait 15 minutes.")
     current_pw = req.get("current_password", "")
     new_pw = req.get("new_password", "")
     client_ip = get_client_ip(request)

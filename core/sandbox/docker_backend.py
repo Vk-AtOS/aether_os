@@ -13,7 +13,8 @@ Every container (docker_args is the single place the policy lives, unit-tested):
                           host_firewall.sh drops private ranges, link-local
                           (cloud metadata) and the host itself on this bridge;
       - RUN_NETWORK       the running app: its port is published on
-                          AETHER_SANDBOX_PUBLISH_IP only; the bridge has no
+                          AETHER_SANDBOX_PUBLISH_IP only (endpoints.py; never a
+                          wildcard); the bridge has no
                           masquerade (no internet) and host_firewall.sh drops
                           every new connection from it to the host or anywhere.
     Both are separate bridge networks with inter-container traffic disabled,
@@ -41,6 +42,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from aether_os.core.errors import SandboxViolation
+from aether_os.core.sandbox.endpoints import publish_ip
 from aether_os.core.sandbox.isolation_probe import isolation_problem
 from aether_os.core.sandbox.runner import Limits, SandboxRunner, cap_output
 
@@ -68,10 +70,6 @@ def browser_image() -> str:
 
 
 BROWSER_ENTRY_IN_IMAGE = "/opt/aether/browser_entry.py"
-
-
-def publish_ip() -> str:
-    return os.environ.get("AETHER_SANDBOX_PUBLISH_IP", "127.0.0.1")
 
 
 def sandbox_user() -> str:

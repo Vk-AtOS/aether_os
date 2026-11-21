@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.build_runner import build_image
+from aether_os.core.sandbox.endpoints import app_url, publish_ip
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 # Re-export writers so callers can import everything from helpers
@@ -288,7 +289,7 @@ async def docker_build(app_dir: Path, image_name: str) -> Dict[str, Any]:
 
 
 # Not --internal: Docker cannot publish a port for a container that is only on an
-# internal network, so the app would be unreachable on 127.0.0.1:<port>. Isolation
+# internal network, so the app would be unreachable on its published port. Isolation
 # between app containers comes from disabling inter-container communication instead.
 APP_NETWORK = "aetheros-apps"
 
@@ -323,8 +324,9 @@ async def docker_run(
         proc = await asyncio.create_subprocess_exec(
             "docker", "run", "-d",
             "--name", container_name,
-            # D7: bind only to loopback; reverse proxy exposes externally
-            "-p", f"127.0.0.1:{port}:8000",
+            # D7: bind only to the sandbox publish address (loopback by default, never a wildcard);
+            # a reverse proxy exposes it externally.
+            "-p", f"{publish_ip()}:{port}:8000",
             "--restart", "unless-stopped",
             # D7: network isolation
             "--network", APP_NETWORK,
@@ -368,7 +370,7 @@ async def wait_for_ready(port: int, timeout: int = 30) -> bool:
     """Poll /health until the container responds or we time out."""
     try:
         import aiohttp
-        url = f"http://localhost:{port}/health"
+        url = app_url(port, "/health")  # not localhost: inside a gateway container that is the container
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while loop.time() < deadline:

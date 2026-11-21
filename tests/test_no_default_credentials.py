@@ -11,8 +11,8 @@ from aether_os.core.quality_monitor import QualityMonitor
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LITERALS = re.compile(r"Admin1234|User1234|demo1234|\b139\.59\.87\.218\b")
-# plans2.md is the owner's file (KAN-173); core/guardian/password_shield.py lists demo1234 as a BLOCKED password.
-SKIP = ("plans2.md", "core/guardian/password_shield.py", "core/seed.py", "docs/AUDIT_2026_08_08.md",
+# core/guardian/password_shield.py lists demo1234 as a BLOCKED password.
+SKIP = ("core/guardian/password_shield.py", "core/seed.py", "docs/AUDIT_2026_08_08.md",
         "docs/codebase_map/", "tests/", "snapshots/")
 
 

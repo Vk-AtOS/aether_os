@@ -15,3 +15,4 @@ dashboard/node_modules
 *.jpeg
 output/
 .playwright-mcp/
+.guardian_build_manifest.json

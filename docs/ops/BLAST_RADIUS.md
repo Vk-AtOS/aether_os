@@ -21,6 +21,7 @@ time out instead of being refused); "disk full" = the host filesystem filled to 
 | slow redis | up | refused | up | up | up |
 | slow velaris | up | up | up | up | up |
 | disk full | up | up | up | up | up |
+| no model | up | up | up | up | up |
 
 Notes:
 
@@ -38,7 +39,7 @@ Notes:
 * **Velaris down** costs only the Velaris pages: calls fail fast after 5 failures for 30 s (breaker), at most 32 wait at once
   (bulkhead), `/readyz` stays 200 and names `velaris` as degraded; the dashboard shows it.
 * **LLM down**: runs that need a model fail or wait, everything else keeps working: sign-in, approvals (Prime inbox), reads.
-  New pipeline runs queue when the SQS queue is configured; without a queue they start and fail at the first model call (gap:
-  admission should refuse or queue explicitly, to be ticketed after the first live run).
+  New runs are refused with 503 and `Retry-After` when no provider is usable (KAN-207), or queued when SQS is
+  configured.
 * The compose version of this table is `scripts/fault_injection.py --run --token ... [--disk-full PATH]`. It needs Docker and a
   running stack. Runs: `docs/ops/drills/fault-injection-*.md`.

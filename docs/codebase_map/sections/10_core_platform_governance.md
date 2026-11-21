@@ -313,9 +313,20 @@ No file in scope is over 600 lines. The largest is `sandbox/manager.py` at 599 (
 
 **Detection** (threat_detector.py)
 - Counts `login:*` ZSETs in Redis, which the rate limiter writes: 15 or more is high, 45 or more is critical (:40,132-157).
-- SHA-256 of 5 hard-coded files (gateway/api.py, gateway/auth.py, core/models.py, core/db.py, alembic/env.py; :26-32), with the baseline in Redis `guardian:file_hash:*` (:35,91). It is re-baselined by scripts/post-deploy.sh and admin endpoints.
+- SHA-256 of 5 hard-coded files (gateway/api.py, gateway/auth.py, core/models.py, core/db.py, alembic/env.py; listed in core/guardian/build_identity.py). The baseline is tied to the deployed build (see "Integrity baseline per build" below). It can also be re-baselined by superadmin endpoints (`POST /guardian/update-baseline`, `/admin/system/deploy`) and, on legacy installs, scripts/post-deploy.sh.
 - Disk: 80% or more is medium; **92% or more is critical `service_crash`**. A failed Redis ping is high; a failed DB `SELECT 1` is critical (:195-254).
 - The "rate anomaly" detector listed in its docstring is not implemented.
+
+**Integrity baseline per build** (build_identity.py, threat_detector.py `load_or_create_baseline`)
+- Why: the baseline used to be written to Redis on first boot only. The Redis volume outlives image rebuilds, so every compose/Kubernetes deploy raised a false critical `TAMPER DETECTED`, which teaches operators to ignore the real one.
+- At image build the Dockerfile writes `/srv/aether_os/.guardian_build_manifest.json` (root-owned, mode 0444; the app runs as `aether` and cannot rewrite it) with the critical files' hashes. Optional build arg `AETHER_BUILD_ID` (compose passes `${AETHER_BUILD_ID:-}`, e.g. `AETHER_BUILD_ID=$(git rev-parse HEAD) docker compose up -d --build`) is baked into the image env.
+- Build id at start: `env:<AETHER_BUILD_ID>` if set, else `manifest:<digest of the manifest>`, else none.
+- With a build id the baseline is the manifest's hashes, stored with HSETNX in Redis hash `guardian:baseline:<build_id>` (field = path relative to the package root); `guardian:current_build` records the active build. A new build id gets a fresh baseline and no alert; the previous build's hash expires after 7 days (rolling deploys keep it while old pods drain). The change is logged at WARNING: `Guardian: new build X (previous Y) — file integrity baseline re-established`.
+- Within one build the stored baseline is never overwritten at start, so a file changed while that build runs is detected, also after a container restart. Because the manifest is written at build time, a change made between build and first start is detected too.
+- Trade-off: without `AETHER_BUILD_ID`, the id is derived from the manifest. An attacker who is root inside the container (not just the app user) can rewrite a critical file and the manifest together and restart; that yields a new build id and a quiet re-baseline, visible only as the WARNING above. With `AETHER_BUILD_ID` set the id comes from the image config, which nothing inside the container can change, so the same attack is still reported. Set it in production. Startup never re-baselines unconditionally.
+- No manifest and no `AETHER_BUILD_ID` (bare-metal/systemd installs from deploy/deploy.sh): legacy behaviour, unchanged. Baseline in `guardian:file_hash:<md5(abs path)>` on first boot; refreshed by scripts/post-deploy.sh and the admin deploy route.
+- Redis unavailable: the same baseline (manifest, or the files at start) is held in memory and checked against; it is also the fallback when a Redis baseline key is missing.
+- `file_tamper` is still alert + `pre_threat` snapshot only, never a restore.
 
 **Event handling** (watchdog.py:109-187)
 - Events are de-duplicated with Redis `SET NX EX 600` and persisted to guardian_events.

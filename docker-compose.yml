@@ -44,6 +44,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: "no"
     working_dir: /srv/aether_os
     # empty database: create from the models and stamp; existing: alembic upgrade head (alembic cannot replay from empty)
@@ -61,6 +64,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"   # nginx on the host is the only entry; Docker-published ports bypass ufw
@@ -125,6 +131,14 @@ services:
       # served only from the preview origin (gateway/preview_server.py, service `preview`).
       AETHER_SANDBOX: docker
       AETHER_SANDBOX_IMAGE: ${AETHER_SANDBOX_IMAGE:-aether-sandbox:1}
+      # Where sandbox app ports are published on the host, and where this container connects to them
+      # (core/sandbox/endpoints.py). Empty = 127.0.0.1, which inside this container is the container
+      # itself: phase probes then fail with "Connection refused". Linux: set BOTH to the docker0
+      # address (usually 172.17.0.1) and run `AETHER_SANDBOX_PUBLISH_IP=<same> core/sandbox/host_firewall.sh`
+      # so the ports stay unreachable from outside the host. Docker Desktop: leave PUBLISH_IP empty,
+      # UPSTREAM_HOST=host.docker.internal. Never 0.0.0.0 (refused). See docs/ops/RUNBOOKS.md.
+      AETHER_SANDBOX_PUBLISH_IP: ${AETHER_SANDBOX_PUBLISH_IP:-}
+      AETHER_SANDBOX_UPSTREAM_HOST: ${AETHER_SANDBOX_UPSTREAM_HOST:-}
       AETHER_PREVIEW_ORIGIN: ${AETHER_PREVIEW_ORIGIN:?AETHER_PREVIEW_ORIGIN is required - e.g. https://preview.yourdomain.com}
       AETHER_PREVIEW_SECRET: ${AETHER_PREVIEW_SECRET:?AETHER_PREVIEW_SECRET is required - 32+ random characters}
       AETHER_DASHBOARD_ORIGIN: ${AETHER_DASHBOARD_ORIGIN:-}
@@ -141,6 +155,9 @@ services:
     # the SAME path, because sandbox containers mount them by the path the gateway sees.
     group_add:
       - ${DOCKER_GID:?DOCKER_GID is required - the group id owning /var/run/docker.sock}
+    # host.docker.internal resolves to the docker0 address on Linux too (built in on Docker Desktop).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # INFRA-H1: container runs as non-root user 'aether'; the host directory must exist and
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
@@ -160,13 +177,16 @@ services:
       start_period: 40s
 
   # ── Preview server: the only thing that serves generated apps, on its own origin ──
-  # Host network so it reaches the apps' ports published on the host's 127.0.0.1; it listens
+  # Host network so it reaches the apps' ports published on the host (127.0.0.1 or AETHER_SANDBOX_PUBLISH_IP); it listens
   # on 127.0.0.1:8100 and nginx serves it as the preview domain. No platform keys, no database,
   # no Docker socket; it reads only the run state files (read-only mount).
   preview:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: unless-stopped
     network_mode: host
     command: ["uvicorn", "aether_os.gateway.preview_server:create_preview_app", "--factory",
@@ -177,6 +197,8 @@ services:
       AETHER_DASHBOARD_ORIGIN: ${AETHER_DASHBOARD_ORIGIN:-}
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
       ENVIRONMENT: production
+      # Same value as the api service: where the apps' ports are published (empty = 127.0.0.1).
+      AETHER_SANDBOX_UPSTREAM_HOST: ${AETHER_SANDBOX_UPSTREAM_HOST:-}
     volumes:
       - /home/aether/.aether_os:/home/aether/.aether_os:ro
     healthcheck:
