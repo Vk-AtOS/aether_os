@@ -1,0 +1,131 @@
+#!/bin/bash
+# Production bootstrap for the prod-single host. Run as root on the host (through SSM Session Manager / RunCommand) after
+# `terraform apply`. Replace __DBHOST__ (output db_endpoint) and __DBSECRET__ (output db_password_secret_arn) first, and
+# upload the two source archives to s3://<backups_bucket>/src/aether_os.tgz and velaris.tgz (git archive of main).
+# Needs in Parameter Store: /<name>/admin-password and /<name>/nvidia-api-key (SecureString). Idempotent: a re-run keeps
+# .env, secrets/ and the override, replaces the code and restarts. No secret value is ever printed.
+set -euo pipefail
+export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-southeast-2}
+N=${NAME:-aetheros-prod}
+B=${BUCKET:-$N-backups-$(aws sts get-caller-identity --query Account --output text)}
+until [ -f /var/run/aetheros-host-ready ]; do sleep 10; done
+TOK=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOK" http://169.254.169.254/latest/meta-data/public-ipv4)
+HOST=$(echo "$IP" | tr . -).sslip.io
+echo "public ip $IP host $HOST"
+
+# ── code ──
+mkdir -p /srv/logs
+aws s3 cp --quiet s3://$B/src/aether_os.tgz /tmp/a.tgz; aws s3 cp --quiet s3://$B/src/velaris.tgz /tmp/v.tgz
+rm -rf /srv/aether_os.new /srv/velaris; mkdir -p /srv/aether_os.new /srv/velaris
+tar xzf /tmp/a.tgz -C /srv/aether_os.new; tar xzf /tmp/v.tgz -C /srv/velaris
+if [ -d /srv/aether_os ]; then cp -a /srv/aether_os/.env /srv/aether_os/secrets /srv/aether_os/docker-compose.override.yml /srv/aether_os.new/ 2>/dev/null || true; rm -rf /srv/aether_os.old; mv /srv/aether_os /srv/aether_os.old; fi
+mv /srv/aether_os.new /srv/aether_os; cd /srv/aether_os
+
+# ── secrets and .env (first install only) ──
+mkdir -p secrets; umask 077
+[ -f secrets/velaris_identity.pem ] || openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
+openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
+[ -f secrets/vault.key ] || openssl rand -base64 32 > secrets/vault.key
+chmod 644 secrets/velaris_identity.pub.pem secrets/vault.key
+gp() { aws ssm get-parameter --name "/$N/$1" --with-decryption --query Parameter.Value --output text; }
+GW=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+if [ ! -f .env ]; then
+cat > .env <<ENV
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+REDIS_PASSWORD=$(openssl rand -hex 24)
+AETHER_FIELD_KEY=$(openssl rand 32 | base64 | tr '+/' '-_')
+AETHER_SECRET_KEY=$(openssl rand -hex 32)
+AETHER_ONE_ZT_SECRET=$(openssl rand -hex 32)
+AETHER_ADMIN_EMAIL=admin@aetheros.ai
+AETHER_ADMIN_PASS=$(gp admin-password)
+AETHER_PREVIEW_ORIGIN=https://preview.$HOST
+AETHER_PREVIEW_SECRET=$(openssl rand -hex 32)
+CORS_ORIGINS=https://$HOST
+FRONTEND_URL=https://$HOST/dashboard
+APP_BASE_URL=https://$HOST
+DOCKER_GID=$(stat -c %g /var/run/docker.sock)
+VELARIS_IMAGE=velaris:prod
+VELARIS_ORG=aetheros
+VELARIS_API_URL=http://velaris:8730
+VELARIS_API_SECRET=$(openssl rand -hex 32)
+PRIMARY_LLM=openrouter
+OPENROUTER_API_KEY=$(gp nvidia-api-key)
+OPENROUTER_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENROUTER_FALLBACK_MODELS=nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3.5-super-vl-120b-a12b
+OPENROUTER_HEAVY_MODEL=nvidia/nemotron-3-ultra-550b-a55b
+OPENROUTER_LIGHT_MODEL=nvidia/nemotron-3.5-super-vl-120b-a12b
+OPENROUTER_COUNCIL_MODELS=nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3.5-super-vl-120b-a12b,moonshotai/kimi-k3.1-pro,minimaxai/minimax-m3.1-flash
+OPENROUTER_TIMEOUT=120
+ALLOW_COMMUNITY_LLM=1
+OPENROUTER_EXTRA_BODY={"chat_template_kwargs":{"enable_thinking":false}}
+AETHER_SANDBOX_PUBLISH_IP=$GW
+AETHER_SANDBOX_UPSTREAM_HOST=$GW
+ENV
+python3 - <<'PY'
+pem=open("secrets/velaris_identity.pem").read().strip().replace("\n","\\n")
+open(".env","a").write('VELARIS_IDENTITY_PRIVATE_KEY_PEM="%s"\n' % pem)
+PY
+chmod 600 .env
+echo ".env created"
+fi
+
+# ── database: RDS (managed backups, 7-day point-in-time restore) instead of the compose db container ──
+DBP=$(aws secretsmanager get-secret-value --secret-id '__DBSECRET__' --query SecretString --output text \
+      | python3 -c 'import sys,json,urllib.parse;print(urllib.parse.quote(json.load(sys.stdin)["password"],safe=""))')
+cat > docker-compose.override.yml <<YML
+# Production: the API and migrations use RDS. The compose db container still starts (depends_on) but holds no data.
+services:
+  api:
+    environment:
+      DATABASE_URL: "postgresql://aether_user:$DBP@__DBHOST__:5432/aether_os"
+  migrate:
+    environment:
+      DATABASE_URL: "postgresql://aether_user:$DBP@__DBHOST__:5432/aether_os"
+YML
+chmod 600 docker-compose.override.yml
+unset DBP
+
+# ── sandbox network isolation, images, stack ──
+AETHER_SANDBOX_PUBLISH_IP=$GW bash core/sandbox/host_firewall.sh >/srv/logs/fw.log 2>&1 && echo "host firewall applied" || { echo "firewall FAILED"; tail -5 /srv/logs/fw.log; }
+docker build -q -t aether-sandbox:1 -f core/sandbox/Dockerfile core/sandbox >/dev/null && echo "sandbox image ok"
+docker build -q -t velaris:prod -f /srv/velaris/deploy/Dockerfile /srv/velaris >/dev/null && echo "velaris image ok"
+UIDA=1000
+mkdir -p /home/aether/.aether_os
+s=$(date +%s); docker compose --profile velaris up -d --build > /srv/logs/up.log 2>&1 && echo "compose up ok in $(( $(date +%s)-s ))s" || { echo "compose up FAILED"; tail -20 /srv/logs/up.log; }
+APIIMG=$(docker compose images -q api | head -1)
+UIDA=$(docker run --rm --entrypoint id "$APIIMG" -u); GIDA=$(docker run --rm --entrypoint id "$APIIMG" -g)
+chown -R "$UIDA:$GIDA" /home/aether/.aether_os
+sleep 60
+docker compose --profile velaris ps --format '{{.Service}} {{.Status}}' | tr '\n' ';'; echo
+curl -s -o /dev/null -w "api healthz %{http_code}\n" http://127.0.0.1:8000/healthz || true
+
+# ── TLS certificate (Let's Encrypt, HTTP-01, standalone on port 80 before nginx takes it) ──
+mkdir -p /etc/letsencrypt /var/www/certbot /home/aether_os/dashboard
+docker rm -f aether-nginx >/dev/null 2>&1 || true
+if [ ! -f /etc/letsencrypt/live/$HOST/fullchain.pem ]; then
+  docker run --rm -p 80:80 -v /etc/letsencrypt:/etc/letsencrypt certbot/certbot:v2.11.0 certonly --standalone \
+    -d "$HOST" -d "preview.$HOST" --cert-name "$HOST" --agree-tos --register-unsafely-without-email -n > /srv/logs/certbot.log 2>&1 \
+    && echo "certificate issued" || { echo "certbot FAILED"; tail -15 /srv/logs/certbot.log; }
+fi
+# the preview server block expects its own certificate name; the one certificate covers both names
+mkdir -p /etc/letsencrypt/live/preview.$HOST
+ln -sf /etc/letsencrypt/live/$HOST/fullchain.pem /etc/letsencrypt/live/preview.$HOST/fullchain.pem
+ln -sf /etc/letsencrypt/live/$HOST/privkey.pem /etc/letsencrypt/live/preview.$HOST/privkey.pem
+
+# ── dashboard files + nginx (host network: upstream is 127.0.0.1:8000) ──
+rm -rf /home/aether_os/dashboard/dist && docker compose cp api:/srv/aether_os/dashboard/dist /home/aether_os/dashboard/dist >/dev/null
+sed -e "s/PREVIEW_DOMAIN_PLACEHOLDER/preview.$HOST/g" -e "s/APP_DOMAIN_PLACEHOLDER/$HOST/g" deploy/nginx.conf > /srv/nginx-aetheros.conf
+docker run -d --name aether-nginx --restart unless-stopped --network host \
+  -v /srv/nginx-aetheros.conf:/etc/nginx/conf.d/default.conf:ro \
+  -v /home/aether_os/dashboard/dist:/home/aether_os/dashboard/dist:ro \
+  -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/certbot:/var/www/certbot:ro nginx:1.27-alpine >/dev/null
+sleep 3; docker logs aether-nginx 2>&1 | grep -iE "emerg|error" | head -5 || true
+rpm -q cronie >/dev/null 2>&1 || dnf install -y -q cronie >/dev/null; systemctl enable --now crond >/dev/null 2>&1
+# renewal twice a day; nginx reloads to pick up a renewed certificate
+cat > /etc/cron.d/aetheros-certbot <<CRON
+17 3,15 * * * root docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/www/certbot:/var/www/certbot certbot/certbot:v2.11.0 renew --webroot -w /var/www/certbot -q && docker exec aether-nginx nginx -s reload
+CRON
+curl -s -o /dev/null -w "https dashboard %{http_code}\n" https://$HOST/dashboard/ || true
+curl -s -o /dev/null -w "https api %{http_code}\n" https://$HOST/api/healthz || true
+echo "$HOST" > /root/public_host
