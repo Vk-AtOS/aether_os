@@ -1,6 +1,6 @@
 # 01 System context
 
-Who talks to whom, and with what. An edge exists only where a call site was found in the code at commit `e5c23fd`. Edge labels give the protocol and the authentication mechanism.
+Who talks to whom, and with what. An edge exists only where a call site was found in the code. First drawn at commit `e5c23fd`, re-checked against main at `245985d` on 21 Nov 2026. Edge labels give the protocol and the authentication mechanism.
 
 ```mermaid
 flowchart LR
@@ -34,11 +34,11 @@ flowchart LR
     Disk[("Project files<br/>~/.aether_os")]
   end
 
-  Docker["Docker daemon<br/>sandbox containers"]
+  Docker["Docker daemon<br/>sandbox containers: run, browser, builder (kaniko)"]
   Preview["Preview server<br/>port 8100"]
 
   subgraph Out["Third parties called by the code"]
-    LLM["Model providers<br/>Anthropic, Gemini, OpenRouter,<br/>Bedrock, Ollama"]
+    LLM["Model providers, chosen by PRIMARY_LLM<br/>OpenAI compatible endpoint (NVIDIA),<br/>Bedrock, Anthropic, Gemini, Ollama"]
     Pay["Stripe and Razorpay"]
     Mail["SMTP server"]
     Git["GitHub and GitLab"]
@@ -64,7 +64,7 @@ flowchart LR
   Pipe --> Ledger
   Prime --> Ledger
 
-  GW -->|"SQL, DATABASE_URL"| PG
+  GW -->|"SQL, DATABASE_URL, breaker: 503 when down"| PG
   GW -->|"Redis protocol, password"| Redis
   Pipe -->|"file writes"| Disk
   Pipe -->|"local persistent client"| Chroma
@@ -91,20 +91,22 @@ flowchart LR
 
 Derived from:
 
-- Nginx to gateway on 127.0.0.1:8000: `deploy/nginx.conf:40-42`. Preview upstream 127.0.0.1:8100: `deploy/nginx.conf:250-251`. Velaris public host and path allowlist: `deploy/nginx_velaris_public.conf:67-73`.
-- Gateway, pipeline and Prime run in one process; the pipeline is started as an asyncio task: `gateway/routers/factory_start_router.py:323`. Prime router is mounted in the same app: `gateway/api.py:289-293`.
-- Model providers wired in the router: anthropic `core/model_router.py:510`, bedrock `:514`, gemini `:519`, openrouter `:521`, ollama `:529`. Keys per organisation: `core/model_router.py:57-70`. OpenRouter URL: `core/llm/openrouter_client.py:44`. Ollama default `http://localhost:11434`: `core/llm/client.py:468`.
+- Nginx to gateway on 127.0.0.1:8000: `deploy/nginx.conf`. Preview upstream 127.0.0.1:8100: `deploy/nginx.conf`. Velaris public host and path allowlist: `deploy/nginx_velaris_public.conf:67-73`.
+- Gateway, pipeline and Prime run in one process; the pipeline is started as an asyncio task: `gateway/routers/factory_start_router.py`. Prime router is mounted in the same app: `gateway/api.py`.
+- Model providers wired in the router: anthropic `core/model_router.py`, bedrock , gemini , openrouter , ollama . Keys per organisation: `core/model_router.py`. OpenRouter URL: `core/llm/openrouter_client.py`. Ollama default `http://localhost:11434`: `core/llm/client.py:468`.
 - Stripe: `gateway/routers/billing_stripe_router.py:42,54,106,143` (checkout session, webhook signature check). Razorpay: `gateway/routers/billing_router.py:24,55`. Provider choice by country: `core/billing/router.py:12-14`.
-- SMTP only: `core/notifications/email.py:1-16`. No SendGrid call exists in platform code; the SendGrid hits are in generated-app templates (`core/domain_packs/*`).
+- SMTP only: `core/notifications/email.py`. No SendGrid call exists in platform code; the SendGrid hits are in generated-app templates (`core/domain_packs/*`).
 - GitHub: `gateway/routers/account_codebase_router.py:163-164`, `core/plugins/connectors.py:79`, `gateway/auth_oauth.py`. GitLab: `core/plugins/connectors.py:183`, `phases/p08_cicd/repo/pr_creator.py`. Slack and Linear: `core/plugins/connectors.py:273,318`. Jira connector: `core/plugins/connectors.py:225`.
 - SAML: `gateway/auth_saml.py`. Google and GitHub OAuth: `gateway/auth_oauth.py`. SCIM: `gateway/routers/scim_router.py`.
 - LangSmith, opt in with `LANGSMITH_OPT_IN` and key: `core/telemetry/langsmith_tracer.py:31-43`.
-- S3: `core/artifact_store.py:249-257`, `orchestrator/artifact_collector.py:93-109`. SQS: `core/queue/sqs_client.py:19-30`. Sentry: `gateway/api_utils.py` (`_init_sentry`).
+- S3: `core/artifact_store.py`, `orchestrator/artifact_collector.py:93-109`. SQS: `core/queue/sqs_client.py`. Sentry: `gateway/api_utils.py` (`_init_sentry`).
 - ChromaDB: `core/memory/vector_store.py:14,43-50`. pgvector: `core/vector_store.py:1-10`.
-- Docker sandbox through the host socket: `Dockerfile:25-26`, `docker-compose.yml:111-135`.
-- Dashboard, CLI, extension auth: `cli/aetheros.py:75` and `vscode-extension/src/client.ts:21` send `Authorization: Bearer`. SSE uses a one time token: `gateway/routers/factory_run_streaming_router.py:36-47`.
-- Gateway to Velaris, signed client: `core/velaris/client.py:1-20,100-114`. Prime to Velaris: `prime/executors.py:32,194`. Velaris to Prime: `velaris/core/prime.py:156-160` in the Velaris repo (URL and API key env vars, Bearer header in `_client`, near `:50`).
+- Docker sandbox through the host socket: `Dockerfile`, `docker-compose.yml`.
+- Dashboard, CLI, extension auth: `cli/aetheros.py` and `vscode-extension/src/client.ts:21` send `Authorization: Bearer`. SSE uses a one time token: `gateway/routers/factory_run_streaming_router.py:36-47`.
+- Gateway to Velaris, signed client: `core/velaris/client.py`. Prime to Velaris: `prime/executors.py:32,194`. Velaris to Prime: `velaris/core/prime.py:156-160` in the Velaris repo (URL and API key env vars, Bearer header in `_client`, near `:50`).
 - Velaris to Atlassian OAuth: `velaris/core/atlassian_oauth.py:44-47` in the Velaris repo.
+
+Changes since the first drawing (all re-read in code at `245985d`): any OpenAI compatible endpoint is reached through the `openrouter` provider with `OPENROUTER_BASE_URL` set (`core/llm/openrouter_client.py` `base_url()`; NVIDIA in `.env.example`); generated code that opens a browser or builds a Dockerfile now runs in a browser sandbox and a builder sandbox instead of on the host (`core/sandbox/browser_job.py`, `core/sandbox/build_runner.py`; browser profile has no network); PostgreSQL connections go through a circuit breaker and a down database answers 503 with `Retry-After: 5` (`core/db.py` `install_postgres_breaker`, `DEPENDENCY_DOWN`; handler in `gateway/api.py`).
 
 Not shown / not verified:
 
@@ -113,5 +115,5 @@ Not shown / not verified:
 - Velaris has more outbound calls (its own LLM client in `velaris/intel/llm.py`, IMAP/SMTP in `velaris/mail/connector.py`, Google indexing in `velaris/agentkit/hiring_posting.py:24`). They are not drawn; only the Atlassian call was named in the brief.
 - The exact header name and scheme used for each model provider and for Stripe or Razorpay was not read call by call; "per org API key" and "secret key" are the credential type, not the header.
 - Terraform runs the stack on AWS ECS behind an ALB without nginx (see diagram 05); the nginx edges here describe the single host (compose) deployment.
-- The Prime to gateway edge from Velaris uses an `aesk_` style API key by design of `get_current_user` (`gateway/dependencies.py:112`); the exact key type Velaris is given was not checked.
-- The CI webhook (`phases/p08_cicd/webhook.py`, authenticated by `require_ci_auth`, `gateway/api.py:306`) is an inbound edge and is not drawn.
+- The Prime to gateway edge from Velaris uses an `aesk_` style API key by design of `get_current_user` (`gateway/dependencies.py`); the exact key type Velaris is given was not checked.
+- The CI webhook (`phases/p08_cicd/webhook.py`, authenticated by `require_ci_auth`, `gateway/api.py`) is an inbound edge and is not drawn.
