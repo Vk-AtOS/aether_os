@@ -161,6 +161,12 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
         tsc_lines = _tsc_messages(tsc_result) if tsc_result.returncode != 0 else []
         built = build_result.returncode == 0 and (frontend_dir / "dist" / "index.html").is_file()
+        if not built:
+            # Without this the only trace of a failed bundle was the tsc count, so "built=False" on a real run could
+            # not be diagnosed afterwards (production acceptance run 4, 22 Nov 2026).
+            logger.warning("p05 build_loop: round %d build failed (exit %s, dist/index.html %s): %s", round_num,
+                           build_result.returncode, (frontend_dir / "dist" / "index.html").is_file(),
+                           _combine_output(build_result)[-1500:])
         if built and not tsc_lines:
             return _outcome(True, [], round_num)
         if round_num == max_rounds:
