@@ -13,6 +13,7 @@ Plan token budgets (per month):
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -107,6 +108,37 @@ _COST_PER_OUTPUT_TOKEN: Dict[str, float] = {
     "gemini-2.5-pro":             5.00 / 1_000_000,
     "default":                   15.00 / 1_000_000,
 }
+
+def _price_overrides() -> Dict[str, Tuple[float, float]]:
+    """Operator-set prices in USD per 1K tokens: env LLM_PRICES_PER_1K='{"model": [in, out]}'.
+    Needed because OpenRouter/NVIDIA report no price: without it a paid model on those providers would count as
+    free (or as Sonnet) and the spend cap would be wrong."""
+    raw = os.environ.get("LLM_PRICES_PER_1K", "").strip()
+    if not raw:
+        return {}
+    try:
+        return {m: (float(v[0]), float(v[1])) for m, v in json.loads(raw).items()}
+    except Exception as exc:
+        logger.warning("LLM_PRICES_PER_1K ignored, not valid JSON of model -> [in, out]: %s", exc)
+        return {}
+
+
+def _is_free_model(model: str) -> bool:
+    return model.endswith(":free") or model.startswith(("nvidia/", "nvidia_nim/")) or model in ("cache", "local")
+
+
+def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Cost of one call. Order: operator price per 1K, known price table, free models cost 0, anything else is
+    priced at the conservative default so an unknown paid model can never slip under the cap."""
+    override = _price_overrides().get(model)
+    if override:
+        return (input_tokens * override[0] + output_tokens * override[1]) / 1000
+    if model not in _COST_PER_INPUT_TOKEN and _is_free_model(model):
+        return 0.0
+    return (input_tokens * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"])
+            + output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"]))
+
+
 # Legacy alias used by older callers
 _COST_PER_TOKEN: Dict[str, float] = _COST_PER_INPUT_TOKEN
 
@@ -202,10 +234,7 @@ class TokenBudgetManager:
     ) -> None:
         month = time.strftime("%Y-%m")
         # Apply separate input and output rates (Anthropic: $3/$15 per million tokens)
-        cost = (
-            input_tokens  * _COST_PER_INPUT_TOKEN.get(model, _COST_PER_INPUT_TOKEN["default"]) +
-            output_tokens * _COST_PER_OUTPUT_TOKEN.get(model, _COST_PER_OUTPUT_TOKEN["default"])
-        )
+        cost = cost_usd(model, input_tokens, output_tokens)
         observe_cost(model, input_tokens, output_tokens, cost)
         try:
             from aether_os.core.db import get_session_factory
