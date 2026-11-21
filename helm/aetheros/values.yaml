@@ -108,9 +108,15 @@ resources:
     memory: 2Gi
 
 # ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
-# -- Schema job run after install/upgrade (scripts/db_migrate.py). Keep it on unless migrations are run by other means.
+# -- Schema job (scripts/db_migrate.py). Keep it on unless migrations are run by other means. It runs as a Helm hook BEFORE
+# the API rolls out, so a new API never starts on an old schema and `helm upgrade --wait` cannot deadlock on it.
 migrate:
   enabled: true
+  # -- Hook phases. Empty = pre-install,pre-upgrade with an external database (secrets.DATABASE_URL), and
+  # post-install,pre-upgrade with the bundled postgresql sub-chart (it does not exist before the first install, so a
+  # pre-install job could not reach it: on that first install the API pods restart until the job finishes, so do not
+  # use --wait then; every later upgrade is pre-upgrade).
+  hook: ""
 
 autoscaling:
   # -- Enable HPA.
