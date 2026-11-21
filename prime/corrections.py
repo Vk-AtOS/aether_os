@@ -29,6 +29,7 @@ from aether_os.prime.models import PrimeCorrection
 logger = logging.getLogger(__name__)
 
 TOP_K_MAX = 5
+ALSO_MAX = 5               # alternate proposer names per lookup
 FIELD_CAP = 400            # characters per field in the prompt
 BLOCK_CAP = 3000           # characters for the whole block
 CANDIDATES = 200           # newest rows scored per lookup: bounded work
@@ -108,12 +109,17 @@ def _score(row: PrimeCorrection, query: set, now: datetime) -> float:
 
 
 async def relevant(org_id: str, agent: str, action_type: str, query: str = "",
-                   k: int = 3) -> List[Dict[str, Any]]:
-    """The most relevant corrections for this organisation, agent and action type; nothing else."""
+                   k: int = 3, also: Iterable[str] = ()) -> List[Dict[str, Any]]:
+    """The most relevant corrections for this organisation, agent and action type; nothing else.
+
+    `also` are other names the same proposer is known by. Corrections filed before agent_of() preferred
+    params.agent were stored under the Velaris tool name, so a flow asking only by its agent name never
+    reached them; it now passes the tool names and gets both (still only this org and this action type)."""
     k = max(1, min(k, TOP_K_MAX))
+    names = list(dict.fromkeys([agent, *[a[:128] for a in list(also)[:ALSO_MAX] if a]]))
     async with get_session_factory()() as session:
         rows = (await session.execute(select(PrimeCorrection).where(
-            PrimeCorrection.org_id == org_id, PrimeCorrection.agent == agent,
+            PrimeCorrection.org_id == org_id, PrimeCorrection.agent.in_(names),
             PrimeCorrection.action_type == action_type)
             .order_by(PrimeCorrection.created_at.desc()).limit(CANDIDATES))).scalars().all()
     now, q = _now(), _tokens(query)
