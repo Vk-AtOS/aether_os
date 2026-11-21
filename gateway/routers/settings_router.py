@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.db import get_session_factory
+from aether_os.core.llm.openrouter_client import _BASE_URL as _OPENROUTER_DEFAULT_URL, base_url as openai_compatible_base_url
 from aether_os.core.models import OrgApiKey
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.policy_guard import enforce
@@ -294,18 +295,19 @@ async def test_provider(
     elif req.provider in ("openai", "openrouter"):
         try:
             import httpx
-            base_url = (
-                "https://openrouter.ai/api/v1"
-                if req.provider == "openrouter"
-                else "https://api.openai.com/v1"
-            )
-            model = "openai/gpt-4o-mini" if req.provider == "openrouter" else "gpt-4o-mini"
+            base_url = openai_compatible_base_url() if req.provider == "openrouter" else "https://api.openai.com/v1"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             async with httpx.AsyncClient(timeout=15) as hc:
-                r = await hc.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
-                )
+                if req.provider == "openrouter" and base_url != _OPENROUTER_DEFAULT_URL:
+                    # OPENROUTER_BASE_URL points at another OpenAI-compatible provider (e.g. NVIDIA): "openai/gpt-4o-mini"
+                    # is not a model there, so the one cheap call is the model listing, which also checks the key.
+                    r = await hc.get(f"{base_url}/models", headers=headers)
+                else:
+                    model = "openai/gpt-4o-mini" if req.provider == "openrouter" else "gpt-4o-mini"
+                    r = await hc.post(
+                        f"{base_url}/chat/completions", headers=headers,
+                        json={"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+                    )
         except Exception as e:
             raise _test_failed(req.provider, e) from e
         if r.status_code == 401:
