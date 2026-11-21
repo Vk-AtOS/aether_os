@@ -20,3 +20,16 @@ async def test_import_codebase_refuses_names_that_steer_the_platform_token(monke
     with pytest.raises(HTTPException) as exc:
         await import_codebase({"repo_url": repo_url, "branch": branch}, {"org_id": "o1"})
     assert exc.value.status_code == 422
+
+
+def test_portal_feedback_body_is_bounded():
+    """A portal token holder is an external client; feedback is appended to disk on every call."""
+    from pydantic import ValidationError
+
+    from aether_os.gateway.client_portal.routes import FeedbackBody
+
+    assert FeedbackBody(feedback="ok", phase="p01").feedback == "ok"
+    with pytest.raises(ValidationError):
+        FeedbackBody(feedback="x" * 5001)
+    with pytest.raises(ValidationError):
+        FeedbackBody(feedback="ok", phase="p" * 129)
