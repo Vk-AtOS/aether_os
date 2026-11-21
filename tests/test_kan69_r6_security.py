@@ -44,3 +44,25 @@ def test_nginx_portal_location_is_rate_limited_and_body_capped():
     block = conf.split("location /portal/ {", 1)[1].split("\n    }", 1)[0]
     assert "limit_req zone=api" in block
     assert "client_max_body_size" in block
+
+
+@pytest.mark.asyncio
+async def test_change_password_is_throttled_per_user(monkeypatch):
+    """A stolen access token must not allow unlimited guesses of the current password."""
+    from types import SimpleNamespace
+
+    from aether_os.gateway.routers import auth_password_router as r
+
+    seen = []
+
+    class Limiter:
+        async def allow(self, key, limit, window):
+            seen.append(key)
+            return False
+
+    monkeypatch.setattr(r, "_get_rl", lambda: Limiter())
+    request = SimpleNamespace(client=SimpleNamespace(host="203.0.113.9"), headers={})
+    with pytest.raises(HTTPException) as exc:
+        await r.change_password({"current_password": "x", "new_password": "y"}, request, {"user_id": "u1"})
+    assert exc.value.status_code == 429
+    assert seen == ["change_pw:u1"]
