@@ -18,6 +18,20 @@ def test_llm_diagnosis_cannot_change_the_process_environment(monkeypatch):
     assert m._fix_log[-1]["type"] == "recommendation"
 
 
+def test_model_routing_and_safety_keys_are_not_recommendable_and_allowed_ones_are_ledgered(monkeypatch):
+    """KAN-101 item 3: PRIMARY_LLM / COUNCIL_STRICT_MODE affect every tenant; recommendations reach the ledger."""
+    assert not {"PRIMARY_LLM", "COUNCIL_STRICT_MODE"} & WorkloopMonitor._SAFE_ENV_VARS
+    m = WorkloopMonitor()
+    calls = []
+
+    async def fake_ledger(key, val, reason):
+        calls.append(key)
+    monkeypatch.setattr(m, "_ledger_recommendation", fake_ledger)
+    for k in ("COUNCIL_STRICT_MODE=false", "OLLAMA_TIMEOUT=900"):
+        asyncio.run(m._maybe_apply_fix({"auto_fixable": True, "fix_type": "env_var", "fix_action": k}))
+    assert calls == ["OLLAMA_TIMEOUT"]
+
+
 class _Run:
     def __init__(self, org): self.org_id = org
 
