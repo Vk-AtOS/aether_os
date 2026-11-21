@@ -48,7 +48,7 @@ Known difference: `run_all.sh:9` runs `ruff check . --select E9,F63,F7,F82`, a n
   `-3815` (chromadb server-mode flaws; the script's comment says only the embedded client is used).
 - gitleaks uses a pinned, checksum-verified binary (`scripts/ci/install_gitleaks.sh`), so no `GITLEAKS_LICENSE`
   secret is needed. `.gitleaks.toml` allowlists only entries its header calls verified false positives.
-  Whether the history scan passes today: not measured. Credential rotation steps:
+  Reviewed historic findings are baselined in `.gitleaksignore` (owner decision 22 Nov 2026, see the runbook section 0); new findings still fail. Credential rotation steps:
   `docs/security/ROTATION_RUNBOOK.md`.
 - Not verified from here: the workflow has never run on GitHub (services, caching and the Postgres tests need a
   real run). `COVERAGE_FLOOR=50` is a placeholder; the real coverage is not measured.

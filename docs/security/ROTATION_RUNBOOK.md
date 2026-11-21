@@ -4,11 +4,20 @@ Status: PREPARED, NOT EXECUTED. Every step below needs the owner. This file cont
 only locations. Order matters: rotate first, rewrite history second. Rotation is what protects you;
 anything that was ever in git (or on GitHub, even private) must be treated as known.
 
-## 0. Why the `gitleaks` job is red on main
+## 0. Why the `gitleaks` job was red on main, and the baseline (KAN-203)
 
-`bash scripts/ci/secret_scan.sh` reports 20 findings (all in git history; one, `plans2.md:13`, is also in the
-current tree), all real secrets. The other 18 raw findings were fakes and are allowlisted in `.gitleaks.toml`
-with reasons. The job turns green only after sections 1 and 2 are done. Do NOT allowlist these.
+`bash scripts/ci/secret_scan.sh` reported 24 raw findings in git history (one pair of kinds: credentials quoted in
+old notes and audit documents, and fake keys in tests). Owner decision, 22 Nov 2026: the credentials found in
+history are test-only, will NOT be rotated and history will NOT be rewritten before the sale.
+
+To keep CI blocking on anything new, the 23 distinct reviewed fingerprints are listed in `.gitleaksignore`
+(repo root, picked up automatically by gitleaks), grouped by reason: test fixtures, and historic-only content in
+files since removed from HEAD. A working-tree scan confirms no live secret remains in tracked files; the
+notes file that held credentials is untracked and gitignored. Fingerprints are commit-bound, so a secret added
+in any new commit is still reported and fails the job (checked locally with a fresh fake cloud key in a temp commit).
+
+Rules: never add a finding that exists at HEAD to `.gitleaksignore`, remove the secret instead. The rotation and
+rewrite steps below stay available if the owner reverses the decision; they are not required for a green job.
 
 ## 1. Rotate (owner, in this order)
 
