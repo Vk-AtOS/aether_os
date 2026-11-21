@@ -1,4 +1,4 @@
-# Prometheus for the compose `observability` profile (KAN-50). The scrape key is read from a mounted file, never written here.
+# Prometheus for docker-compose.observability.yml (KAN-50). The scrape key is read from a mounted file, never written here.
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
