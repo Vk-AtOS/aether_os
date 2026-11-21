@@ -4,9 +4,9 @@ import { vc, vError, btn } from '../velaris/velarisApi';
 import { Notice, Card } from '../velaris/shared';
 import { confirmAction } from '../confirmAction';
 import { inputClass, labelClass } from '../prime/parts';
+import { MAX_ATT } from './composeHelpers';
 
 const list = (s) => s.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
-const MAX_ATT = 45 * 1024;      // attachments travel inside the 64 KiB JSON body
 
 const b64 = (file) => new Promise((resolve, reject) => {
   const r = new FileReader();
@@ -57,7 +57,8 @@ const Compose = ({ mb, reply, onClose }) => {
   const fileRef = useRef(null);
   // Sending is "create a draft, then submit it". Until the submit is accepted the draft belongs to this form:
   // a refused submit removes it, so a failed send (and each retry) does not pile drafts up in the Drafts folder.
-  const leftover = useRef(null);
+  // An assistant draft opened for editing (reply.draftId) is replaced by the person's own send, or removed on Discard.
+  const leftover = useRef(reply?.draftId || null);
   const dropDraft = async () => {
     if (!leftover.current) return;
     try { await vc.delete(`/mail/mailboxes/${mb}/drafts/${leftover.current}`); leftover.current = null; } catch (x) {
@@ -71,8 +72,12 @@ const Compose = ({ mb, reply, onClose }) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > MAX_ATT) { setErr('Attachments are limited to about 45 KB here (they are sent inside the message request).'); return; }
-    try { setFiles([...files, { name: file.name, content_type: file.type || 'application/octet-stream', data_b64: await b64(file) }]); setErr(''); } catch (x) { setErr(x.message); }
+    const used = files.reduce((n, x) => n + x.size, 0);
+    if (used + file.size > MAX_ATT) {
+      setErr(`Attachments are limited to 45 KB in total per message (they are sent inside the message request). This file is ${Math.ceil(file.size / 1024)} KB and ${Math.ceil(used / 1024)} KB is already attached.`);
+      return;
+    }
+    try { setFiles([...files, { name: file.name, size: file.size, content_type: file.type || 'application/octet-stream', data_b64: await b64(file) }]); setErr(''); } catch (x) { setErr(x.message); }
   };
 
   const submit = async (e) => {
@@ -84,7 +89,7 @@ const Compose = ({ mb, reply, onClose }) => {
     try {
       await dropDraft();
       const d = await vc.post(`/mail/mailboxes/${mb}/drafts`, { to, cc: list(f.cc), subject: f.subject, text: f.text,
-        ...(files.length ? { attachments: files } : {}), ...(reply?.id ? { in_reply_to_id: reply.id } : {}) });
+        ...(files.length ? { attachments: files.map((x) => ({ name: x.name, content_type: x.content_type, data_b64: x.data_b64 })) } : {}), ...(reply?.id ? { in_reply_to_id: reply.id } : {}) });
       leftover.current = d.data.id;
       const s = await vc.post(`/mail/mailboxes/${mb}/drafts/${d.data.id}/submit`, {});
       leftover.current = null;
