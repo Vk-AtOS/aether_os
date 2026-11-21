@@ -17,6 +17,7 @@ from aether_os.core.sandbox import phase_exec
 from aether_os.core.llm.json_enforcer import extract_first_json
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
+from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,13 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
     tsc_errors = 0
     for round_num in range(1, max_rounds + 1):
         ensure_local_modules(frontend_dir)  # LLM patches/revisions may add imports of files that do not exist
+        if ensure_npm_deps(frontend_dir):  # ...or of packages package.json lacks: they need an install first
+            try:
+                await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
+            except SandboxUnavailable:
+                raise
+            except Exception as exc:
+                logger.warning("p05 build_loop: npm install after adding dependencies failed: %s", exc)
         try:
             # Type-check and build execute the project's own tooling and plugins: sandbox, no network.
             tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],
