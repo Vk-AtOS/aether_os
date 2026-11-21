@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aether_os.core.errors import SandboxViolation
 from aether_os.core.run_app.safe_fs import safe_makedirs, safe_write_text
+from aether_os.phases.p05_frontend.missing_exports import render_patch
 from aether_os.phases.p05_frontend.ui_primitives import UI_PRIMITIVES, UTIL_MODULES
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ _RESOLVE_EXT = _SRC_EXT + (".json", ".css", ".mjs")
 _FROM_RE = re.compile(r"""(?:import|export)\s+(?P<clause>(?:type\s+)?[^'";]*?)\s*from\s*['"](?P<spec>[^'"]+)['"]""", re.S)
 _SIDE_RE = re.compile(r"""import\s*['"](?P<spec>[^'"]+)['"]""")
 _DYN_RE = re.compile(r"""import\(\s*['"](?P<spec>[^'"]+)['"]\s*\)""")
+GENERATED_MARK = "// aether:generated-module"
 _EXPORT_NAME_RE = re.compile(r"^export (?:const|function|interface|type) (\w+)", re.M)
 
 
@@ -76,15 +78,128 @@ def _has(path: Path) -> bool:
     """File exists with this exact spelling: Linux builds are case-sensitive, a macOS dev disk is not, so
     `ui/card` must not count as present just because `ui/Card.tsx` is (that is how this bug hid locally)."""
     try:
-        return path.name in {p.name for p in path.parent.iterdir() if p.is_file()}
+        if path.name not in {p.name for p in path.parent.iterdir() if p.is_file()}:
+            return False
     except OSError:
         return False
+    for parent in path.parents:  # directory casing too: `Components/UI` must not resolve to `components/ui` on macOS
+        try:
+            if parent.parent != parent and parent.name not in {p.name for p in parent.parent.iterdir()}:
+                return False
+        except OSError:
+            break
+    return True
 
 
 def _exists(base: Path) -> bool:
     if _has(base) or any(_has(Path(str(base) + e)) for e in _RESOLVE_EXT):
         return True
     return any(_has(base / ("index" + e)) for e in _SRC_EXT)
+
+
+def _ci_entry(directory: Path, name: str, want_dir: bool = False) -> str | None:
+    """Entry of `directory` whose name equals `name` ignoring case (exact spelling preferred)."""
+    try:
+        names = [p.name for p in directory.iterdir() if (p.is_dir() if want_dir else p.is_file())]
+    except OSError:
+        return None
+    if name in names:
+        return name
+    return next((n for n in sorted(names) if n.lower() == name.lower()), None)
+
+
+def _case_corrected_spec(spec: str, importer: Path, src: Path) -> str | None:
+    """The specifier respelled to the casing of the file it points to on disk, or None when no file matches even
+    ignoring case. The generator writes ui/Card.tsx while model pages import ui/card: on Linux that is a missing
+    module and creating card.tsx next to Card.tsx makes tsc fail with TS1261 (same file, two casings)."""
+    segs = spec.split("/")
+    cur = src if spec.startswith("@/") else importer.parent
+    out = ["@"] if spec.startswith("@/") else []
+    rest = segs[1:] if spec.startswith("@/") else segs
+    for i, seg in enumerate(rest):
+        if seg in (".", "..", ""):
+            cur = (cur / seg).resolve() if seg else cur
+            out.append(seg)
+            continue
+        if i < len(rest) - 1:
+            d = _ci_entry(cur, seg, want_dir=True)
+            if d is None:
+                return None
+            cur = cur / d
+            out.append(d)
+            continue
+        for ext in ("",) + _RESOLVE_EXT:
+            f = _ci_entry(cur, seg + ext)
+            if f is not None:
+                out.append(f[: len(f) - len(ext)])
+                return "/".join(out)
+        d = _ci_entry(cur, seg, want_dir=True)
+        if d is not None and any(_ci_entry(cur / d, "index" + e) for e in _SRC_EXT):
+            out.append(d)
+            return "/".join(out)
+        return None
+    return None
+
+
+def _plain_file_in_src(f: Path, src: Path) -> bool:
+    """f is a regular file that really lives under src: no symlink on the way (a planted link must never make us
+    rewrite or delete a file outside the project) and it resolves inside src."""
+    try:
+        if f.is_symlink() or any(p.is_symlink() for p in f.parents if p != src and p.is_relative_to(src)):
+            return False
+        return f.resolve().is_relative_to(src)
+    except OSError:
+        return False
+
+
+def _drop_generated_case_duplicates(src: Path) -> list[Path]:
+    """Remove stubs/primitives an earlier run generated beside a differently-cased real file (TS1261)."""
+    removed: list[Path] = []
+    for f in sorted(src.rglob("*")):
+        if f.suffix not in _SRC_EXT or not _plain_file_in_src(f, src) or not f.is_file():
+            continue
+        if not f.read_text(errors="replace").startswith(GENERATED_MARK):
+            continue
+        twin = next((p for p in f.parent.iterdir() if p.is_file() and not p.is_symlink() and p.name != f.name and p.name.lower() == f.name.lower()
+                     and not p.read_text(errors="replace").startswith(GENERATED_MARK)), None)
+        if twin is not None:
+            f.unlink()
+            removed.append(f)
+            logger.warning("p05 missing_modules: removed generated duplicate %s (differs only by case from %s)", f.name, twin.name)
+    return removed
+
+
+def _existing_file(base: Path) -> Path | None:
+    """The source file a (resolved) specifier points to, exact spelling, or None."""
+    for cand in [base] + [Path(str(base) + e) for e in _SRC_EXT] + [base / ("index" + e) for e in _SRC_EXT]:
+        if cand.suffix in _SRC_EXT and _has(cand):
+            return cand
+    return None
+
+
+def _add_missing_exports(src: Path, needs: dict[Path, list]) -> list[str]:
+    """Append the named exports importers expect to the existing modules that lack them. Never renames or removes an
+    export; same containment rules as every other write here (no symlinks, nothing outside src)."""
+    changed: list[str] = []
+    for target, (values, types) in sorted(needs.items()):
+        if not _plain_file_in_src(target, src):
+            logger.warning("p05 missing_modules: %s is a symlink or outside src; exports not added", target.name)
+            continue
+        try:
+            text = target.read_text(errors="replace")
+            patch, added = render_patch(text, values, types, jsx=target.suffix == ".tsx")
+            if not added:
+                continue
+            if target.suffix not in (".ts", ".tsx"):
+                logger.warning("p05 missing_modules: %s is not TypeScript; cannot add %s", target.name, added)
+                continue
+            safe_write_text(src, target, text.rstrip("\n") + "\n" + patch)
+        except (SandboxViolation, OSError) as exc:
+            logger.warning("p05 missing_modules: could not add exports to %s: %s", target, exc)
+            continue
+        changed.append(target.relative_to(src).as_posix())
+        logger.warning("p05 missing_modules: added missing exports %s to existing %s", added, target.name)
+    return changed
 
 
 def _forward_exports(values: set[str], types: set[str], taken: set[str]) -> str:
@@ -124,7 +239,10 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
     src = (frontend_dir / "src").resolve()
     if not src.is_dir():
         return []
+    _drop_generated_case_duplicates(src)
     missing: dict[Path, list] = {}  # target base -> [values, types, default]
+    needs: dict[Path, list] = {}  # existing file -> [values, types] importers need exported
+    respell: list[tuple[Path, str, str]] = []  # (importer, old specifier, specifier in the on-disk casing)
     for f in sorted(src.rglob("*")):
         if f.suffix not in _SRC_EXT or not f.is_file():
             continue
@@ -146,7 +264,21 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
             except PermissionError as exc:
                 logger.warning("p05 missing_modules: %s imports %r: %s; skipped", f.name, spec, exc)
                 continue
-            if base is None or _exists(base):
+            if base is None:
+                continue
+            fixed = None if _exists(base) else _case_corrected_spec(spec, f, src)
+            if fixed is not None and fixed != spec:
+                respell.append((f, spec, fixed))
+                try:
+                    base = _resolve(fixed, f, src)
+                except PermissionError:
+                    continue
+            if _exists(base):
+                target = _existing_file(base)
+                if target is not None and (values or types) and target != f:
+                    entry = needs.setdefault(target, [set(), set()])
+                    entry[0] |= values
+                    entry[1] |= types
                 continue
             ext = Path(spec).suffix
             if ext and ext not in _SRC_EXT:
@@ -158,6 +290,18 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
             entry[0] |= values
             entry[1] |= types
             entry[2] = entry[2] or default
+    for f, old, new in respell:
+        if not _plain_file_in_src(f, src):
+            logger.warning("p05 missing_modules: %s is a symlink or outside src; import not respelled", f.name)
+            continue
+        try:
+            text = f.read_text(errors="replace")
+            for q in ("'", '"'):
+                text = text.replace(f"{q}{old}{q}", f"{q}{new}{q}")
+            safe_write_text(src, f, text)
+            logger.info("p05 missing_modules: %s import %r respelled to %r (case differs from the file on disk)", f.name, old, new)
+        except (SandboxViolation, OSError) as exc:
+            logger.warning("p05 missing_modules: could not respell import in %s: %s", f, exc)
     written: list[str] = []
     for base, (values, types, default) in sorted(missing.items()):
         path, text, known = _render(base, src, values, types, default)
@@ -171,7 +315,7 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
             if not path.resolve().is_relative_to(src):
                 raise SandboxViolation(f"{path} is outside src")
             safe_makedirs(src, path.parent)
-            safe_write_text(src, path, text)
+            safe_write_text(src, path, GENERATED_MARK + "\n" + text)
         except (SandboxViolation, OSError) as exc:
             logger.warning("p05 missing_modules: refused to write %s: %s", path, exc)
             continue
@@ -181,4 +325,5 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
         else:
             logger.warning("p05 missing_modules: generated stub %s for imported names %s",
                            written[-1], sorted(values | types) or "(default)")
+    _add_missing_exports(src, needs)
     return written

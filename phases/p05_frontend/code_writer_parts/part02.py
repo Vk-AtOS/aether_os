@@ -453,6 +453,9 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("    apiClient.post('/auth/register', { email, password }).then(r => r.data),")
     lines.append("}")
 
+    exported = {"authApi"}
+    for ent in entities:
+        exported.add(ent["table"][0].lower() + to_pascal_case(ent["table"])[1:] + "Api")
     for ent in entities:
         table = ent["table"]
         type_name = to_type_name(table)    # singular: "Patient"
@@ -473,5 +476,10 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
         lines.append(f"    apiClient.patch<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
         lines.append(f"  remove: (id: string | number) => apiClient.delete(`{endpoint}/${{id}}`),")
         lines.append("}")
+        # Model-written code says projectApi where the generator says projectsApi (TS2724): export both spellings.
+        singular = type_name[0].lower() + type_name[1:] + "Api"
+        if singular not in exported:
+            exported.add(singular)
+            lines.append(f"export const {singular} = {camel}Api")
 
     return "\n".join(lines) + "\n"

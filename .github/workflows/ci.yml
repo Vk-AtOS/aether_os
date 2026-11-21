@@ -86,6 +86,9 @@ jobs:
       - name: Docs match code (routes, paths, env vars, scripts named in the docs exist)
         run: python scripts/ci/check_docs.py
 
+      - name: Output-quality regression gate (golden fixtures vs benchmarks/quality_baseline.json, KAN-188)
+        run: python scripts/ci/quality_gate.py
+
       - name: Static security analysis (bandit, high severity)
         run: bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'
 

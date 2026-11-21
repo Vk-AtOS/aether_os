@@ -24,7 +24,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get inst
     && rm -rf /var/lib/apt/lists/*
 
 # Use the pinned lockfile for reproducible builds (requirements.txt is unpinned)
-# The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) against the host's socket (see docker-compose.yml).
+# The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) through DOCKER_HOST=unix:///docker-proxy/docker.sock, the filtered socket proxy (unix socket on a private volume, no TCP) (see docker-compose.yml); the API has no socket.
 # 29.10.0 (Go 1.27.4): 27.5.1 was built with Go 1.22.11, whose standard library has CRITICAL CVEs. The client negotiates
 # the API version down to older daemons (hosts run Docker 25).
 COPY --from=docker:29.10.0-cli@sha256:34507eb5069d8be82c95dd3b6987d4250fd5fee49b82e2509b7d7a7030740d6d /usr/local/bin/docker /usr/local/bin/docker
