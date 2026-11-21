@@ -1,0 +1,61 @@
+{
+  "dump": "aetheros_20261121_132232.dump",
+  "dump_bytes": 255003265,
+  "server": "postgresql://aether_user@<rds-endpoint>:5432/postgres",
+  "started_at": "2026-11-21T13:23:12Z",
+  "steps": [
+    {
+      "step": "preflight (role, dump contents)",
+      "seconds": 0.05,
+      "ok": true,
+      "detail": "no event triggers, untrusted languages or unexpected extensions"
+    },
+    {
+      "step": "create scratch database",
+      "seconds": 0.31,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "create schema extensions (admin)",
+      "seconds": 0.1,
+      "ok": true,
+      "detail": "vector"
+    },
+    {
+      "step": "restore dump",
+      "seconds": 329.01,
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": "verify restored data",
+      "seconds": 1.15,
+      "ok": true,
+      "detail": "schema_at_head=True, core_tables_present=True, chains_verify=True, matches_external_anchors=True, anchors_cover_every_chain=True"
+    },
+    {
+      "step": "drop scratch database",
+      "seconds": 0.33,
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": true,
+  "row_counts": {
+    "organisations": 1,
+    "users": 1,
+    "runs": 2001,
+    "audit_chain": 81
+  },
+  "chain_entries": 81,
+  "checks": {
+    "schema_at_head": true,
+    "core_tables_present": true,
+    "chains_verify": true,
+    "matches_external_anchors": true,
+    "anchors_cover_every_chain": true
+  },
+  "total_seconds": 330.95,
+  "note": "AWS testbed: production-size (2.6 GB, 4M pipeline events), aetheros-backup.service (compose mode) -> S3, checkpoints + public key kept apart in S3 -> RDS PostgreSQL 15 db.t4g.micro"
+}
