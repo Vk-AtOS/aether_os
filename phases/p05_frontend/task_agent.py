@@ -17,6 +17,7 @@ from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p05_frontend.build_loop import run_build_loop
+from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.cloud_console_generator import (
     generate_cloud_console,
 )
@@ -513,6 +514,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     if os.environ.get("ENVIRONMENT") != "test":
         async with get_npm_semaphore():
             try:
+                # Model-written pages import UI primitives/modules the generator never wrote; create them before the build.
+                ensure_local_modules(frontend_dir_final)
                 _hash = pkg_hash(frontend_dir_final)
                 if not node_modules_fresh(frontend_dir_final, _hash):
                     # Install in the sandbox (install egress profile); build/tsc below have no network.
