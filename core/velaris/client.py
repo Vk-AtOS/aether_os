@@ -161,6 +161,10 @@ class VelarisClient:
             raise VelarisUnavailable("Velaris is not connected")
         if len(secret) < MIN_SECRET_BYTES:
             raise VelarisUnavailable("VELARIS_API_SECRET is shorter than 32 bytes")
+        if key_pem and "\n" not in key_pem and "\\n" in key_pem:
+            # One-line form with literal \n: compose's .env parser turns them into newlines, but the same value exported by a
+            # shell, a systemd EnvironmentFile or most secret stores keeps the backslashes, and the key failed to parse.
+            key_pem = key_pem.replace("\\n", "\n")
         key = _load_key(key_path) if key_path else _parse_key(key_pem.encode())
         return cls(url, secret, key, timeout=timeout, transport=transport)
 
