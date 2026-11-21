@@ -19,6 +19,8 @@ from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.start_lock import org_start_lock
 from aether_os.phases.p03_scaffolding.validation import is_valid_project_name, validate_clone_url
 from aether_os.gateway.policy_guard import admit_run_start, enforce
+from aether_os.core import model_admission
+from aether_os.core.queue import sqs_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["factory"])
@@ -144,6 +146,19 @@ async def start_factory_run(
     # Checked first so an org out of quota sees 402 (upgrade), not 429. Nothing is
     # consumed here: admit_run_start below takes the trial run once the request is valid.
     await enforce("run.start", user)
+
+    # ── Model providers (KAN-207): without one the run would start and fail at its first model call ──
+    # With a queue configured (SQS_QUEUE_URL) the run is queued exactly as before: the check is skipped.
+    if not sqs_client.is_enabled():
+        _models = await model_admission.check_model_admission(org_id)
+        if not _models.usable:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "no_model_provider",
+                        "message": f"no model provider available: {_models.reason}; "
+                                   f"retry in {_models.retry_after_s} s"},
+                headers={"Retry-After": str(_models.retry_after_s)},
+            )
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     _rl = get_rate_limiter()

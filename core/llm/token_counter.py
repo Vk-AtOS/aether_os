@@ -7,11 +7,11 @@ cost-tracking state can be imported without pulling in provider SDKs.
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 import uuid
 from typing import Dict, Optional
+
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +20,17 @@ _cost_registry: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "c
 
 
 def safe_parse_json(text: str) -> dict:
-    """Parse a JSON string that may be wrapped in markdown fences or have other noise."""
-    # Try direct parse
+    """Parse the first JSON object in an LLM reply (fences, leading prose and trailing text are ignored).
+
+    Returns {"content", "parse_error": True, "raw"} when the reply holds no complete JSON object.
+    The old version json.loads'ed the whole reply, which fails on "{...} plus an explanation",
+    and then regex-grabbed the first brace-free {...}: a NESTED object, returned as the answer.
+    """
     try:
-        return json.loads(text.strip())
-    except (json.JSONDecodeError, ValueError, AttributeError) as e:
-        logger.warning("token_counter: direct JSON parse failed: %s", e)
-    # Find JSON block anywhere in response
-    for pattern in [r'\{[^{}]*\}', r'\{.*?\}']:
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning("token_counter: failed to parse JSON block from pattern %r: %s", pattern, e)
-    # Last resort — return structured default
-    return {"content": text.strip(), "parse_error": True, "raw": text[:1000]}
+        return extract_first_json(text, expect=dict)
+    except ValueError as e:
+        logger.warning("token_counter: no JSON object in LLM reply: %s", e)
+    return {"content": (text or "").strip(), "parse_error": True, "raw": (text or "")[:1000]}
 
 
 async def _write_llm_trace(

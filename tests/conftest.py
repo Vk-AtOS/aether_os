@@ -117,3 +117,16 @@ def _platform_llm_budget_bypassed(request, monkeypatch):
             return True, "ok", "sonnet"
         return await real(self, org_id, plan, projected_cost_usd, cap_usd)
     monkeypatch.setattr(budget.TokenBudgetManager, "check_budget", check)
+
+
+@pytest.fixture(autouse=True)
+def _model_admission_bypassed(request, monkeypatch):
+    """POST /factory/start refuses a run when no model provider is usable (KAN-207). Test environments have no provider,
+    so the check passes unless a test opts in with @pytest.mark.model_admission."""
+    if request.node.get_closest_marker("model_admission"):
+        return
+    from aether_os.core import model_admission
+
+    async def usable(org_id):
+        return model_admission.ModelAdmission(usable=True, provider="test")
+    monkeypatch.setattr(model_admission, "check_model_admission", usable)
