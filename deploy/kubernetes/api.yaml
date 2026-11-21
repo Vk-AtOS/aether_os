@@ -42,6 +42,19 @@ spec:
         app.kubernetes.io/name: aetheros-api
         app.kubernetes.io/component: api
     spec:
+      initContainers:
+        # The checkpoint signer refuses a key file that group or others can read; copy the Secret into an emptyDir at 0600.
+        - name: ledger-key
+          image: aetheros/api:latest   # same image and user as the api container, so the 0600 file is readable by it
+          command: ["sh", "-c", "cp /src/key.pem /ledger/ledger_signing_key.pem && chmod 600 /ledger/ledger_signing_key.pem"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: ledger-key-src, mountPath: /src, readOnly: true}
+            - {name: ledger-key, mountPath: /ledger}
       containers:
         - name: api
           image: aetheros/api:latest
@@ -51,6 +64,8 @@ spec:
             - configMapRef:
                 name: aetheros-config
           env:
+            - name: AETHER_LEDGER_SIGNING_KEY
+              value: /ledger/ledger_signing_key.pem
             - name: AETHER_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -149,7 +164,15 @@ spec:
           volumeMounts:
             - name: output-data
               mountPath: /app/output
+            - {name: ledger-key, mountPath: /ledger, readOnly: true}
       volumes:
+        - name: ledger-key-src
+          secret:
+            secretName: aetheros-secrets
+            items:
+              - {key: AETHER_LEDGER_SIGNING_KEY_PEM, path: key.pem}
+        - name: ledger-key
+          emptyDir: {medium: Memory}
         - name: output-data
           emptyDir: {}
 
