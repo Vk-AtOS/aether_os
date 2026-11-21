@@ -39,3 +39,11 @@ def test_audio_without_whisper_key_falls_back_to_text(monkeypatch):
     assert (spec, kind) == ("typed spec", "text")
     with pytest.raises(ValueError, match="could not be transcribed"):
         asyncio.run(mi.parse_audio_transcript("AAAA"))
+
+
+def test_audio_is_not_sent_anywhere_unless_the_operator_flag_is_on(monkeypatch):
+    # KAN-184: a stray OPENAI_API_KEY alone must not make recordings leave the platform
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("AETHER_AUDIO_TRANSCRIPTION", raising=False)
+    with pytest.raises(ValueError, match="could not be transcribed"):
+        asyncio.run(mi.parse_audio_transcript("AAAA"))
