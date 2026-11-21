@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,19 @@ _KEY_FILES = {
     "alembic.ini",
 }
 
-_GITHUB_URL_RE = r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$"
+_GITHUB_URL_RE = r"^https://github\.com/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100}?)(?:\.git)?$"
+# Root cause of KAN-69 R6-1: owner, repo and branch were pasted into an api.github.com path that is called with
+# the platform's own GITHUB_TOKEN, and `[^/]+` let "..", "?" and "#" through, so a member could steer the
+# token to any GitHub API endpoint. Names are plain GitHub names; ".." never.
+_BRANCH_RE = r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$"
+
+
+def _checked_github_target(repo_url: str, branch: str) -> tuple[str, str]:
+    """(owner, repo) of a plain https://github.com/<owner>/<repo> URL, or 422; the branch must be a plain ref name."""
+    m = re.match(_GITHUB_URL_RE, repo_url)
+    if not m or m.group(2) in (".", "..") or not re.match(_BRANCH_RE, branch) or ".." in branch:
+        raise HTTPException(status_code=422, detail="repo_url must be a valid https://github.com/<owner>/<repo> URL and branch a plain branch name")
+    return m.group(1), m.group(2)
 
 
 def _detect_stack(filenames: list[str]) -> dict:
@@ -137,7 +150,6 @@ async def import_codebase(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
     """Fetch a public GitHub repo's file tree, detect its stack, and store a CodebaseProfile."""
-    import re
     import base64
     import httpx
     from aether_os.core.db import get_session_factory
@@ -147,12 +159,7 @@ async def import_codebase(
     branch: str = (body.get("branch") or "main").strip()
     org_id: str = user["org_id"]
 
-    # Validate GitHub URL
-    m = re.match(_GITHUB_URL_RE, repo_url)
-    if not m:
-        raise HTTPException(status_code=422, detail="repo_url must be a valid https://github.com/<owner>/<repo> URL")
-
-    owner, repo = m.group(1), m.group(2)
+    owner, repo = _checked_github_target(repo_url, branch)
     repo_name = f"{owner}/{repo}"
 
     headers: Dict[str, str] = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}

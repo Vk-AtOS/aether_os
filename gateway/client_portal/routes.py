@@ -22,8 +22,10 @@ router = APIRouter(prefix="/portal", tags=["client-portal"])
 
 
 class FeedbackBody(BaseModel):
-    feedback: str
-    phase: Optional[str] = None
+    # Bounded: a portal token is held by an external client and every call appends to feedback.jsonl on disk
+    # (KAN-69 R6: the body was unbounded, so one token could fill the disk).
+    feedback: str = Field(max_length=5000)
+    phase: Optional[str] = Field(default=None, max_length=128)
 
 
 class ApproveBody(BaseModel):
