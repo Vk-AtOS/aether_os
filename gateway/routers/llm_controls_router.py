@@ -3,6 +3,7 @@
   GET  /admin/llm/status                  superadmin  global kill-switch state
   POST /admin/llm/kill-switch             superadmin  {"on": bool}  stop/resume every model call, all workers
   PUT  /admin/llm/orgs/{org_id}/cap       superadmin  {"monthly_cap_usd": float|null}  override the plan default
+  PUT  /settings/llm/cap                  org admin   {"monthly_cap_usd"} lower own cap, max = plan cap
   POST /settings/llm/kill-switch          org admin   {"on": bool}  stop/resume model calls for the caller's org
   GET  /settings/llm/usage                org member  spend, cap and percent used this month
 """
@@ -82,6 +83,22 @@ async def set_org_cap(org_id: str, body: CapBody, user: Dict[str, Any] = Depends
     await _set_org(org_id, llm_monthly_cap_usd=body.monthly_cap_usd)
     await _ledger(user, "llm.cap.set", org_id, {"monthly_cap_usd": body.monthly_cap_usd})
     return {"org_id": org_id, "monthly_cap_usd": body.monthly_cap_usd}
+
+
+@router.put("/settings/llm/cap")
+async def org_cap(body: CapBody, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """An org admin may LOWER the org's own monthly cap, never raise it above the plan default (null = back to plan)."""
+    if user.get("role") not in ("owner", "admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    policy = await controls.org_policy(user["org_id"])
+    limit = PLAN_LIMITS.get(policy.plan) if policy else None
+    if limit is None:
+        raise HTTPException(status_code=404, detail="Organisation or plan not found")
+    if body.monthly_cap_usd is not None and not 0 <= body.monthly_cap_usd <= limit.usd:
+        raise HTTPException(status_code=422, detail=f"monthly_cap_usd must be between 0 and {limit.usd} (the {policy.plan} plan cap)")
+    await _set_org(user["org_id"], llm_monthly_cap_usd=body.monthly_cap_usd)
+    await _ledger(user, "llm.cap.set_by_org", user["org_id"], {"monthly_cap_usd": body.monthly_cap_usd})
+    return {"org_id": user["org_id"], "monthly_cap_usd": body.monthly_cap_usd}
 
 
 @router.post("/settings/llm/kill-switch")
