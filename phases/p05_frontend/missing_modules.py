@@ -140,13 +140,26 @@ def _case_corrected_spec(spec: str, importer: Path, src: Path) -> str | None:
     return None
 
 
+def _plain_file_in_src(f: Path, src: Path) -> bool:
+    """f is a regular file that really lives under src: no symlink on the way (a planted link must never make us
+    rewrite or delete a file outside the project) and it resolves inside src."""
+    try:
+        if f.is_symlink() or any(p.is_symlink() for p in f.parents if p != src and p.is_relative_to(src)):
+            return False
+        return f.resolve().is_relative_to(src)
+    except OSError:
+        return False
+
+
 def _drop_generated_case_duplicates(src: Path) -> list[Path]:
     """Remove stubs/primitives an earlier run generated beside a differently-cased real file (TS1261)."""
     removed: list[Path] = []
     for f in sorted(src.rglob("*")):
-        if f.suffix not in _SRC_EXT or not f.is_file() or not f.read_text(errors="replace").startswith(GENERATED_MARK):
+        if f.suffix not in _SRC_EXT or not _plain_file_in_src(f, src) or not f.is_file():
             continue
-        twin = next((p for p in f.parent.iterdir() if p.is_file() and p.name != f.name and p.name.lower() == f.name.lower()
+        if not f.read_text(errors="replace").startswith(GENERATED_MARK):
+            continue
+        twin = next((p for p in f.parent.iterdir() if p.is_file() and not p.is_symlink() and p.name != f.name and p.name.lower() == f.name.lower()
                      and not p.read_text(errors="replace").startswith(GENERATED_MARK)), None)
         if twin is not None:
             f.unlink()
@@ -233,13 +246,16 @@ def ensure_local_modules(frontend_dir: Path) -> list[str]:
             entry[1] |= types
             entry[2] = entry[2] or default
     for f, old, new in respell:
+        if not _plain_file_in_src(f, src):
+            logger.warning("p05 missing_modules: %s is a symlink or outside src; import not respelled", f.name)
+            continue
         try:
             text = f.read_text(errors="replace")
             for q in ("'", '"'):
                 text = text.replace(f"{q}{old}{q}", f"{q}{new}{q}")
-            f.write_text(text)
+            safe_write_text(src, f, text)
             logger.info("p05 missing_modules: %s import %r respelled to %r (case differs from the file on disk)", f.name, old, new)
-        except OSError as exc:
+        except (SandboxViolation, OSError) as exc:
             logger.warning("p05 missing_modules: could not respell import in %s: %s", f, exc)
     written: list[str] = []
     for base, (values, types, default) in sorted(missing.items()):
