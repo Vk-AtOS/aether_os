@@ -7,10 +7,15 @@ handlers, and Dockerfiles. Output goes into output_dir/serverless/.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+# Same identifier rule p04a uses (pipeline_generator._IDENT): the table name from the domain IR ends up in
+# directory names, image names and manifests, so a value like "../x" or "a: b" must never get that far.
+_TABLE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def generate_knative_service_manifest(
@@ -349,6 +354,8 @@ def generate_serverless_package(
 
     for entity in entities:
         table = entity.get("table", "item")
+        if not isinstance(table, str) or not _TABLE_IDENT.fullmatch(table):
+            raise ValueError(f"unsafe table name in domain IR: {table!r}")
         for event_type in default_events:
             fn_dir = serverless_dir / f"{table}-{event_type}"
             fn_dir.mkdir(exist_ok=True)

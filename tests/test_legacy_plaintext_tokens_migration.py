@@ -43,10 +43,14 @@ def _upgrade(eng):
             _migration().upgrade()
 
 
-def test_there_is_exactly_one_alembic_head_and_it_is_this_revision():
+def test_there_is_exactly_one_alembic_head_and_this_revision_is_in_its_history():
+    # Not pinned to REV being the head: later migrations (e.g. org_llm_org_cap) legitimately build on it.
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
-    assert ScriptDirectory.from_config(cfg).get_heads() == [REV]
+    script = ScriptDirectory.from_config(cfg)
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert REV in {r.revision for r in script.walk_revisions(base="base", head=heads[0])}
 
 
 def test_migration_moves_every_plaintext_value_and_keeps_it_working(tmp_path, monkeypatch):

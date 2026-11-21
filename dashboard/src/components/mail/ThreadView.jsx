@@ -3,6 +3,7 @@ import { ShieldAlert, ImageOff, Paperclip, Sparkles } from 'lucide-react';
 import { vc, vError, useVelaris, when, btn } from '../velaris/velarisApi';
 import { LoadView, Notice, Card } from '../velaris/shared';
 import { Json, inputClass } from '../prime/parts';
+import { draftReply } from './composeHelpers';
 
 const authBits = (s) => ['spf', 'dkim', 'dmarc'].map((k) => {
   const m = new RegExp(`${k}=(\\w+)`, 'i').exec(s || '');
@@ -63,7 +64,7 @@ const Assistant = ({ mb, thread, last, onReply }) => {
             {out.data.summary && <p className="whitespace-pre-wrap">{out.data.summary}</p>}
             {out.data.items && <ul className="list-disc ml-5">{out.data.items.map((i, k) => <li key={k}>{typeof i === 'string' ? i : i.text || JSON.stringify(i)}</li>)}</ul>}
             {out.data.action && <p>Suggested: <b>{out.data.action}</b> ({out.data.category}). {out.data.reason} Nothing was applied.</p>}
-            {out.data.draft && <p>A draft was saved ({out.data.draft.subject}). <button className="underline" onClick={() => onReply({ id: last, to: (out.data.draft.to || []).join(', '), subject: out.data.draft.subject })}>Open as a reply</button> (review before sending).</p>}
+            {out.data.draft && <p>A draft reply was saved ({out.data.draft.subject}). <button className="underline" onClick={() => onReply(draftReply(last, out.data.draft))}>Open in the composer</button> to edit it. It is only a draft; nothing is sent until you send it.</p>}
             {out.data.warnings?.length > 0 && <Notice tone="warn">{out.data.warnings.join('; ')}</Notice>}
             {!out.data.summary && !out.data.items && !out.data.action && !out.data.draft && <Json value={out.data} />}
           </div>

@@ -5,7 +5,7 @@ set stayed empty and the pass rate per agent never moved. New rows now default t
 this puts the existing ones in as well. Data only, no schema change.
 
 Revision ID: prime_corrections_in_eval
-Revises: hash_legacy_plaintext_tokens
+Revises: org_llm_org_cap
 Create Date: 2026-11-21
 """
 from typing import Sequence, Union
@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'prime_corrections_in_eval'
-down_revision: Union[str, None] = 'hash_legacy_plaintext_tokens'
+down_revision: Union[str, None] = 'org_llm_org_cap'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,4 +1,4 @@
-> **This document is a plan, not a description of what is built.** It was written 2026-06-20. Facts in it are as of that date: "39-phase", "462 passing tests", the live deployment and the valuation and competitor figures are not current and are not measured. At 15 Nov 2026 (commit `e5c23fd`) the repo has 12 stages over 50 phase directories (`ls stages`, `ls -d phases/p*/`) and 1954 collected tests. Competitor, valuation and "only/most complete" statements are opinions, not measurements. No compliance certification is held. Current state: `SALE_READINESS.md` and Jira project KAN.
+> **This document is a plan, not a description of what is built.** It was written 2026-06-20. Facts in it are as of that date: "39-phase", "462 passing tests", the live deployment and the valuation and competitor figures are not current and are not measured. At 15 Nov 2026 (commit `e5c23fd`) the repo has 12 stages over 49 phase directories (`ls stages`; `ls -d phases/p*/` also counts `phases/patterns`, which is not a phase) and 2357 collected tests. Competitor, valuation and "only/most complete" statements are opinions, not measurements. No compliance certification is held. Current state: `SALE_READINESS.md` and Jira project KAN.
 
 # AetherOS Strategic Upgrade Plan
 ## From AI Code Generator to Compliance-Verified Business Creation Platform
@@ -142,7 +142,7 @@ This section documents what is already fully built. These items must not be list
 ### 2.4 Quality and Testing (Fully Built)
 
 - `core/quality/metrics.py` — AST-based `_extract_routes()`, `QualityScore` dataclass, auth coverage, input validation, test coverage, seed quality, domain specificity, frontend completeness, security (bandit), docker presence scorers; weighted formula producing 0–100 score
-- Full test suite: **462 tests** as of 2026-06-20 (1954 collected at 15 Nov 2026) covering all phases including cloud platform phases
+- Full test suite: **462 tests** as of 2026-06-20 (2357 collected at 21 Nov 2026) covering all phases including cloud platform phases
 
 ---
 
@@ -393,7 +393,7 @@ This phase closes the most critical gaps for regulated-industry sales. It requir
 | 39-phase pipeline | Architecturally novel; no published or shipped system has more than 8 phases | Trade secret + first-mover differentiation |
 | Domain knowledge packs | 6 verticals with structured PHI/PCI/PII field tagging, state machines, compliance rules | Proprietary data asset; not reconstructable without domain experts |
 | Compliance engine | HIPAA, GDPR, PCI-DSS, SOC2, India DPDP/RBI/SEBI — not replicated by any AI code generator | Unique combination; India regulatory layer is globally unique |
-| Full test suite | 462 passing tests across all 39 phases (2026-06-20 figure; 1954 tests collected at 15 Nov 2026) | Engineering quality signal; reduces acquirer risk |
+| Full test suite | 462 passing tests across all 39 phases (2026-06-20 figure; 2357 tests collected at 21 Nov 2026) | Engineering quality signal; reduces acquirer risk |
 
 **Replacement cost:** 18–24 months of engineering at $150–200/hr × 4 engineers = **$4.3–6.5M**
 

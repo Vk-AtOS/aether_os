@@ -8,6 +8,7 @@ retrying the full LLM call.
 
 Public API
 ----------
+    extract_first_json(text, expect) -> Any
     extract_json(text) -> str
     parse_llm_json(text, fallback) -> Any
     enforce_json_keys(data, required_keys, phase) -> dict
@@ -17,79 +18,94 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-def extract_json(text: str) -> str:
-    """Extract JSON from LLM response that may contain markdown or prose.
+_DECODER = json.JSONDecoder()
+_JSON_START_RE = re.compile(r"[\[{]")
 
-    Priority order:
-    1. Response is already valid JSON → return as-is
-    2. ```json ... ``` code block → extract and return
-    3. ``` ... ``` code block (any language) → extract and return
-    4. First { to last } or first [ to last ] → extract and return
-    5. Return original text (caller handles parse error)
+
+def _find_first_json(text: str, expect: Any) -> Tuple[Any, str]:
+    """Locate the first complete top-level JSON value of type *expect* in *text*.
+
+    Returns (value, source text of value). Raises ValueError when there is none.
+    """
+    if not isinstance(text, str):
+        raise ValueError(f"model output is {type(text).__name__}, not text")
+    stripped = text.strip()
+    # Some models double-encode: the whole reply is a JSON string holding the JSON.
+    if stripped.startswith('"'):
+        try:
+            inner = json.loads(stripped)
+        except json.JSONDecodeError as e:
+            logger.debug("json_enforcer: reply starts with a quote but is not a JSON string: %s", e)
+        else:
+            if isinstance(inner, str):
+                return _find_first_json(inner, expect)
+    pos = 0
+    while True:
+        m = _JSON_START_RE.search(text, pos)
+        if m is None:
+            break
+        start = m.start()
+        try:
+            value, end = _DECODER.raw_decode(text, start)
+        except json.JSONDecodeError as e:
+            # Ran off the end: a truncated value. Everything after `start` is inside it, so any
+            # later match would be a nested fragment of it, never the answer.
+            if e.pos >= len(text.rstrip()) or e.msg.startswith("Unterminated string"):
+                break
+            # Skip past the broken span so a nested fragment of it is not taken for the answer.
+            pos = max(start + 1, e.pos)
+            continue
+        if isinstance(value, expect):
+            return value, text[start:end]
+        # A complete value of the wrong type (e.g. a list when an object is wanted): skip all
+        # of it, so one of its elements is not returned as if it were the top-level answer.
+        pos = end
+    raise ValueError("no complete JSON value found in model output")
+
+
+def extract_first_json(text: str, expect: Any = (dict, list)) -> Any:
+    """Parse the FIRST complete top-level JSON value out of an LLM reply.
+
+    Real models wrap JSON in prose and code fences and often keep talking after it
+    ("{...}\n\nExplanation: ..." or a second object). json.loads on the whole reply then
+    fails with "Extra data", and greedy first-{-to-last-} regexes swallow the trailing text.
+    This scans for the first `{`/`[` that json.JSONDecoder.raw_decode can decode completely
+    and ignores whatever follows it.
 
     Parameters
     ----------
     text:
-        Raw LLM response string, possibly containing markdown prose, code
-        fences, or embedded JSON.
+        Raw LLM reply.
+    expect:
+        Type (or tuple of types) the value must be; values of other types are skipped whole.
 
-    Returns
-    -------
-    str
-        The best JSON candidate extracted from text. May still be invalid JSON
-        if all extraction strategies fail — callers should catch JSONDecodeError.
+    Raises
+    ------
+    ValueError
+        No complete JSON value of the expected type was found.
     """
-    text = text.strip()
+    return _find_first_json(text, expect)[0]
 
-    # ── 1. Already valid JSON ─────────────────────────────────────────────────
+
+def extract_json(text: str) -> str:
+    """Return the text of the first complete JSON object/array in an LLM reply.
+
+    Falls back to the original (stripped) text when none is found; callers that then
+    json.loads it must handle JSONDecodeError.
+    """
     try:
-        json.loads(text)
-        return text
-    except json.JSONDecodeError:
-        pass
-
-    # ── 2. ```json ... ``` block ──────────────────────────────────────────────
-    m = re.search(r'```json\s*([\s\S]*?)```', text, re.IGNORECASE)
-    if m:
-        candidate = m.group(1).strip()
-        try:
-            json.loads(candidate)
-            return candidate
-        except json.JSONDecodeError:
-            pass
-
-    # ── 3. Any ``` block (language tag optional) ──────────────────────────────
-    m = re.search(r'```(?:\w+)?\s*([\s\S]*?)```', text)
-    if m:
-        candidate = m.group(1).strip()
-        try:
-            json.loads(candidate)
-            return candidate
-        except json.JSONDecodeError:
-            pass
-
-    # ── 4. Greedy brace/bracket extraction ───────────────────────────────────
-    # Try object first (most common), then array.
-    for pattern in (r'\{[\s\S]*\}', r'\[[\s\S]*\]'):
-        m = re.search(pattern, text)
-        if m:
-            candidate = m.group(0)
-            try:
-                json.loads(candidate)
-                return candidate
-            except json.JSONDecodeError:
-                pass
-
-    # ── 5. Give up — return original and let the caller handle the error ──────
-    logger.warning(
-        "json_enforcer: could not extract valid JSON from LLM response (len=%d)", len(text)
-    )
-    return text
+        return _find_first_json(text, (dict, list))[1]
+    except ValueError as e:
+        logger.warning(
+            "json_enforcer: could not extract valid JSON from LLM response (len=%d): %s",
+            len(text or ""), e,
+        )
+        return (text or "").strip()
 
 
 def parse_llm_json(text: str, fallback: Any = None) -> Any:

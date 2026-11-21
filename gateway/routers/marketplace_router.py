@@ -81,7 +81,6 @@ async def list_profiles(page: int = 1, limit: int = 20):
             "description": p.description,
             "price_usd": p.price_usd,
             "usage_count": p.usage_count,
-            "org_id": p.org_id,
         }
         for p in rows
     ]
@@ -99,7 +98,7 @@ async def get_marketplace_profile(profile_id: str) -> Dict[str, Any]:
         "id": p.id, "name": p.name, "base_domain": p.base_domain,
         "description": p.description, "price_usd": p.price_usd,
         "profile_yaml": p.profile_yaml, "usage_count": p.usage_count,
-        "org_id": p.org_id, "created_at": p.created_at.isoformat() if p.created_at else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 @router.post("/marketplace/publish")
 async def publish_profile(
