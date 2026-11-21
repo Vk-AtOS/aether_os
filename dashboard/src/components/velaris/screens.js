@@ -14,6 +14,7 @@ const nums = (name, label, extra = {}) => ({ name, label, type: 'numlist', help:
 const YM = [num('year', 'Year', { required: true }), num('month', 'Month (1-12)', { required: true })];
 const load = (title, call, extra = {}) => ({ kind: 'load', title, call, ...extra });
 const form = (title, call, fields, submit, extra = {}) => ({ kind: 'form', title, call, fields, submit, ...extra });
+const LEGAL_REVIEW = 'Wording on this screen is pending legal review (KAN-80). Export and erase are for organisation owners and admins only, need the typed word, and are written to the ledger by id.';
 const DISCLAIMER = 'Payroll figures are calculations, not payments, and are not approved by an accountant yet (KAN-79). Do not act on them until that is done.';
 
 export const SCREENS = [
@@ -27,7 +28,9 @@ export const SCREENS = [
     form('Approve', H('LEAVE_MANAGEMENT', 'approve'), [num('leave_id', 'Leave request id', { required: true })], 'Approve'),
     form('Reject', H('LEAVE_MANAGEMENT', 'reject'), [num('leave_id', 'Leave request id', { required: true })], 'Reject'),
     form('Leave summary (Zoho People)', H('ZOHO_PEOPLE', 'get_leave_summary'), [text('employee_id', 'Employee id', { required: true }), num('year', 'Year')], 'Show', { note: 'Only when Zoho People is connected.' }),
-    form('Attendance summary (Zoho People)', H('ZOHO_PEOPLE', 'get_attendance_summary'), [text('employee_id', 'Employee id', { required: true }), { name: 'from_date', label: 'From', type: 'date', required: true }, { name: 'to_date', label: 'To', type: 'date', required: true }], 'Show'),
+    form('Employee list (Zoho People)', H('ZOHO_PEOPLE', 'get_employees'), [num('page', 'Page (blank = first)')], 'Show', { note: 'Only when Zoho People is connected. Full records can hold identity numbers; shown to owners and admins only.' }),
+    form('Attendance records (Zoho People)', H('ZOHO_PEOPLE', 'get_attendance'), [text('employee_id', 'Employee id', { required: true }), text('from_date', 'From (MM-dd-yyyy)', { required: true }), text('to_date', 'To (MM-dd-yyyy)', { required: true })], 'Show', { note: 'Only when Zoho People is connected. Zoho expects dates as month-day-year.' }),
+    form('Attendance summary (Zoho People)', H('ZOHO_PEOPLE', 'get_attendance_summary'), [text('employee_id', 'Employee id', { required: true }), text('from_date', 'From (MM-dd-yyyy)', { required: true }), text('to_date', 'To (MM-dd-yyyy)', { required: true })], 'Show', { note: 'Only when Zoho People is connected. Zoho expects dates as month-day-year.' }),
   ] },
   { id: 'my-payslips', role: 'member', title: 'My payslips', banner: DISCLAIMER, sub: 'Your own payslip and year to date. Use the browser print command to print or save as PDF.', sections: [
     form('Payslip', H('PAYROLL_ENGINE', 'get_payslip'), YM, 'Show payslip'),
@@ -54,11 +57,11 @@ export const SCREENS = [
     form('Check Aadhaar', H('ONBOARDING_FLOW', 'check_aadhaar'), [text('case_id', 'Case id', { required: true }), { name: 'number', label: 'Aadhaar number', type: 'password', required: true }], 'Check'),
     form('Upload a document', H('ONBOARDING_FLOW', 'collect_document'), [text('case_id', 'Case id', { required: true }), text('doc_type', 'Document kind', { required: true }), { name: 'content_base64', label: 'Document file', type: 'file', also: 'filename', maxMb: 7, required: true }], 'Upload', { note: 'At most 7 MB. The file is read in your browser and sent once.' }),
   ] },
-  { id: 'privacy', role: 'admin', title: 'Employee privacy (DPDP)', sub: 'Export one person\'s data, or erase it. Both are ledgered by id only. Erase waits for a second approver in Prime and reports what is kept for law.', sections: [
+  { id: 'privacy', role: 'admin', title: 'Employee privacy (DPDP)', banner: LEGAL_REVIEW, sub: 'Export one person\'s data, or erase it. Both are ledgered by id only. Erase waits for a second approver in Prime and reports what is kept for law.', sections: [
     form('Export one employee\'s data', H('EMPLOYEE_RECORDS', 'export_subject'), [text('employee_id', 'Employee id', { required: true })], 'Download export', { typed: 'EXPORT', download: 'employee-export.json' }),
     form('Erase one employee\'s data', H('EMPLOYEE_RECORDS', 'erase_subject'), [text('employee_id', 'Employee id', { required: true }), text('request_ref', 'Reference of the written request', { required: true })], 'Request erasure', { typed: 'ERASE', danger: true, warn: 'Erasure cannot be undone. Records the law requires are kept and listed in the result.' }),
     form('Retention status of one person', H('EMPLOYEE_RECORDS', 'retention_status'), [text('employee_id', 'Employee id', { required: true })], 'Show'),
-    load('Retention table', H('EMPLOYEE_RECORDS', 'retention_table'), { note: 'Periods must match what the lawyer approved (KAN-80).' }),
+    load('Retention table', H('EMPLOYEE_RECORDS', 'retention_table'), { note: 'Periods must match what the lawyer approved (KAN-80); until then this table is pending legal review.' }),
     load('Workforce aggregate', H('EMPLOYEE_RECORDS', 'workforce_aggregate')),
     form('Change record (before and after)', H('EMPLOYEE_RECORDS', 'change_record'), [text('employee_id', 'Employee id', { required: true }), { name: 'field', label: 'Field', type: 'select', options: ['department', 'designation', 'manager', 'email', 'phone'], required: true }, text('new_value', 'New value', { required: true }), text('reason', 'Reason', { required: true })], 'Record change'),
   ] },
@@ -149,10 +152,11 @@ export const SCREENS = [
     { kind: 'form', title: 'Organisation mail settings', call: P('put', '/mail/settings'), fields: [num('max_recipients', 'Most recipients without a second approver'), num('undo_window_s', 'Undo window (seconds)'), num('retention_days', 'Keep mail for days (0 = forever)'), num('trash_retention_days', 'Keep trash for days'), num('spam_retention_days', 'Keep spam for days'), { name: 'autoreply_external', label: 'Auto-reply to outside senders', type: 'checkbox' }], submit: 'Save settings', raw: true },
   ] },
   { id: 'mail-compliance', role: 'admin', title: 'Mail compliance', sub: 'A legal hold blocks erase and retention for held items; Velaris reports what it kept.', sections: [
-    { kind: 'form', title: 'Legal hold on a mailbox', call: { method: 'put', path: '/mail/mailboxes/{mb}/legal-hold' }, fields: [text('mb', 'Mailbox id', { required: true }), { name: 'on', label: 'Hold on', type: 'checkbox' }], submit: 'Apply', path_params: ['mb'], raw: true },
-    { kind: 'form', title: 'Run retention now', call: P('post', '/mail/retention/run'), fields: [], submit: 'Run retention', danger: true, warn: 'Mail past its retention period is removed (except items on legal hold). There is no preview.', raw: true },
+    { kind: 'form', title: 'Legal hold on a mailbox', call: { method: 'put', path: '/mail/mailboxes/{mb}/legal-hold' }, fields: [text('mb', 'Mailbox id', { required: true }), list('message_ids', 'Message ids (blank = the whole mailbox)', { help: 'Separate with commas or new lines. Up to 1000.' }), { name: 'on', label: 'Hold on (untick to release)', type: 'checkbox' }], submit: 'Apply', path_params: ['mb'], raw: true },
+    { kind: 'form', title: 'Preview retention (removes nothing)', call: P('post', '/mail/retention/run'), fields: [], fixed: { dry_run: true }, submit: 'Preview', note: 'Counts per kind (trash, spam, age) that a run would remove. Held items are not counted.', raw: true },
+    { kind: 'form', title: 'Run retention now', call: P('post', '/mail/retention/run'), fields: [], submit: 'Run retention', danger: true, warn: 'Mail past its retention period is removed (except items on legal hold). Preview first. The answer lists how many were removed per kind.', raw: true },
     { kind: 'form', title: 'Erase a mailbox (DPDP)', call: { method: 'delete', path: '/mail/mailboxes/{mb}' }, fields: [text('mb', 'Mailbox id', { required: true })], submit: 'Erase mailbox', typed: 'ERASE', danger: true, warn: 'The mailbox data is removed, except items on legal hold.', path_params: ['mb'], raw: true },
-    { kind: 'form', title: 'Process the outbox now', call: P('post', '/mail/outbox/process'), fields: [], submit: 'Process', note: 'Velaris also sends due mail on a timer; this runs it at once.', raw: true },
+    { kind: 'form', title: 'Process the outbox now', call: P('post', '/mail/outbox/process'), fields: [], submit: 'Process', note: 'Nothing sends due mail unless the Velaris outbox worker is installed (deploy/systemd/velaris-outbox.service); this runs it at once.', raw: true },
   ] },
   { id: 'mail-accounts', role: 'admin', title: 'External mail accounts', sub: 'Connect an IMAP/SMTP account. Only the vault secret NAME is stored here: put the password in the Velaris secrets vault first (name starts with mail.). Velaris allows this to a mail administrator only.', sections: [
     { kind: 'form', title: 'Accounts of a mailbox', call: { method: 'get', path: '/mail/mailboxes/{mb}/accounts' }, fields: [text('mb', 'Mailbox id', { required: true })], submit: 'Show', path_params: ['mb'], raw: true },
