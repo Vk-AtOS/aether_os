@@ -60,6 +60,9 @@ DESIGN["slow redis"] = {**DESIGN["(nothing)"], "readyz": "refused"}
 DESIGN["slow velaris"] = dict(DESIGN["(nothing)"])
 # A full disk stops writes; reads, health and previews keep working.
 DESIGN["disk full"] = dict(DESIGN["(nothing)"])
+# No model provider usable (documented, not injected: providers are external). Verified by tests/test_model_admission.py (runs
+# are refused with 503) and by the 21 Nov AWS testbed runs that had no model key.
+DESIGN["no model"] = {"healthz": "up", "readyz": "up", "authed read": "up", "velaris": "up", "preview": "up"}
 SLOW_MS = 3000
 PROBE_TIMEOUT = 40.0   # past the API's own budget (statement timeout 30 s + 5 s client margin, core/db.py)
 NETEM_IMAGE = "aether-netem:1"
