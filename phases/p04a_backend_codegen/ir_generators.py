@@ -179,6 +179,10 @@ def _sql_check_constraints(entity_name: str, rules: list, columns: set | None = 
     return constraints
 
 
+# Columns generate_models_py writes for every entity itself.
+_GENERATED_COLUMNS = {"id", "created_at", "updated_at"}
+
+
 _USER_MODEL = """\
 class User(Base):
     __tablename__ = 'users'
@@ -226,15 +230,20 @@ def generate_models_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fal
         # Build performance indexes for commonly-queried field patterns
         perf_indexes = []
         table = entity.table
-        fields = client_fields(entity, multi_tenancy)
+        # id / created_at / updated_at are always emitted below; an IR field of that name would
+        # override the primary key or duplicate the column.
+        fields = [f for f in client_fields(entity, multi_tenancy) if f.name.lower() not in _GENERATED_COLUMNS]
         field_names = {f.name for f in fields}
+        # Column(..., index=True) already creates an index SQLAlchemy names ix_<table>_<column>. An explicit
+        # Index of the same name on top of it made create_all fail with "index ix_tasks_status already exists".
+        column_indexed = {f.name for f in fields if f.index or f.type == AetherType.FK}
         # created_at index — every time-range query benefits from this
         perf_indexes.append(
             f"        Index('ix_{table}_created_at', 'created_at')"
         )
         # status / state field index — filtering by status is the most common query pattern
         for fname in ("status", "state"):
-            if fname in field_names:
+            if fname in field_names and fname not in column_indexed:
                 perf_indexes.append(
                     f"        Index('ix_{table}_{fname}', '{fname}')"
                 )

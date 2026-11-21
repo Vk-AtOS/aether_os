@@ -26,6 +26,7 @@ from typing import Mapping, Optional, Sequence
 
 from aether_os.core.projects import get_project_manager
 from aether_os.core.run_app.child_env import child_env
+from aether_os.core.sandbox.endpoints import app_host, app_url  # noqa: F401  (the one way callers address a started app)
 from aether_os.core.sandbox.runner import SandboxRunner, SandboxUnavailable, get_runner, sandbox_dirs
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,8 @@ async def run(argv: Sequence[str], *, cwd: Path, project: Optional[Path] = None,
 def start_app(argv: Sequence[str], *, cwd: Path, port: int, log_path: Path, project: Optional[Path] = None,
               env: Optional[Mapping[str, str]] = None):
     """Start a long-running generated app (a probe) in the sandbox; returns the runner's process handle
-    (pid, poll(), terminate(), kill(), wait()). The caller reaches it on 127.0.0.1:<port>. Write
+    (pid, poll(), terminate(), kill(), wait()). The caller reaches it on app_host():<port> (never a
+    hard-coded 127.0.0.1: inside a gateway container that is the container itself). Write
     "{host}" in argv where the app's bind address goes (127.0.0.1, or 0.0.0.0 inside a container).
     Log output goes to `log_path` (opened O_NOFOLLOW)."""
     runner = _runner()
