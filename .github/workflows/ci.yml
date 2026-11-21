@@ -161,7 +161,7 @@ jobs:
       - name: Build the API image
         run: docker build -t aetheros-api:ci .
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0   # the action's tags carry a leading v
         with:
           image-ref: aetheros-api:ci
           severity: CRITICAL,HIGH
@@ -195,6 +195,10 @@ jobs:
           AETHER_PREVIEW_ORIGIN: https://preview.example.com
           AETHER_PREVIEW_SECRET: x
           DOCKER_GID: "999"
+          # every ${VAR:?} in docker-compose.yml must have a value here, or `config` fails before checking anything
+          VELARIS_ORG: ci-org
+          VELARIS_API_SECRET: x
+          VELARIS_IMAGE: velaris:ci
         run: docker compose -f docker-compose.yml config -q
 
   generated-npm-build:
