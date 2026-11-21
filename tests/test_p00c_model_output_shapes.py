@@ -13,7 +13,12 @@ from types import SimpleNamespace
 import pytest
 
 from aether_os.phases.p00c_architecture_planner import task_agent as p00c
-from aether_os.phases.p00c_architecture_planner.helpers import coerce_service_map, validate_service_map
+from aether_os.phases.p00c_architecture_planner.helpers import (
+    coerce_service_map,
+    safe_service_name,
+    validate_service_map,
+)
+from aether_os.phases.p04_backend.go_generator import service_dir
 
 _SVC = {"name": "auth-service", "lang": "go", "framework": "gin", "port": 8001,
         "owns_entities": ["User"], "communication": "rest", "db": "postgres", "critical": True}
@@ -53,6 +58,37 @@ def test_validate_service_map_rejects_non_dict_entries_without_crashing():
     errors = validate_service_map({"services": ["auth-service"], "message_bus": ""})
     assert errors == ["services[0]: must be an object, got str"]
     assert validate_service_map(["x"])
+
+
+_UNSAFE_NAMES = ["../../etc", "a/b", "Auth Service", "", "/abs", "..", "1-service", "x" * 70]
+
+
+@pytest.mark.parametrize("bad", _UNSAFE_NAMES)
+def test_unsafe_service_names_are_dropped_in_every_entry_form(bad):
+    entries = [bad, json.dumps({**_SVC, "name": bad}), {**_SVC, "name": bad}]
+    sm = coerce_service_map({"services": entries + [{**_SVC, "port": 8005}], "message_bus": ""}, "go")
+    assert [s["name"] for s in sm["services"]] == ["auth-service"]
+
+
+@pytest.mark.parametrize("bad", _UNSAFE_NAMES)
+def test_validate_service_map_refuses_unsafe_names(bad):
+    assert validate_service_map({"services": [{**_SVC, "name": bad}], "message_bus": ""})
+
+
+def test_safe_names_kept_and_normalised():
+    assert safe_service_name("auth-service") == "auth-service"
+    assert safe_service_name(" Auth_Service ") == "auth-service"
+    assert validate_service_map({"services": [_SVC], "message_bus": ""}) == []
+
+
+@pytest.mark.parametrize("bad", ["../../etc", "a/../../b", "..", "", "/etc"])
+def test_p04_service_dir_refuses_paths_outside_services(tmp_path, bad):
+    with pytest.raises(ValueError):
+        service_dir(tmp_path, bad)
+
+
+def test_p04_service_dir_accepts_slug(tmp_path):
+    assert service_dir(tmp_path, "auth-service") == (tmp_path / "services" / "auth-service").resolve()
 
 
 class _LLM:
