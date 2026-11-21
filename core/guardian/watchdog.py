@@ -21,6 +21,7 @@ import time
 from typing import Any, Dict, Optional, Set
 
 from aether_os.core.guardian.threat_detector import _get_redis
+from aether_os.core.telemetry.events import GUARDIAN_TAMPER
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ class GuardianWatchdog:
         if not new_events:
             return
 
+        GUARDIAN_TAMPER.inc(sum(1 for e in new_events if e.get("event_type") == "file_tamper"))
         # Persist to DB
         saved = await self._persist_events(new_events)
 

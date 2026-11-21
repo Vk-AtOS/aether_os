@@ -166,6 +166,8 @@ services:
       # be owned by that uid. (Was the named volume aether_os_data — copy its data over once.)
       - /home/aether/.aether_os:/home/aether/.aether_os
       - docker_proxy_sock:/docker-proxy
+      # Read-only view of the dump directory so /metrics can report aether_backup_age_seconds (alert BackupTooOld).
+      - ${BACKUP_DIR:-/var/backups/aetheros}:${BACKUP_DIR:-/var/backups/aetheros}:ro
     # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
     init: true
     stop_grace_period: 60s

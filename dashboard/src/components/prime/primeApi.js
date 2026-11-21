@@ -25,6 +25,8 @@ export const primeApi = {
   backfill: (dryRun) => c.post('/prime/ledger/backfill', null, { params: { dry_run: dryRun } }),
   retryErasures: () => c.post('/prime/ledger/erasure/retry'),
   eraseSubject: (subject) => c.post('/prime/ledger/subjects/erase', { subject }),
+  evalSet: (params) => c.get('/prime/corrections/eval-set', { params }),
+  setInEval: (id, good) => c.put(`/prime/corrections/${id}/good-example`, { good }),
 };
 
 export const errText = (e, fallback) => {

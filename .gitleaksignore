@@ -1,0 +1,39 @@
+# gitleaks baseline (KAN-203). Fingerprints of findings reviewed on 22 Nov 2026.
+# Owner decision (22 Nov 2026): the credentials in git history are test-only; they are NOT rotated and history is NOT rewritten before the sale.
+# Every entry exists only in git history or is a test fixture; none is a live secret at HEAD (verified with a working-tree scan).
+# Format: <commit>:<file>:<rule>:<line>. Never add a finding at HEAD here: remove the secret instead. See docs/security/ROTATION_RUNBOOK.md.
+
+# Test fixtures: fake API keys used as inputs to e2e and unit tests
+0161884e24ff85e526728cc92872494a40d6972f:dashboard/e2e/provider_health.spec.js:generic-api-key:15
+64977dbe7e747e204286830bd6919889ad5f0864:tests/test_provider_status.py:generic-api-key:12
+d3b4ce0520740a97f06150046a0921c8a8cee80e:dashboard/e2e/approvals.spec.js:generic-api-key:20
+
+# Historic config identifier in a deleted k8s Secret manifest line (not a credential; file since rewritten)
+dc2446556fe74e7a28c5374e4347042a62d8ec69:deploy/kubernetes/secret.yaml:generic-api-key:55
+
+# Historic: credentials quoted in an old notes file, since removed from HEAD (plans2.md is now untracked and gitignored)
+229169c8f98917e0abaf39d3bf024867c1b93178:plans2.md:aws-access-token:13
+
+# Historic: test-only licence signing constant in a removed product folder
+266589310801832a5d4799593d1a76402a4ab501:products/dcsp/license_check.py:generic-api-key:13
+266589310801832a5d4799593d1a76402a4ab501:products/dcsp/scripts/generate_license.py:generic-api-key:7
+
+# Historic: values quoted in old audit/readiness report documents, since removed from HEAD
+03b807c9bda3ff3fee48dd13c94cea56421719a0:AUDIT_REPORT_20260507.md:generic-api-key:126
+6501a8add12757e0cded8378cff23cc74a8c0bf0:FULL_AUDIT_REPORT_2026_05_09.md:generic-api-key:175
+6501a8add12757e0cded8378cff23cc74a8c0bf0:FULL_AUDIT_REPORT_2026_05_09.md:generic-api-key:176
+6501a8add12757e0cded8378cff23cc74a8c0bf0:FULL_AUDIT_REPORT_2026_05_09.md:generic-api-key:177
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:1505
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:1522
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:207
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:208
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:209
+6501a8add12757e0cded8378cff23cc74a8c0bf0:MASTER_SECURITY_AND_HARDENING_REPORT.md:generic-api-key:2802
+9e6ad1d18e305b63f59a6c1f5d46df3ff307a8fc:DEPLOYMENT_READINESS_REPORT.md:gcp-api-key:129
+cf06c5746471480962fc413b1dd041b02b53001e:AUDIT_REPORT_20260507.md:generic-api-key:126
+d1dc09ee134a514235a989793ef5e8b3d48d39b7:CONSOLIDATION_AUDIT.md:generic-api-key:342
+e405cea3049013235a47a8635f43266053b48697:DEPLOYMENT_READINESS_REPORT.md:gcp-api-key:25
+
+# Historic: test-account session tokens from an old debugging session, since removed from HEAD
+cf06c5746471480962fc413b1dd041b02b53001e:auth_res.json:jwt:1
+cf06c5746471480962fc413b1dd041b02b53001e:token.txt:jwt:1

@@ -136,6 +136,8 @@ auth_res.json
 *.tfstate
 *.tfstate.*
 terraform.tfvars
+*.plan
+*.tfplan
 crash.log
 
 # Playwright output

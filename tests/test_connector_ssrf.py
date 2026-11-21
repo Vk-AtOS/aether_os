@@ -108,3 +108,47 @@ def test_ssh_fetch_repo_refuses_local_and_http_urls_and_symlinked_files(gw, monk
     r = gw.client.post("/factory/fetch-repo", headers=org.auth,
                        json={"type": "ssh", "url": "git@example.com:o/r.git", "ssh_key": "x"})
     assert r.status_code == 200 and "TOP-SECRET-HOST-FILE" not in r.json()["context"]
+
+
+def _dns_flip(monkeypatch):
+    """A name that resolves to a public address for the first lookup and to a private one after."""
+    import socket
+    answers = iter(["93.184.216.34"])
+
+    def fake(host, port, *a, **k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers, "10.0.0.5"), port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+def test_hostname_resolving_private_at_connect_time_is_refused(monkeypatch):
+    """The up-front check passes (public answer); the connect-time lookup then says 10.0.0.5.
+    The connector must refuse it instead of dialling."""
+    import httpx
+    from aether_os.core.plugins import connectors
+
+    _dns_flip(monkeypatch)
+    sent = []
+
+    async def no_network(self, method, url, **kw):
+        sent.append(str(url))
+        return httpx.Response(200, request=httpx.Request(method, url), json={})
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", no_network)
+    asyncio.run(assert_public_urls({"base_url": "https://rebind.example.com"}))  # passes: public answer
+    out = asyncio.run(connectors.GitLabConnector({"base_url": "https://rebind.example.com", "token": "t"}).test())
+    assert out["ok"] is False and sent == []
+
+
+def test_connector_error_text_is_generic_for_the_caller(gw, monkeypatch):
+    import socket
+    org = gw.register("generrs")
+
+    def private(host, port, *a, **k):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", private)
+    r = gw.client.post("/v2/plugins/connectors/salesforce/validate", headers=org.auth,
+                       json={"instance_url": "https://rebind.example.com", "access_token": "x"})
+    assert r.status_code == 400
+    assert "10.0.0.5" not in r.text and "resolves" not in r.text
