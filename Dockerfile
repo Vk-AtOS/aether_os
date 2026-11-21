@@ -17,13 +17,17 @@ FROM python:3.11.14-slim-bookworm@sha256:65a93d69fa75478d554f4ad27c85c1e69fa1849
 
 WORKDIR /srv
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# `apt-get upgrade`: the pinned base image lags Debian security updates (container-scan found CRITICAL openssl/gnutls
+# and HIGH krb5/apt/pcre2 fixes already published for bookworm, 22 Nov 2026).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     postgresql-client curl git \
     && rm -rf /var/lib/apt/lists/*
 
 # Use the pinned lockfile for reproducible builds (requirements.txt is unpinned)
 # The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) against the host's socket (see docker-compose.yml).
-COPY --from=docker:27.5.1-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c /usr/local/bin/docker /usr/local/bin/docker
+# 29.10.0 (Go 1.27.4): 27.5.1 was built with Go 1.22.11, whose standard library has CRITICAL CVEs. The client negotiates
+# the API version down to older daemons (hosts run Docker 25).
+COPY --from=docker:29.10.0-cli@sha256:34507eb5069d8be82c95dd3b6987d4250fd5fee49b82e2509b7d7a7030740d6d /usr/local/bin/docker /usr/local/bin/docker
 
 COPY requirements.lock .
 RUN pip install --no-cache-dir -r requirements.lock
