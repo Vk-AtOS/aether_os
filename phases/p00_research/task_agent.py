@@ -255,6 +255,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     return TaskResult(
         output_path=str(out_json),
         confidence=0.9,
-        metadata={"domain": domain, "build_profile": build_profile.name, "business_model": business_model},
+        # build_profile is the full profile dict (as in design_brief.json), not its name: the s01
+        # supervisor merges this metadata into the shared context, and every reader
+        # (p00c, p02, p04, p05, s04, s09...) calls build_profile.get(...).
+        metadata={"domain": domain, "build_profile": design_brief["build_profile"], "business_model": business_model},
         success=True,
     )
