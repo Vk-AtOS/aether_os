@@ -27,7 +27,7 @@ mkdir -p secrets; umask 077
 [ -f secrets/velaris_identity.pem ] || openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
 openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
 [ -f secrets/vault.key ] || openssl rand -base64 32 > secrets/vault.key
-chmod 644 secrets/velaris_identity.pub.pem secrets/vault.key
+chmod 644 secrets/velaris_identity.pub.pem   # public key only; vault.key gets the Velaris user below
 gp() { aws ssm get-parameter --name "/$N/$1" --with-decryption --query Parameter.Value --output text; }
 GW=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
 if [ ! -f .env ]; then
@@ -90,6 +90,9 @@ unset DBP
 AETHER_SANDBOX_PUBLISH_IP=$GW bash core/sandbox/host_firewall.sh >/srv/logs/fw.log 2>&1 && echo "host firewall applied" || { echo "firewall FAILED"; tail -5 /srv/logs/fw.log; }
 docker build -q -t aether-sandbox:1 -f core/sandbox/Dockerfile core/sandbox >/dev/null && echo "sandbox image ok"
 docker build -q -t velaris:prod -f /srv/velaris/deploy/Dockerfile /srv/velaris >/dev/null && echo "velaris image ok"
+# The vault key is read by the non-root Velaris user inside its container: owner-only, owned by that user, not world-readable.
+chown "$(docker run --rm --entrypoint id velaris:prod -u):$(docker run --rm --entrypoint id velaris:prod -g)" secrets/vault.key
+chmod 600 secrets/vault.key
 UIDA=1000
 mkdir -p /home/aether/.aether_os
 s=$(date +%s); docker compose --profile velaris up -d --build > /srv/logs/up.log 2>&1 && echo "compose up ok in $(( $(date +%s)-s ))s" || { echo "compose up FAILED"; tail -20 /srv/logs/up.log; }
