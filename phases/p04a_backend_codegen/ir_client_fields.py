@@ -13,6 +13,18 @@ def is_user_entity(entity) -> bool:
 
 
 def client_fields(entity, multi_tenancy: bool = False) -> list:
-    """The entity's fields without anything a client must not control."""
+    """The entity's fields without anything a client must not control, each name once.
+
+    Model-written IRs repeat fields (the same `status` twice); a repeat would emit the column, its
+    index and its schema/seed entries twice, so the first occurrence wins (names compared case-insensitively).
+    """
     deny = _NEVER_CLIENT_FIELDS | (_TENANT_FIELDS if multi_tenancy else set())
-    return [f for f in entity.fields if f.name.lower() not in deny]
+    seen: set = set()
+    out = []
+    for f in entity.fields:
+        key = f.name.lower()
+        if key in deny or key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
