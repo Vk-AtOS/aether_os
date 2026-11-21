@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.llm.json_enforcer import extract_first_json
@@ -12,7 +13,18 @@ _VALID_COMMS = {"rest", "grpc", "event"}
 _VALID_LANGS = {"go", "python", "typescript", "java"}
 _VALID_BUS = {"", "kafka", "rabbitmq", "redis_streams"}
 _FIRST_PORT = 8001
-_MAX_NAME_LEN = 64
+# Service names become directory names (p04: output_dir/services/<name>) and Go module paths, so
+# a model-written "../../x" or "a/b" would be a path traversal. Same rule as p04b safe_names:
+# an unsafe name is dropped, never escaped. Existing names look like "auth-service".
+SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+
+
+def safe_service_name(name: Any) -> Optional[str]:
+    """The name as a lowercase slug ("Auth_Service" -> "auth-service"), or None when it is not one."""
+    if not isinstance(name, str):
+        return None
+    slug = name.strip().lower().replace("_", "-")
+    return slug if SERVICE_NAME_RE.match(slug) else None
 
 
 def _coerce_service(item: Any, backend_lang: str) -> Optional[Dict[str, Any]]:
@@ -25,27 +37,29 @@ def _coerce_service(item: Any, backend_lang: str) -> Optional[Dict[str, Any]]:
         text = item.strip()
         if text.startswith("{"):
             try:
-                return extract_first_json(text, expect=dict)
+                item = extract_first_json(text, expect=dict)
             except ValueError as e:
                 logger.warning("p00c: service entry is unparseable JSON text, skipped: %s", e)
                 return None
-        if text and len(text) <= _MAX_NAME_LEN and "\n" not in text:
-            # A bare name keeps the model's decomposition; the rest is filled with defaults below.
-            return {"name": text, "lang": backend_lang}
-        logger.warning("p00c: service entry is free text, skipped: %r", text[:80])
+        else:
+            # A bare name keeps the model's decomposition; the rest is filled with defaults later.
+            item = {"name": text, "lang": backend_lang}
+    if not isinstance(item, dict):
+        logger.warning("p00c: service entry of type %s skipped", type(item).__name__)
         return None
-    if isinstance(item, dict):
-        return dict(item)
-    logger.warning("p00c: service entry of type %s skipped", type(item).__name__)
-    return None
+    name = safe_service_name(item.get("name"))
+    if name is None:
+        logger.warning("p00c: service entry with unsafe or missing name %r skipped", str(item.get("name"))[:80])
+        return None
+    return {**item, "name": name}
 
 
 def coerce_service_map(raw: Any, backend_lang: str) -> Dict[str, Any]:
     """Bring a model's service-map reply into the shape validate_service_map expects.
 
     Accepts a dict, a bare services list, or JSON text; drops unusable entries (logged) and
-    fills missing lang / communication / port / message_bus. Entries without a name stay
-    invalid so validate_service_map still rejects them.
+    fills missing lang / communication / port / message_bus. Entries whose name is missing or
+    not a safe slug (SERVICE_NAME_RE) are dropped.
     """
     if isinstance(raw, str):
         try:
@@ -112,6 +126,8 @@ def validate_service_map(raw: Dict[str, Any]) -> List[str]:
         tag = f"services[{i}] ({svc.get('name', '?')})"
         if not svc.get("name"):
             errors.append(f"{tag}: missing name")
+        elif not (isinstance(svc["name"], str) and SERVICE_NAME_RE.match(svc["name"])):
+            errors.append(f"{tag}: name is not a lowercase slug")
         if svc.get("lang") not in _VALID_LANGS:
             errors.append(f"{tag}: invalid lang {svc.get('lang')!r}")
         if svc.get("communication") not in _VALID_COMMS:
