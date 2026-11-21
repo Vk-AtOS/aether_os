@@ -17,6 +17,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # KAN-178: the offline, deterministic half. Needs no model key and no secrets, so it always runs: it scores the
+  # golden fixtures (scripts/ci/quality_gate.py), writes a dated summary line and keeps the scores as an artifact.
+  offline-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.lock
+          mkdir -p "$RUNNER_TEMP/pkg" && ln -sfn "$GITHUB_WORKSPACE" "$RUNNER_TEMP/pkg/aether_os"
+          echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
+      - name: Score the golden fixtures
+        run: |
+          mkdir -p quality-results
+          status=pass
+          python scripts/ci/quality_gate.py --out quality-results/scores.json || status=FAIL
+          echo "$(date -u +%F) offline quality gate: $status $(tr -d '\n ' < quality-results/scores.json)" | tee -a quality-results/history.txt >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" = pass ]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-quality-results
+          path: quality-results/
+
   benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 300
