@@ -9,7 +9,7 @@
 Faults: "stop" stops the service; "slow" adds SLOW_MS of delay to every packet it sends (tc netem, run from a helper container in
 the service's network namespace, so the service image needs nothing); "partition" disconnects it from the compose network
 (packets vanish: callers see timeouts, not refusals); --disk-full fills the filesystem holding PATH (root, same filesystem as
-the Docker data root) to a few MB free, probes, then deletes the file. A probe that takes longer than PROBE_TIMEOUT is "hang":
+the Docker data root) to a few MB free, probes, then deletes the file. "dropped" = the connection closed without a response. A probe that takes longer than PROBE_TIMEOUT is "hang":
 the design never allows a hang, because a request stuck on a dead dependency holds a worker.
 
 --run needs Docker, a running stack (`docker compose up -d`, add `--profile velaris` for the Velaris rows) and a user token for the
@@ -24,6 +24,7 @@ Postgres + Redis), /velaris/agents (Velaris through the gateway), preview /__pre
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import shutil
@@ -46,14 +47,21 @@ DESIGN: Dict[str, Dict[str, str]] = {
     "preview": {"healthz": "up", "readyz": "up", "authed read": "up", "velaris": "up", "preview": "down"},
     "api": {"healthz": "down", "readyz": "down", "authed read": "down", "velaris": "down", "preview": "up"},
 }
-# Slow or partitioned dependencies must fail closed inside the timeouts (statement_timeout, Redis socket_timeout 5 s), never hang.
+# A partitioned dependency must fail closed inside the client timeouts (core/db.py, Redis socket_timeout 5 s, Velaris breaker),
+# never hang: the same row as stopped.
 for _svc in ("db", "redis", "velaris"):
-    DESIGN[f"slow {_svc}"] = dict(DESIGN[_svc])
     DESIGN[f"partition {_svc}"] = dict(DESIGN[_svc])
+# Slow (SLOW_MS per packet) but inside each caller's budget: the work still gets done, more slowly. Exceptions: /readyz
+# checks with short timeouts, so a slow dependency takes the instance out of rotation; a new PostgreSQL connection needs
+# several round trips (TCP, startup, SCRAM) and does not fit DB_CONNECT_TIMEOUT_S, so requests fail closed like a stopped
+# database (observed on the AWS testbed, 21 Nov 2026).
+DESIGN["slow db"] = dict(DESIGN["db"])
+DESIGN["slow redis"] = {**DESIGN["(nothing)"], "readyz": "refused"}
+DESIGN["slow velaris"] = dict(DESIGN["(nothing)"])
 # A full disk stops writes; reads, health and previews keep working.
 DESIGN["disk full"] = dict(DESIGN["(nothing)"])
 SLOW_MS = 3000
-PROBE_TIMEOUT = 20.0
+PROBE_TIMEOUT = 40.0   # past the API's own budget (statement timeout 30 s + 5 s client margin, core/db.py)
 NETEM_IMAGE = "aether-netem:1"
 # Compose service names; velaris needs `--profile velaris`.
 SERVICE = {"db": "db", "redis": "redis", "velaris": "velaris", "preview": "preview", "api": "api"}
@@ -75,6 +83,8 @@ def probe(url: str, token: Optional[str] = None, timeout: float = PROBE_TIMEOUT)
         return "hang"
     except urllib.error.URLError as e:
         return "hang" if isinstance(e.reason, TimeoutError) else "down"
+    except http.client.RemoteDisconnected:
+        return "dropped"      # the server accepted the request and closed the connection without an answer
     except OSError:
         return "down"
 
@@ -103,13 +113,17 @@ def docker(args: List[str], timeout: int = 120) -> subprocess.CompletedProcess:
 
 
 def netem(cid: str, on: bool) -> None:
-    """Add or remove SLOW_MS delay on the container's eth0, from a helper sharing its network namespace."""
+    """Add or remove SLOW_MS delay on the container's network interface, from a helper sharing its network namespace."""
     if docker(["image", "inspect", NETEM_IMAGE]).returncode != 0:
         subprocess.run(["docker", "build", "-q", "-t", NETEM_IMAGE, "-"], input="FROM alpine:3.20\nRUN apk add --no-cache iproute2\n",
                        text=True, capture_output=True, check=True)
-    tc = ["tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", f"{SLOW_MS}ms"] if on else \
-        ["tc", "qdisc", "del", "dev", "eth0", "root"]
-    docker(["run", "--rm", "--net", f"container:{cid}", "--cap-add", "NET_ADMIN", NETEM_IMAGE, *tc]).check_returncode()
+    # replace, not add: a delay left behind by an interrupted run must not make the next run fail. The interface is looked
+    # up, not assumed: after a partition (disconnect + connect) the container's interface is eth1, not eth0.
+    tc = f"tc qdisc replace dev $DEV root netem delay {SLOW_MS}ms" if on else "tc qdisc del dev $DEV root"
+    script = "DEV=$(ip -o link show | awk -F': ' '$2 !~ /^lo/ {sub(/@.*/, \"\", $2); print $2; exit}'); " + tc
+    r = docker(["run", "--rm", "--net", f"container:{cid}", "--cap-add", "NET_ADMIN", NETEM_IMAGE, "sh", "-c", script])
+    if r.returncode != 0 and on:
+        raise RuntimeError(f"tc failed: {r.stderr.strip()}")
 
 
 def networks_of(cid: str) -> List[str]:
@@ -149,6 +163,17 @@ def fill_disk(path: str) -> Callable[[], None]:
     return lambda: os.remove(path)
 
 
+def wait_recovered(api: str, preview: str, token: str, limit: float = 120.0) -> None:
+    """Wait until every probe is back to the nothing-broken row. Breakers stay open for their cool-down (Velaris 30 s) after
+    a fault is repaired; probing the next fault before that would blame it for the previous one."""
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        if probe_all(api, preview, token) == DESIGN["(nothing)"]:
+            return
+        time.sleep(5)
+    print(f"WARNING: the stack did not recover within {limit:.0f} s; the next row may show the previous fault")
+
+
 def run(api: str, preview: str, token: str, file: str, faults: List[str], disk_full: str = "",
         settle: float = 12.0) -> int:
     if not shutil.which("docker") or subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
@@ -174,7 +199,7 @@ def run(api: str, preview: str, token: str, file: str, faults: List[str], disk_f
             gaps += compare(row, rows[row])
         finally:
             heal()
-            time.sleep(settle)
+            wait_recovered(api, preview, token)
     if disk_full:
         heal = fill_disk(disk_full)
         try:
