@@ -161,7 +161,7 @@ jobs:
       - name: Build the API image
         run: docker build -t aetheros-api:ci .
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@v0.28.0   # the action's tags carry a leading v
+        uses: aquasecurity/trivy-action@v0.36.0   # tags carry a leading v; 0.28.0 depended on setup-trivy@v0.2.1, which no longer exists
         with:
           image-ref: aetheros-api:ci
           severity: CRITICAL,HIGH
