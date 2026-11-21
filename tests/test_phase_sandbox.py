@@ -30,6 +30,10 @@ class FakeRunner(SandboxRunner):
     def available(self):
         return True
 
+    def tool(self, name):
+        # Like DockerRunner: the toolchain lives in the sandbox image, never on the machine running the tests.
+        return name
+
     def run(self, argv, *, run_dir, cwd=None, env, timeout=None, network=False):
         self.calls.append(SimpleNamespace(argv=list(argv), run_dir=run_dir, cwd=cwd, env=dict(env),
                                           timeout=timeout, network=network))
