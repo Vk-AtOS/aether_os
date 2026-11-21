@@ -47,10 +47,11 @@ class GoodIn(BaseModel):
 async def relevant(
     agent: str = Query(min_length=1, max_length=128), action_type: str = Query(min_length=1, max_length=64),
     q: str = Query(default="", max_length=2000), k: int = Query(default=3, ge=1, le=corrections.TOP_K_MAX),
+    also: List[str] = Query(default=[], max_length=corrections.ALSO_MAX),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """The corrections to show an agent before it proposes this action, and the prompt block."""
-    found = await corrections.relevant(_org(user), agent, action_type, q, k)
+    found = await corrections.relevant(_org(user), agent, action_type, q, k, also)
     return {"corrections": found, "prompt_block": corrections.prompt_block(found)}
 
 
