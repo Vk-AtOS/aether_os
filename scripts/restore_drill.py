@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -102,6 +103,24 @@ def unsafe_objects(sql_text: str) -> List[str]:
     return sorted({m.group(0).upper() for m in _UNSAFE_SQL.finditer(sql_text)})
 
 
+# Extensions the AetherOS schema needs (core/schema_ddl.py: pgvector). A low-privilege role cannot create them on a managed
+# server (RDS: "must be rds_superuser"), so the admin creates exactly these in the scratch database and the restore skips the
+# dump's own extension entries. Any other extension in a dump is refused: the admin never installs what an untrusted dump asks.
+SCHEMA_EXTENSIONS = frozenset({"vector"})
+# pg_restore -l lines: "3; 3079 16385 EXTENSION - vector postgres" and "4; 0 0 COMMENT - EXTENSION vector "
+_TOC_EXTENSION = re.compile(r"^\d+;\s+\d+\s+\d+\s+(?:EXTENSION - |COMMENT - EXTENSION )(\S+)")
+
+
+def toc_extensions(toc: str) -> List[str]:
+    """Extension names in a `pg_restore -l` listing."""
+    return sorted({m.group(1) for m in map(_TOC_EXTENSION.match, toc.splitlines()) if m})
+
+
+def toc_without_extensions(toc: str) -> str:
+    """The listing minus the extension entries (and their comments): the admin has created them already."""
+    return "".join(ln + "\n" for ln in toc.splitlines() if not _TOC_EXTENSION.match(ln))
+
+
 def split_password(url: str):
     """(url without the password, env with PGPASSWORD): the secret never appears on a command line."""
     p = urlsplit(url)
@@ -149,6 +168,7 @@ def drill(dump: Path, admin_url: str, anchor_file: str = "", keep: bool = False,
                               "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "steps": steps,
                               "passed": False}
     t_all = time.monotonic()
+    listing: Dict[str, str] = {"toc": ""}
 
     def step(label: str, fn):
         t0 = time.monotonic()
@@ -166,15 +186,37 @@ def drill(dump: Path, admin_url: str, anchor_file: str = "", keep: bool = False,
         if sql.returncode != 0:
             return False, "pg_restore cannot read the dump: " + sql.stderr.strip()[-200:]
         bad = unsafe_objects(sql.stdout)
-        return not bad, ("refused, the dump contains: " + ", ".join(bad)) if bad else "no event triggers or untrusted languages"
+        if bad:
+            return False, "refused, the dump contains: " + ", ".join(bad)
+        toc = run(["pg_restore", "-l", str(dump)])
+        if toc.returncode != 0:
+            return False, "pg_restore cannot list the dump: " + toc.stderr.strip()[-200:]
+        listing["toc"] = toc.stdout
+        unknown = sorted(set(toc_extensions(toc.stdout)) - SCHEMA_EXTENSIONS)
+        if unknown:
+            return False, "refused, the dump asks for extensions the schema does not use: " + ", ".join(unknown)
+        return True, "no event triggers, untrusted languages or unexpected extensions"
 
     def create():
         owner = f' OWNER "{role}"' if role else ""
         r = run(["psql", admin_url, "-v", "ON_ERROR_STOP=1", "-c", f'CREATE DATABASE "{name}"{owner}'], admin_url)
         return r.returncode == 0, r.stderr.strip()[-300:]
 
+    def extensions():
+        needed = toc_extensions(listing["toc"])
+        for ext in needed:      # admin, in the scratch database only; names come from SCHEMA_EXTENSIONS (checked in preflight)
+            r = run(["psql", with_db(admin_url, name), "-v", "ON_ERROR_STOP=1", "-c", f'CREATE EXTENSION IF NOT EXISTS "{ext}"'],
+                    with_db(admin_url, name))
+            if r.returncode != 0:
+                return False, r.stderr.strip()[-300:]
+        return True, ", ".join(needed) or "none needed"
+
     def restore():
-        r = run(["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error", "-d", scratch, str(dump)], scratch)
+        with tempfile.NamedTemporaryFile("w", suffix=".toc") as toc_file:
+            toc_file.write(toc_without_extensions(listing["toc"]))
+            toc_file.flush()
+            r = run(["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error", "-L", toc_file.name, "-d", scratch,
+                     str(dump)], scratch)
         return r.returncode == 0, r.stderr.strip()[-300:]
 
     def verify():
@@ -198,7 +240,7 @@ def drill(dump: Path, admin_url: str, anchor_file: str = "", keep: bool = False,
 
     try:
         if step("preflight (role, dump contents)", preflight) and step("create scratch database", create) \
-                and step("restore dump", restore):
+                and step("create schema extensions (admin)", extensions) and step("restore dump", restore):
             step("verify restored data", verify)
     finally:
         if not keep:
