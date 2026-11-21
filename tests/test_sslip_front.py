@@ -28,7 +28,7 @@ def test_caddy_only_issues_certificates_for_run_preview_hosts():
     pattern = re.search(r'matches\("(.+?)"\)', caddy).group(1).replace("\\\\", "\\")
     ok = re.compile(pattern)
     assert ok.match(f"0b6a2c1e-1111-2222-3333-444455556666.preview.{HOST}")
-    for bad in (f"evil.example.com", f"x.y.preview.{HOST}", f"preview.{HOST}.evil.com", f"-x.preview.{HOST}", HOST):
+    for bad in ("evil.example.com", f"x.y.preview.{HOST}", f"preview.{HOST}.evil.com", f"-x.preview.{HOST}", HOST):
         assert not ok.match(bad), bad
     assert "header_up -X-Api-Key" in caddy and "header_up -X-Org-Id" in caddy
     assert "bind 127.0.0.1" in caddy                                       # the ask endpoint is loopback only
