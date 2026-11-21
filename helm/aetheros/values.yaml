@@ -356,6 +356,11 @@ secrets:
   # -- Velaris (optional integration).
   VELARIS_API_SECRET: ""
   VELARIS_IDENTITY_PRIVATE_KEY_PEM: ""
+  # -- Ed25519 PEM that signs the audit-ledger checkpoints (openssl genpkey -algorithm ED25519). Optional only for a
+  # single pod: without it every pod generates its own key in a throwaway directory, so checkpoints signed before a
+  # restart (or by another replica) can no longer be verified. Back it up apart from the cluster. Prefer an external
+  # secret store; when set it is mounted as a 0600 file and AETHER_LEDGER_SIGNING_KEY points at it.
+  AETHER_LEDGER_SIGNING_KEY_PEM: ""
 
   # -- SCIM 2.0 IdP provisioning bearer token (Okta / Azure AD).
   SCIM_BEARER_TOKEN: ""

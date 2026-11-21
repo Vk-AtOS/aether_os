@@ -49,6 +49,22 @@ spec:
       # Init container: wait for PostgreSQL and Redis to be ready before
       # starting the API server, avoiding 500s on cold start.
       initContainers:
+        {{- if .Values.secrets.AETHER_LEDGER_SIGNING_KEY_PEM }}
+        # The checkpoint signer refuses a key file that group or others can read, and a Secret volume under fsGroup is
+        # group-readable: copy it into an emptyDir with mode 0600.
+        - name: ledger-key
+          image: busybox:1.36
+          command: ["sh", "-c", "cp /src/key.pem /ledger/ledger_signing_key.pem && chmod 600 /ledger/ledger_signing_key.pem"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ .Values.securityContext.runAsUser }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: ledger-key-src, mountPath: /src, readOnly: true}
+            - {name: ledger-key, mountPath: /ledger}
+        {{- end }}
         - name: wait-for-postgresql
           image: busybox:1.36
           command:
@@ -131,7 +147,15 @@ spec:
             successThreshold: {{ .Values.startupProbe.successThreshold }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.secrets.AETHER_LEDGER_SIGNING_KEY_PEM }}
+          env:
+            - name: AETHER_LEDGER_SIGNING_KEY
+              value: /ledger/ledger_signing_key.pem
+          {{- end }}
           volumeMounts:
+            {{- if .Values.secrets.AETHER_LEDGER_SIGNING_KEY_PEM }}
+            - {name: ledger-key, mountPath: /ledger, readOnly: true}
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: aether-artifacts
               mountPath: {{ .Values.persistence.mountPath }}
@@ -140,6 +164,15 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
+        {{- if .Values.secrets.AETHER_LEDGER_SIGNING_KEY_PEM }}
+        - name: ledger-key-src
+          secret:
+            secretName: {{ include "aetheros.secretName" . }}
+            items:
+              - {key: AETHER_LEDGER_SIGNING_KEY_PEM, path: key.pem}
+        - name: ledger-key
+          emptyDir: {medium: Memory}
+        {{- end }}
         {{- if .Values.persistence.enabled }}
         - name: aether-artifacts
           persistentVolumeClaim:
