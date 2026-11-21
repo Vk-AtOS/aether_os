@@ -79,8 +79,9 @@ def test_s01_p00c_runs_after_p00_and_sees_its_build_profile(monkeypatch):
         m.run = run
         return m
 
-    monkeypatch.setattr(s01.importlib, "import_module", imp)
+    # String target first: pytest resolves it through importlib.import_module, which the next line replaces.
     monkeypatch.setattr("aether_os.core.projects.get_project_manager", lambda: _PM())
+    monkeypatch.setattr(s01.importlib, "import_module", imp)
     pi = SimpleNamespace(project_id="p", run_id="r", input_data={})
     asyncio.run(_sup(s01).run_task(pi, []))
     assert seen["profile"] == {"architecture": "microservices"}

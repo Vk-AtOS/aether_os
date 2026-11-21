@@ -318,7 +318,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Phases 1–5: Scaffold, core logic, and layout components ──────────────
     # Delegated to domain_assembler.write_scaffold_and_components to keep
     # task_agent.py under 450 lines.
-    write_scaffold_and_components(
+    _template_surfaces = write_scaffold_and_components(
         frontend_dir=frontend_dir, src_dir=src_dir,
         project_name=project_name, project_slug=project_slug,
         domain=domain, layout_mode=layout_mode, entities=entities,
@@ -433,6 +433,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             (src_dir / "pages" / "customer" / "Home.tsx").write_text(_portal_home_llm)
             _llm_count += 1
             logger.info("p05: LLM portal home written for %s", project_name)
+        else:
+            _template_surfaces.append("pages/customer/Home.tsx")     # the template stayed: it was counted as nothing
+        _template_surfaces.append("pages/customer/AboutPage.tsx")
     else:
         logger.warning("p05: phase watchdog — skipping customer portal generation")
 
@@ -481,8 +484,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         p.relative_to(project_dir).as_posix() for p in _canonical_frontend.rglob("*")
         if p.is_file() and not {"node_modules", "dist", "build", ".git"} & set(p.parts)
     ) if _canonical_frontend.exists() else []
-    # template_debt_pct: fraction of pages that fell back to static templates (0.0 = all LLM, 1.0 = all template)
-    # denominator: entity pages + dashboard + customer portal (all LLM-authored files)
+    # template_debt_pct: fraction of user-facing surfaces that are static templates (0.0 = all LLM, 1.0 = all template)
+    # denominator: entity pages + dashboard + customer portal + the surfaces that are ALWAYS templates
+    # (router shell, login, not-found, layouts, landing, about: meta["template_surfaces"]).
+    _template_count += len(_template_surfaces)
     _primary_llm = os.environ.get("PRIMARY_LLM", "ollama")
     # model_used: resolved provider string; degraded when not a frontier tier (anthropic/gemini)
     _model_used = _primary_llm if _primary_llm else "ollama"
@@ -493,6 +498,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "entities": [e["table"] for e in entities], "used_llm": domain_widget_generated,
         "files_generated": generated_files,
         "template_debt_pct": compute_template_debt(_llm_count, _template_count),
+        "template_surfaces": _template_surfaces,
         "design_brief_source": brief_source,
         "model_used": _model_used,
         "degraded": _degraded,

@@ -7,9 +7,12 @@ Checks (each finding prints `file:line: message`, exit 1 if any):
   paths    every backticked repo path (has a known extension or ends in /) exists.
   env      every backticked UPPER_SNAKE name with an underscore appears in some non-doc source file.
   commands every `bash|python|python3 <script>` and `python -m aether_os.x` in the docs names an existing file.
+  stats    the generated numbers table in SALE_READINESS.md and the due-diligence document matches the repository
+           (scripts/ci/repo_stats.py --check).
 
 Run from anywhere with the checkout importable as `aether_os` (PYTHONPATH=<parent dir>). `--no-routes` skips the import.
 """
+import importlib.util
 import os
 import re
 import sys
@@ -146,12 +149,21 @@ def check_alembic_head(out):
             out.append(f"RUNBOOK.md:{i}: says the single head is {m.group(1)}; alembic heads are {heads}")
 
 
+def check_repo_stats(out):
+    """The generated numbers table of the sale / due-diligence documents still matches the repository (KAN-182)."""
+    spec = importlib.util.spec_from_file_location("repo_stats", Path(__file__).with_name("repo_stats.py"))
+    repo_stats = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(repo_stats)
+    out.extend(repo_stats.drift())
+
+
 def main():
     out = []
     if "--no-routes" not in sys.argv:
         check_routes(out)
     check_paths_env_cmds(out)
     check_alembic_head(out)
+    check_repo_stats(out)
     for o in out:
         print(o)
     print(f"check_docs: {len(out)} problem(s)")

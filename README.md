@@ -284,7 +284,7 @@ aether_os/
 | Formal verification | z3-solver |
 | Testing | pytest, Playwright, Locust, Hypothesis |
 | Frontend | React 19, Vite 8, Tailwind CSS 4, TanStack Query |
-| Memory | mem0ai, ChromaDB |
+| Memory | ChromaDB |
 | Payments | Razorpay, Stripe |
 | Errors and logs | sentry-sdk, structlog |
 | CLI | Typer, Rich |
