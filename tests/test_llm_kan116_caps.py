@@ -64,3 +64,26 @@ def test_injection_in_a_requirement_is_refused_before_any_model_call(gw, case_id
         resp = gw.client.post("/factory/start", headers=who.auth, json={"raw_input": text})
     assert resp.status_code == 400
     call.assert_not_called()
+
+
+def test_org_admin_cannot_undo_a_platform_cap(gw):
+    """Root cause of the finding: the org endpoint used to overwrite the platform's cap column."""
+    owner = gw.register("platcap")
+    admin = gw.user_with_role("admin", owner.org_id)
+    sup = gw.user_with_role("superadmin", owner.org_id)
+    assert gw.client.put(f"/admin/llm/orgs/{owner.org_id}/cap", headers=sup.auth, json={"monthly_cap_usd": 1}).status_code == 200
+
+    def put(v):
+        return gw.client.put("/settings/llm/cap", headers=admin.auth, json={"monthly_cap_usd": v})
+
+    def usage():
+        return gw.client.get("/settings/llm/usage", headers=admin.auth).json()
+
+    plan_cap = usage()["plan_cap_usd"]
+    assert (usage()["platform_cap_usd"], usage()["cap_usd"]) == (1, 1)
+    assert put(plan_cap).status_code == 200 and usage()["cap_usd"] == 1       # raise to the plan cap: no effect
+    assert put(None).status_code == 200 and usage()["cap_usd"] == 1           # clear own cap: platform cap stays
+    assert usage()["platform_cap_usd"] == 1 and usage()["org_cap_usd"] is None
+    assert put(0.5).status_code == 200
+    u = usage()
+    assert (u["cap_usd"], u["org_cap_usd"], u["platform_cap_usd"]) == (0.5, 0.5, 1)

@@ -39,6 +39,9 @@ class Organisation(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=func.now())  # M7: change tracking
     # LLM spend control (KAN-116): per-org USD cap overriding the plan default, and an org-level kill switch.
     llm_monthly_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Cap the ORG ADMIN chose for itself (lowers only). Kept apart from llm_monthly_cap_usd so a tenant can never
+    # undo a cap the platform set: effective cap = min(platform-or-plan cap, org cap).
+    llm_org_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Admin MFA policy (KAN-186): when on, owners/admins without MFA are locked to MFA enrolment
     # once the grace period (unix time, NULL = none) has passed.
