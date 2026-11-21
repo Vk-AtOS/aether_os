@@ -161,20 +161,11 @@ def test_p04a_live_probe_connects_to_the_upstream_host(monkeypatch, tmp_path):
     monkeypatch.setattr(p04a_helpers, "_free_port", lambda: port)
     monkeypatch.setattr(phase_exec, "start_app", lambda *a, **kw: _FakeProc())
 
-    connects = []
+    def no_raw_connect(*a, **kw):
+        raise AssertionError("readiness must be an HTTP /health check: a TCP connect succeeds through Docker's port proxy "
+                             "while the app is still starting")
 
-    class _Conn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-    def fake_connect(address, timeout=None, *a, **kw):
-        connects.append(address)
-        return _Conn()
-
-    monkeypatch.setattr(socket, "create_connection", fake_connect)
+    monkeypatch.setattr(socket, "create_connection", no_raw_connect)
     urls: list = []
     _recording_client(monkeypatch, urls)
 
@@ -182,7 +173,6 @@ def test_p04a_live_probe_connects_to_the_upstream_host(monkeypatch, tmp_path):
         return None
 
     result = asyncio.run(p04a_helpers._live_http_probe(src, emit))
-    assert connects and all(c == ("sandbox-upstream.test", port) for c in connects), connects
     assert urls and urls[0] == f"http://sandbox-upstream.test:{port}/health", urls
     assert all("127.0.0.1" not in u for u in urls)
     assert result["passed"] is True, result
