@@ -57,9 +57,14 @@ refuses to start on a schema that is not at head: run the migrate step, do not s
 * **Real restore:** stop the API (`docker compose stop api preview`), restore into a NEW database (`createdb`, `pg_restore --no-owner -d`),
   run the drill's verify against it, only then point `DATABASE_URL` at it (or swap names), start the API, run `scripts/smoke_test.sh`.
   Keep the damaged database until the owner agrees to drop it.
-* Targets: RPO 15 minutes with PITR (24 h with the daily dump alone), RTO 60 minutes for one organisation. The first drill
-  record (synthetic data, local PostgreSQL 15) restored 85 KB in under 2 s; the real figure must come from a drill against a
-  production-sized dump in the target cloud: **not measured yet**.
+* Targets: RPO 15 minutes with PITR (24 h with the daily dump alone), RTO 60 minutes for one organisation.
+  **Measured (AWS, 21 Nov 2026, `docs/ops/drills/restore-20261121T132843Z.json`):** a 2.6 GB database (4 million pipeline
+  events; 244 MB compressed dump) took 35 s to dump with the scheduled `aetheros-backup.service`, 1 s to fetch from S3 and
+  329 s to restore into RDS PostgreSQL 15 on db.t4g.micro (the smallest class), plus 1 s to verify every chain against the
+  external checkpoints: about 6 minutes in all, well inside the 60-minute RTO. Restore time grows roughly with database size;
+  a larger instance class restores faster.
+* Compose deployments: install the timer with a drop-in that sets `COMPOSE_DIR`, `BACKUP_REMOTE` and `CHECKPOINT_DEST`
+  (see `deploy/scripts/backup.sh`); run the drill with `--anchor-file` AND `--public-key` (both from the checkpoint copy).
 
 ## Redis
 
