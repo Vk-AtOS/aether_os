@@ -461,7 +461,7 @@ async def _quality_probe(
         logger.warning("[p07b quality_probe] Could not bind free port: %s", exc)
         return {"skipped": True, "reason": "no_free_port"}
 
-    base_url = f"http://127.0.0.1:{probe_port}"
+    base_url = phase_exec.app_url(probe_port)
 
     # Ensure .env exists so the app has a valid SECRET_KEY / DATABASE_URL
     env_file = backend_dir / ".env"
@@ -495,7 +495,7 @@ async def _quality_probe(
         for _ in range(20):
             await asyncio.sleep(0.5)
             try:
-                with socket.create_connection(("127.0.0.1", probe_port), timeout=0.3):
+                with socket.create_connection((phase_exec.app_host(), probe_port), timeout=0.3):
                     _ready = True
                     break
             except OSError as sock_exc:

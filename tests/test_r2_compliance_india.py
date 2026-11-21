@@ -25,8 +25,15 @@ def test_default_saas_india_fintech_is_not_denied_but_asks_to_confirm_hosting():
 def test_hosting_in_india_clears_the_localisation_finding_and_hosting_abroad_denies():
     ok = ComplianceEngine().evaluate(_ctx(hosting_country="IN"))
     assert not ok.denied and not {i for i in _ids(ok) if "LOCALISATION" in i}
+    # not blocked by default (KAN-131): hosting abroad asks for approval
+    for kw in ({"hosting_country": "US"}, {"uses_third_country_cloud": True}):
+        d = ComplianceEngine().evaluate(_ctx(**kw))
+        assert not d.denied and d.requires_approval and "IN_RBI_DATA_LOCALISATION" in _ids(d)
+
+
+def test_operator_can_opt_into_the_hard_rbi_deny(monkeypatch):
+    monkeypatch.setenv("AETHER_RBI_LOCALISATION_BLOCK", "1")
     assert ComplianceEngine().evaluate(_ctx(hosting_country="US")).denied
-    assert ComplianceEngine().evaluate(_ctx(uses_third_country_cloud=True)).denied
 
 
 def test_non_india_apac_gets_no_india_rules_and_india_non_fintech_needs_no_approval():

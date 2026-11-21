@@ -494,6 +494,7 @@ Tags: intelligence. Routes: 14.
 | POST | `/intelligence/arch-governor/review` | `get_current_user`; floor: member+ (viewer denied); handler calls `assert_run_in_org`, `enforce` | T9-01: Review generated code against architecture spec. |
 | POST | `/intelligence/conflict-resolver/detect` | `get_current_user`; floor: member+ (viewer denied) | T9-03: Detect conflicts in requirements or architecture. |
 | POST | `/intelligence/conflict-resolver/resolve` | `get_current_user`; floor: member+ (viewer denied); handler calls `assert_run_in_org` | T9-03: Record a conflict resolution. |
+| GET | `/intelligence/conflict-resolver/resolved` | `get_current_user`; floor: any role; scoped to the caller's `org_id` | Conflicts already resolved in the caller's organisation, with who resolved them (KAN-154). |
 | GET | `/intelligence/global-insights` | `get_current_user`; floor: any role | Authenticated intelligence feed - aggregated from GlobalPattern + completed runs. |
 | GET | `/intelligence/global-patterns` | `get_current_user`; floor: any role | Return all learned GlobalPattern entries for the platform. |
 | POST | `/intelligence/global-patterns` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Admin: create a GlobalPattern override to manually tune learned behaviors. |
@@ -560,8 +561,10 @@ Tags: llm-controls. Routes: 5.
 | POST | `/admin/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Global kill. |
 | PUT | `/admin/llm/orgs/{org_id}/cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Set org cap. |
 | GET | `/admin/llm/status` | `get_current_user`; floor: any role; handler calls `_superadmin`; handler checks role inline | Status for `/admin/llm/status`. |
+| PUT | `/settings/llm/cap` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org admin sets the org's own lower-only cap (`llm_org_cap_usd`); effective cap is the minimum with the platform cap. |
 | POST | `/settings/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org kill. |
 | GET | `/settings/llm/usage` | `get_current_user`; floor: any role | Usage for `/settings/llm/usage`. |
+| GET | `/settings/provider-status` | `get_current_user`; floor: owner/admin (others 403) | Per provider: whether a key is on file (never the key), endpoint host, health and circuit-breaker state (KAN-18). |
 
 ### `gateway/routers/marketplace_router.py`
 
@@ -695,7 +698,7 @@ Tags: prime-corrections. Routes: 4.
 | GET | `/prime/corrections/eval-set` | `get_current_user`; floor: any role; handler checks role inline | Good examples as test cases: input, expected corrected output. Edits only (a rejection |
 | POST | `/prime/corrections/outcome` | `get_current_user`; floor: any role | Say whether the retrieved corrections changed what the agent proposed. |
 | GET | `/prime/corrections/relevant` | `get_current_user`; floor: any role | The corrections to show an agent before it proposes this action, and the prompt block. |
-| PUT | `/prime/corrections/{correction_id}/good-example` | `get_current_user`; floor: any role; handler calls `_admin` | Mark good example. |
+| PUT | `/prime/corrections/{correction_id}/good-example` | `get_current_user`; floor: any role; handler calls `_admin` | Remove a correction from (False) or put it back in (True) its agent's eval set; all are in by default. |
 
 ### `gateway/routers/prime_inbox_router.py`
 

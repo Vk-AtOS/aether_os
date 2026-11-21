@@ -242,9 +242,22 @@ Return ONLY the JSON array, no markdown."""
     _SAFE_ENV_VARS = {
         # Only allow setting these env vars automatically — never secrets
         "BEDROCK_ENABLED", "BEDROCK_MODEL_HEAVY", "BEDROCK_MODEL_LIGHT",
-        "PRIMARY_LLM", "OLLAMA_TIMEOUT", "COUNCIL_STRICT_MODE",
+        # PRIMARY_LLM and COUNCIL_STRICT_MODE are deliberately absent: they change model routing and
+        # safety posture for every tenant, so a diagnosis built from untrusted failure text may not
+        # even recommend them.
+        "OLLAMA_TIMEOUT",
         "WORKLOOP_INTERVAL", "PIPELINE_PHASE_TIMEOUT",
     }
+
+    async def _ledger_recommendation(self, key: str, val: str, reason: str) -> None:
+        """Record the recommendation in the tamper-evident ledger (it was only in memory before)."""
+        try:
+            from aether_os.core.audit.ledger import get_ledger
+            await get_ledger().async_log_audit_event(
+                "system", "workloop_monitor", "workloop.env_recommendation", "env_var", key,
+                {"key": key, "value": val, "applied": False, "reason": str(reason)[:500]}, "")
+        except Exception as e:
+            logger.warning("WorkloopMonitor: could not ledger recommendation for %s: %s", key, e)
 
     async def _maybe_apply_fix(self, finding: Dict[str, Any]) -> None:
         if not finding.get("auto_fixable"):
@@ -269,6 +282,7 @@ Return ONLY the JSON array, no markdown."""
                 })
                 logger.warning("WorkloopMonitor: recommends %s=%s (not applied): %s",
                                key, val, finding.get("root_cause", ""))
+                await self._ledger_recommendation(key, val, finding.get("root_cause", ""))
         elif fix_type == "restart":
             # Never auto-restart — just log the recommendation
             self._fix_log.append({

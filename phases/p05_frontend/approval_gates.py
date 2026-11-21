@@ -8,11 +8,18 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.decisions.decision_engine import Decision, get_decision_engine
 from aether_os.core.domain_ir import AetherType  # noqa: F401
+from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.pipeline_state import publish_event
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
 
 logger = logging.getLogger(__name__)
+
+
+def _halt_unless_approved(resolved: Any, gate: str) -> None:
+    """A denied or unanswered (timeout) gate must stop the run; the engine only yields pending|approved|denied|timeout."""
+    if resolved.status in ("denied", "timeout"):
+        raise PipelineBlockedError(f"{gate} not approved ({resolved.status}) - pipeline halted at p05")
 
 
 async def run_gate3_approval(
@@ -53,6 +60,7 @@ async def run_gate3_approval(
                 "allow_overrides": True,
             })
             resolved = await engine.await_decision(decision.id)
+            _halt_unless_approved(resolved, "Gate 3")
             if resolved.status == "approved" and resolved.human_choice:
                 try:
                     if resolved.human_choice.strip().startswith("["):
@@ -63,6 +71,8 @@ async def run_gate3_approval(
                     logger.warning("p05: Gate 3 choice parse failed: %s", _parse_exc)
         else:
             logger.info("p05: Autonomous mode — bypassing Gate 3 approval.")
+    except PipelineBlockedError:
+        raise
     except Exception as exc:
         logger.warning("p05: Gate 3 skipped: %s", exc)
     return admin_features
@@ -133,6 +143,7 @@ async def run_gate2_preview(
                 ),
             })
             resolved = await engine.await_decision(decision.id)
+            _halt_unless_approved(resolved, "Gate 2")
             if resolved.status == "approved" and resolved.human_choice:
                 await apply_revisions_fn(
                     resolved.human_choice.strip(), frontend_dir, domain, project_name
@@ -140,6 +151,8 @@ async def run_gate2_preview(
                 revised = True
         elif run_id:
             logger.info("p05: Autonomous mode — bypassing Gate 2 approval.")
+    except PipelineBlockedError:
+        raise
     except Exception as _gate2_exc:
         logger.warning("p05: Gate 2 skipped: %s", _gate2_exc)
     return revised

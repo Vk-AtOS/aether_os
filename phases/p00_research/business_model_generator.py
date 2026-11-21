@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from aether_os.core.llm.client import get_llm_client
+from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
 
@@ -108,15 +109,10 @@ async def generate_business_model(
         client = get_llm_client()
         raw = await client.call(prompt, task_type="analysis", max_tokens=2000)
         if raw:
-            # Strip markdown fences if present before JSON parse
-            raw = raw.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            model = json.loads(raw.strip())
+            # First complete object: fences, leading prose and trailing explanation are ignored.
+            model = extract_first_json(raw, expect=dict)
             logger.info("p00: generated business model for domain=%s", domain)
-    except json.JSONDecodeError as exc:
+    except ValueError as exc:
         logger.warning("p00: business model JSON parse failed: %s", exc)
         model = _FALLBACK_MODEL.copy()
     except Exception as exc:

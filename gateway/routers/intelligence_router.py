@@ -259,7 +259,13 @@ async def conflict_resolver_resolve(
         resolution=req.get("resolution", ""),
         run_id=req.get("run_id", ""),
         org_id=user.get("org_id"),
+        user_id=user.get("user_id", ""),
+        description=req.get("description", ""),
     )
+@router.get("/intelligence/conflict-resolver/resolved")
+async def conflict_resolver_resolved(user: Dict[str, Any] = _current_user()):
+    """Conflicts already resolved by anyone in the caller's organisation, with who resolved them."""
+    return await get_conflict_resolver().list_resolved(user["org_id"])
 @router.post("/intelligence/tradeoff-engine/analyze")
 async def tradeoff_engine_analyze(
     req: Dict[str, Any],

@@ -55,6 +55,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: "no"
     working_dir: /srv/aether_os
     command: ["python", "scripts/db_migrate.py"]
@@ -71,6 +74,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # optional build identity for the Guardian integrity baseline (e.g. the git commit); see Dockerfile
+        AETHER_BUILD_ID: ${AETHER_BUILD_ID:-}
     restart: unless-stopped
     env_file: .env.staging
     ports:
