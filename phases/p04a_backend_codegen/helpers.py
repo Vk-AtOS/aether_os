@@ -16,7 +16,6 @@ import asyncio
 import httpx
 import logging
 import secrets
-import socket
 import textwrap
 from pathlib import Path
 
@@ -285,20 +284,27 @@ async def _live_http_probe(src_dir: Path, emit) -> dict:
              "--timeout-graceful-shutdown", "1"],
             cwd=src_dir.parent, port=probe_port, log_path=_log_path, env=_env)
 
-        # Wait up to 8 seconds for the server to be ready
+        # Ready means /health answers, not that the port accepts: behind Docker's port proxy a TCP connect succeeds while the
+        # app inside is still starting, and the first HTTP request then got "Server disconnected" (AWS testbed run 7, 21 Nov
+        # 2026: the same generated app answered 200 when probed after start-up). Up to 30 s; any HTTP answer below 500 counts.
         _ready = False
-        for _ in range(16):
-            await asyncio.sleep(0.5)
-            try:
-                with socket.create_connection((phase_exec.app_host(), probe_port), timeout=0.3):
-                    _ready = True
-                    break
-            except OSError as e:
-                logger.warning("p04a helpers: live HTTP probe connection attempt failed on port %d: %s", probe_port, e)
-
+        _last = ""
+        _deadline = asyncio.get_running_loop().time() + 30.0
+        async with httpx.AsyncClient(timeout=2.0) as _w:
+            while asyncio.get_running_loop().time() < _deadline:
+                await asyncio.sleep(0.5)
+                try:
+                    _resp = await _w.get(phase_exec.app_url(probe_port, "/health"))
+                    if _resp.status_code < 500:
+                        _ready = True
+                        break
+                    _last = f"HTTP {_resp.status_code}"
+                except httpx.HTTPError as e:
+                    _last = f"{type(e).__name__}: {e}"
         if not _ready:
+            logger.warning("p04a helpers: app on port %d never answered /health: %s", probe_port, _last)
             _log_tail = safe_read_text(src_dir.parent, _log_path)[-1000:] if _log_path.exists() else ""
-            return {"passed": False, "skipped": False, "errors": [f"Server did not start in 8s: {_log_tail[-400:]}"], "health_status": "timeout"}
+            return {"passed": False, "skipped": False, "errors": [f"Server did not answer /health in 30s ({_last}): {_log_tail[-400:]}"], "health_status": "timeout"}
 
         # Hit /health
         async with httpx.AsyncClient(timeout=5.0) as _c:
