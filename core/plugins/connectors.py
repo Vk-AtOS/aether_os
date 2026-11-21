@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 class ConnectorError(Exception):
     """Raised when a connector call fails. Pipeline phases catch this."""
-    pass
 
 
 GENERIC_CONNECTOR_ERROR = "The connector request failed. Check the connector settings and credentials."
@@ -171,7 +170,8 @@ class GitHubConnector(BaseConnector):
             return {"triggered": True, "repo": repo, "workflow": workflow, "ref": ref}
 
     async def action_get_file_contents(self, params: Dict[str, Any]) -> Dict:
-        import httpx, base64
+        import httpx
+        import base64
         repo = params["repo"]
         path = params["path"]
         ref = params.get("ref", "main")

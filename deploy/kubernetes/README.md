@@ -23,10 +23,20 @@ kubectl create secret generic aetheros-secrets \
   --from-literal=REDIS_PASSWORD="$(openssl rand -hex 20)" \
   --from-literal=DATABASE_URL="postgresql://aether_user:<POSTGRES_PASSWORD>@postgres:5432/aether_os" \
   --from-literal=REDIS_URL="redis://:<REDIS_PASSWORD>@redis:6379/0" \
+  --from-literal=AETHER_FIELD_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" \
+  --from-literal=AETHER_PREVIEW_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=AETHER_LEDGER_SIGNING_KEY_PEM="$(openssl genpkey -algorithm ED25519)" \
+  --from-literal=VELARIS_API_SECRET="" \
+  --from-literal=VELARIS_IDENTITY_PRIVATE_KEY_PEM="" \
   --from-literal=SAML_SP_ENTITY_ID="" \
   --from-literal=SAML_SP_ACS_URL="" \
+  --from-literal=AETHER_JWT_PRIVATE_KEY_B64="" \
+  --from-literal=AETHER_JWT_PUBLIC_KEY_B64="" \
   -n aetheros
 ```
+
+`api.yaml` reads every key above through `secretKeyRef`; a key missing from the Secret is a pod config error. The ledger
+signing key is mounted as a 0600 file shared by all replicas (back it up apart from the cluster).
 
 Update `CORS_ORIGINS` and `FRONTEND_URL` in `configmap.yaml` and `yourdomain.com`
 in `ingress.yaml` to match your actual domain.
@@ -53,48 +63,17 @@ Or apply everything at once (Kubernetes handles dependency ordering via readines
 kubectl apply -f deploy/kubernetes/
 ```
 
-## 3. Run Alembic Migrations
+## 3. Database schema
 
-After the `postgres` StatefulSet pod is ready, run migrations as a one-off Job:
-
-```bash
-kubectl run alembic-migrate \
-  --image=aetheros/api:latest \
-  --restart=Never \
-  --namespace=aetheros \
-  --env="DATABASE_URL=$(kubectl get secret aetheros-secrets -n aetheros -o jsonpath='{.data.DATABASE_URL}' | base64 -d)" \
-  -- alembic upgrade head
-```
-
-Wait for it to complete and check logs:
+`migrate-job.yaml` runs `python scripts/db_migrate.py`, the same command compose and `deploy/deploy.sh` run: an empty
+database is created from the models and stamped at head; an existing one gets `alembic upgrade head`; both then apply the
+audit-ledger triggers. (`alembic upgrade head` alone cannot build an empty database.) The API pods exit while the schema is
+not at head and restart until the job finishes, so applying the whole directory is safe.
 
 ```bash
-kubectl logs alembic-migrate -n aetheros
-kubectl delete pod alembic-migrate -n aetheros
-```
-
-Alternatively, create a Kubernetes Job manifest:
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: alembic-migrate
-  namespace: aetheros
-spec:
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: alembic
-          image: aetheros/api:latest
-          command: ["alembic", "upgrade", "head"]
-          env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: aetheros-secrets
-                  key: DATABASE_URL
+kubectl -n aetheros wait --for=condition=complete job/aetheros-migrate --timeout=300s
+kubectl -n aetheros logs job/aetheros-migrate
+kubectl -n aetheros delete job aetheros-migrate     # before the next upgrade (Job specs are immutable)
 ```
 
 ## 4. Verify

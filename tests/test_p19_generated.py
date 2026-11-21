@@ -60,7 +60,8 @@ def _client(m, failing_db=False):
 def test_unsigned_token_and_no_token_are_rejected(tmp_path):
     m, priv = _load(tmp_path, True)
     c = _client(m)
-    import base64, json
+    import base64
+    import json
     seg = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
     forged = f"{seg({'alg': 'none'})}.{seg({'sub': 'victim', 'type': 'access'})}.x"
     assert c.get("/api/platform/events", headers={"Authorization": f"Bearer {forged}"}).status_code == 401

@@ -17,16 +17,23 @@ FROM python:3.11.14-slim-bookworm@sha256:65a93d69fa75478d554f4ad27c85c1e69fa1849
 
 WORKDIR /srv
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# `apt-get upgrade`: the pinned base image lags Debian security updates (container-scan found CRITICAL openssl/gnutls
+# and HIGH krb5/apt/pcre2 fixes already published for bookworm, 22 Nov 2026).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
     postgresql-client curl git \
     && rm -rf /var/lib/apt/lists/*
 
 # Use the pinned lockfile for reproducible builds (requirements.txt is unpinned)
 # The sandbox backend shells out to `docker` (core/sandbox/docker_backend.py) through DOCKER_HOST=unix:///docker-proxy/docker.sock, the filtered socket proxy (unix socket on a private volume, no TCP) (see docker-compose.yml); the API has no socket.
-COPY --from=docker:27.5.1-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c /usr/local/bin/docker /usr/local/bin/docker
+# 29.10.0 (Go 1.27.4): 27.5.1 was built with Go 1.22.11, whose standard library has CRITICAL CVEs. The client negotiates
+# the API version down to older daemons (hosts run Docker 25).
+COPY --from=docker:29.10.0-cli@sha256:34507eb5069d8be82c95dd3b6987d4250fd5fee49b82e2509b7d7a7030740d6d /usr/local/bin/docker /usr/local/bin/docker
 
 COPY requirements.lock .
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir -r requirements.lock \
+    # Build and venv tooling in the image (setuptools' vendored jaraco.context and wheel, virtualenv for per-run app
+    # environments) is upgraded past the HIGH advisories that container-scan reported (22 Nov 2026).
+    && pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "virtualenv>=21.14.9"
 
 # Copy source into a directory named `aether_os` so `import aether_os` resolves
 COPY . ./aether_os/
@@ -50,8 +57,11 @@ RUN python -c "from aether_os.core.guardian.build_identity import write_manifest
 
 # --home: a system user otherwise gets HOME=/nonexistent, and the code keeps its state under ~/.aether_os (compose mounts
 # /home/aether/.aether_os); the API and preview crashed at import with PermissionError: '/nonexistent'.
-RUN addgroup --system aether && adduser --system --ingroup aether --home /home/aether aether
-USER aether
+# Fixed numeric uid/gid 1000 (the Helm chart's securityContext.runAsUser): Kubernetes with runAsNonRoot refuses an image
+# whose USER is a name ("image has non-numeric user (aether), cannot verify user is non-root"), found by a real helm
+# install on kind, 22 Nov 2026. A --system user also got a build-dependent uid that never matched the chart's 1000.
+RUN addgroup --system --gid 1000 aether && adduser --system --uid 1000 --ingroup aether --home /home/aether aether
+USER 1000:1000
 
 EXPOSE 8000
 

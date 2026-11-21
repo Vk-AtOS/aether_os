@@ -413,7 +413,8 @@ def test_user_entity_and_tenant_fields_are_never_client_writable(tmp_path, monke
             {"name": "password_hash", "type": "string"}]}]}
     from aether_os.core.domain_ir import DomainIR
     from aether_os.phases.p04a_backend_codegen import ir_generators as g
-    import tempfile, pathlib
+    import tempfile
+    import pathlib
     path = pathlib.Path(tempfile.mkdtemp()) / "domain_ir.json"
     path.write_text(json.dumps(ir))
     d = DomainIR.load(path)

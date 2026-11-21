@@ -36,7 +36,8 @@ def test_missing_ledger_triggers_refuse_startup():
 
 
 def test_every_trigger_the_migrations_create_is_in_the_required_list():
-    import pathlib, re
+    import pathlib
+    import re
     names = set()
     for f in pathlib.Path(db.__file__).resolve().parent.parent.joinpath("alembic/versions").glob("*.py"):
         names |= set(re.findall(r"CREATE TRIGGER (\w+)", f.read_text()))
