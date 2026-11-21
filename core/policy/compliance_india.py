@@ -13,7 +13,22 @@ Covers:
 """
 from __future__ import annotations
 
+import os
 from typing import List
+
+# Compliance checklist for India fintech builds, emitted with the build (warnings, not blocks). It names the
+# obligations only; retention periods and legal wording are set by the operator with their counsel.
+RBI_CHECKLIST = [
+    "Confirm payment data is stored only in India (compliance_flags.hosting_country = IN).",
+    "Maintain an immutable audit trail of payment transactions; the operator sets the retention window.",
+    "Set up fraud risk management and incident reporting to RBI; the operator sets the reporting process.",
+    "Review DPDP Act 2023 consent and cross-border transfer obligations with counsel.",
+]
+
+
+def rbi_blocks() -> bool:
+    """True only when the operator opted into the hard RBI localisation deny."""
+    return os.environ.get("AETHER_RBI_LOCALISATION_BLOCK", "").strip().lower() in ("1", "true", "yes")
 
 
 def rule_india_dpdp(
@@ -141,7 +156,9 @@ def rule_india_rbi(
                         "Hosting outside India requires architecture review; "
                         "international leg may be mirrored but Indian copy is mandatory."
                     ),
-                    severity="critical",
+                    # Not blocked by default (owner decision, KAN-131): a warning that asks for approval.
+                    # An operator who wants the hard stop sets AETHER_RBI_LOCALISATION_BLOCK=1.
+                    severity="critical" if rbi_blocks() else "high",
                 )
             )
             reasons.append("RBI mandate: payment data must be stored exclusively in India.")
