@@ -1,6 +1,6 @@
 # Reviewed 15 Nov 2026 (KAN-203). Every entry below is a verified FALSE POSITIVE
 # (test fixture, placeholder, or an env var NAME). Never add a live secret here:
-# rotate it and purge history instead (docs/security/ROTATION_RUNBOOK.md).
+# remove it instead (docs/security/ROTATION_RUNBOOK.md). Reviewed historic findings live in .gitleaksignore.
 title = "aether_os gitleaks config"
 
 [extend]
