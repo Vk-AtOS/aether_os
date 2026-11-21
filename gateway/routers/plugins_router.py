@@ -163,7 +163,7 @@ async def test_plugin_connection(
 ) -> Dict[str, Any]:
     """Test credentials for an installed plugin by making a real API call."""
     from aether_os.core.plugins.registry import get_plugin_registry
-    from aether_os.core.plugins.connectors import get_connector, ConnectorError, assert_public_urls
+    from aether_os.core.plugins.connectors import get_connector, ConnectorError, assert_public_urls, generic_failure, GENERIC_CONNECTOR_ERROR
 
     config = await get_plugin_registry().get_installed_config(plugin_id, user["org_id"])
     if config is None:
@@ -173,12 +173,13 @@ async def test_plugin_connection(
         await assert_public_urls(config)
         connector = get_connector(plugin_id, config)
         result = await connector.test()
+        if isinstance(result, dict) and not result.get("ok"):
+            # connector.test() reports failures as text built from the upstream reply or exception.
+            logger.warning("connector test not ok [%s]: %s", plugin_id, result.get("message"))
+            return {**result, "message": GENERIC_CONNECTOR_ERROR}
         return result
-    except ConnectorError as exc:
-        return {"ok": False, "message": str(exc)}
     except Exception as exc:
-        logger.warning("plugins_router: connector test failed for %s: %s", plugin_id, exc)
-        return {"ok": False, "message": f"Unexpected error: {exc}"}
+        return {"ok": False, "message": generic_failure(exc, f"test {plugin_id}")}
 
 
 # ── Connector invocation ───────────────────────────────────────────────────────
@@ -196,7 +197,7 @@ async def invoke_connector(
       {"plugin_id": "github", "action": "create_pr", "params": {"repo": "org/repo", ...}}
     """
     from aether_os.core.plugins.registry import get_plugin_registry
-    from aether_os.core.plugins.connectors import get_connector, ConnectorError, assert_public_urls
+    from aether_os.core.plugins.connectors import get_connector, ConnectorError, assert_public_urls, generic_failure
 
     config = await get_plugin_registry().get_installed_config(req.plugin_id, user["org_id"])
     if config is None:
@@ -211,10 +212,10 @@ async def invoke_connector(
         result = await connector.invoke(req.action, req.params)
         return result
     except ConnectorError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=generic_failure(exc, f"invoke {req.plugin_id}/{req.action}")) from exc
     except Exception as exc:
         logger.error("Connector invoke failed [%s/%s]: %s", req.plugin_id, req.action, exc)
-        raise HTTPException(status_code=500, detail=f"Connector error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Connector error") from exc
 
 # Skills, Salesforce, and LDAP connector routes live in plugins_connectors_router.py —
 # see gateway/routers/plugins_connectors_router.py
