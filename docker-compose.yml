@@ -181,6 +181,8 @@ services:
   #   mkdir -p secrets && openssl genpkey -algorithm ED25519 -out secrets/velaris_identity.pem
   #   openssl pkey -in secrets/velaris_identity.pem -pubout -out secrets/velaris_identity.pub.pem
   #   openssl rand -base64 32 > secrets/vault.key && chmod 600 secrets/vault.key   (vault key; back it up apart from the data volume)
+  #   chown 10001:10001 secrets/vault.key   (Velaris runs as uid 10001 and refuses a key that is not mode 0600; root-owned, it
+  #   cannot read it, and every Velaris call answers 503 with TraceHeadError)
   #   put VELARIS_API_SECRET (openssl rand -hex 32) and the private key as VELARIS_IDENTITY_PRIVATE_KEY_PEM in .env
   velaris: &velaris
     profiles: ["velaris"]
