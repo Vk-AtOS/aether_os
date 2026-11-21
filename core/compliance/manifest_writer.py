@@ -85,21 +85,34 @@ def _build_components_from_scan(scan_result: Any, scanned_file_path: str) -> Lis
     return components
 
 
+def write_manifest_for_scan(scan_result: Any, project_path: Path, project_name: str, domain: str) -> dict:
+    """Build the manifest from an existing scan result and write compliance_manifest.json into the run
+    directory. The one writer (p06 calls it): nothing under project_path is read or written through a link.
+    Raises on failure (SandboxViolation if the manifest path is a planted link)."""
+    _path = Path(project_path)
+    manifest = {
+        "schema_version": "1.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project_name": project_name,
+        "domain": domain,
+        "overall_score": getattr(scan_result, "score", 0),
+        "drift_fingerprint": _compute_drift_fingerprint(_path),
+        "framework_versions": _FRAMEWORK_VERSIONS,
+        "components": _build_components_from_scan(scan_result, getattr(scan_result, "scanned_file", "")),
+    }
+    safe_fs.safe_write_text(_path, _path / "compliance_manifest.json", json.dumps(manifest, indent=2))
+    logger.info("[manifest_writer] wrote compliance_manifest.json to %s (score=%d, routes=%d)",
+                _path, manifest["overall_score"], len(manifest["components"]))
+    return manifest
+
+
 def write_compliance_manifest(
     project_path: str,
     domain: str,
     project_name: str,
 ) -> dict:
     """
-    Scan all .py files under project_path and write compliance_manifest.json.
-
-    Steps:
-    1. Find all .py files under project_path
-    2. Run code_scanner.scan_file on the main entry point (src/main.py preferred)
-    3. Build manifest dict from scan results
-    4. Compute drift fingerprint from route-bearing files
-    5. Write compliance_manifest.json to project_path root
-    6. Return the manifest dict
+    Scan the project's main.py and write compliance_manifest.json (for callers with no scan result yet).
 
     Never raises — logs all failures at WARNING. Returns empty manifest on failure.
     """
@@ -134,33 +147,10 @@ def write_compliance_manifest(
                 "[manifest_writer] no main.py found under %s — writing empty manifest",
                 project_path,
             )
-            manifest = {**empty_manifest}
-        else:
-            scan_result = scan_file(main_py, project_name=project_name, domain=domain, root=_path)
-            scanned_file = getattr(scan_result, "scanned_file", str(main_py))
-            components = _build_components_from_scan(scan_result, scanned_file)
-            drift_fingerprint = _compute_drift_fingerprint(_path)
-
-            manifest = {
-                "schema_version": "1.0",
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "project_name": project_name,
-                "domain": domain,
-                "overall_score": getattr(scan_result, "score", 0),
-                "drift_fingerprint": drift_fingerprint,
-                "framework_versions": _FRAMEWORK_VERSIONS,
-                "components": components,
-            }
-
-        manifest_path = _path / "compliance_manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        logger.info(
-            "[manifest_writer] wrote compliance_manifest.json to %s (score=%d, routes=%d)",
-            manifest_path,
-            manifest.get("overall_score", 0),
-            len(manifest.get("components", [])),
-        )
-        return manifest
+            safe_fs.safe_write_text(_path, _path / "compliance_manifest.json", json.dumps(empty_manifest, indent=2))
+            return empty_manifest
+        scan_result = scan_file(main_py, project_name=project_name, domain=domain, root=_path)
+        return write_manifest_for_scan(scan_result, _path, project_name, domain)
 
     except Exception as exc:
         logger.warning("[manifest_writer] write_compliance_manifest failed: %s", exc)

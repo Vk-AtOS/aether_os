@@ -35,7 +35,9 @@ git pull --ff-only
 # 2. Python deps
 echo "→ Installing Python dependencies..."
 "$VENV/pip" install -q --upgrade pip
-"$VENV/pip" install -q --upgrade -r requirements.txt
+# The lock, not requirements.txt: the lock is the set the test suite and the dependency audit ran on. requirements.txt
+# only gives floors, so it would install untested newer releases on the server.
+"$VENV/pip" install -q -r requirements.lock
 
 # 3. Install the aether_os package itself in editable mode.
 #    This makes `from aether_os.core.*` and `from aether_os.gateway.*` work

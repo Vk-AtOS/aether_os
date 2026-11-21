@@ -55,6 +55,17 @@ const Compose = ({ mb, reply, onClose }) => {
   const [err, setErr] = useState('');
   const [sub, setSub] = useState(null);
   const fileRef = useRef(null);
+  // Sending is "create a draft, then submit it". Until the submit is accepted the draft belongs to this form:
+  // a refused submit removes it, so a failed send (and each retry) does not pile drafts up in the Drafts folder.
+  const leftover = useRef(null);
+  const dropDraft = async () => {
+    if (!leftover.current) return;
+    try { await vc.delete(`/mail/mailboxes/${mb}/drafts/${leftover.current}`); leftover.current = null; } catch (x) {
+      // Velaris could not be reached (or it is already being sent): keep the id and try again on the next send or on Discard.
+      console.warn('The unsent draft could not be removed:', vError(x));
+    }
+  };
+  const close = async () => { await dropDraft(); onClose(); };
 
   const attach = async (e) => {
     const file = e.target.files?.[0];
@@ -71,11 +82,14 @@ const Compose = ({ mb, reply, onClose }) => {
     if (!(await confirmAction(`Send this message to ${to.join(', ')}? You will have a short window to undo it.`, 'Send message'))) return;
     setBusy(true); setErr('');
     try {
+      await dropDraft();
       const d = await vc.post(`/mail/mailboxes/${mb}/drafts`, { to, cc: list(f.cc), subject: f.subject, text: f.text,
         ...(files.length ? { attachments: files } : {}), ...(reply?.id ? { in_reply_to_id: reply.id } : {}) });
+      leftover.current = d.data.id;
       const s = await vc.post(`/mail/mailboxes/${mb}/drafts/${d.data.id}/submit`, {});
+      leftover.current = null;
       setSub(s.data);
-    } catch (x) { setErr(vError(x)); } finally { setBusy(false); }
+    } catch (x) { setErr(vError(x)); await dropDraft(); } finally { setBusy(false); }
   };
 
   if (sub) return (
@@ -97,7 +111,7 @@ const Compose = ({ mb, reply, onClose }) => {
           <button className={btn()} disabled={busy}>Send</button>
           <input ref={fileRef} type="file" className="hidden" onChange={attach} aria-label="Attach a file" />
           <button type="button" className={btn('ghost')} onClick={() => fileRef.current?.click()}>Attach</button>
-          <button type="button" className={btn('ghost')} onClick={onClose}>Discard</button>
+          <button type="button" className={btn('ghost')} onClick={close}>Discard</button>
         </div>
       </form>
     </Card>

@@ -16,6 +16,7 @@ import os
 import smtplib
 import email.mime.text
 import email.mime.multipart
+from html import escape
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,9 @@ class EmailNotifier:
         url = f"{frontend_url}/project/{run_id}" if frontend_url else f"/project/{run_id}"
         subject = f"✅ AetherOS: {project_name} pipeline completed"
         html = (
-            f"<p>Your pipeline <strong>{project_name}</strong> has completed successfully.</p>"
+            f"<p>Your pipeline <strong>{escape(str(project_name))}</strong> has completed successfully.</p>"
             f"<p>Cost: <strong>${cost:.4f}</strong></p>"
-            f"<p><a href='{url}'>View project results →</a></p>"
+            f"<p><a href='{escape(url)}'>View project results →</a></p>"
             f"<hr><p style='color:#888;font-size:12px'>AetherOS Factory</p>"
         )
         return await self.send(to, subject, html)
@@ -76,8 +77,8 @@ class EmailNotifier:
         url = f"{frontend_url}/project/{run_id}" if frontend_url else f"/project/{run_id}"
         subject = f"❌ AetherOS: {project_name} pipeline failed"
         html = (
-            f"<p>Your pipeline <strong>{project_name}</strong> encountered an error and could not complete.</p>"
-            f"<p><a href='{url}'>View error details →</a></p>"
+            f"<p>Your pipeline <strong>{escape(str(project_name))}</strong> encountered an error and could not complete.</p>"
+            f"<p><a href='{escape(url)}'>View error details →</a></p>"
             f"<hr><p style='color:#888;font-size:12px'>AetherOS Factory</p>"
         )
         return await self.send(to, subject, html)
@@ -86,8 +87,8 @@ class EmailNotifier:
         url = f"{frontend_url}/project/{run_id}" if frontend_url else f"/project/{run_id}"
         subject = f"⚠️ AetherOS: Decision required — {project_name}"
         html = (
-            f"<p>Pipeline <strong>{project_name}</strong> requires your approval at phase <strong>{phase}</strong>.</p>"
-            f"<p><a href='{url}'>Review and decide →</a></p>"
+            f"<p>Pipeline <strong>{escape(str(project_name))}</strong> requires your approval at phase <strong>{escape(str(phase))}</strong>.</p>"
+            f"<p><a href='{escape(url)}'>Review and decide →</a></p>"
             f"<hr><p style='color:#888;font-size:12px'>AetherOS Factory</p>"
         )
         return await self.send(to, subject, html)

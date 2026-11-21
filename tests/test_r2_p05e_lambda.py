@@ -2,9 +2,9 @@
 import importlib.util
 import json
 
+import jwt
 import pytest
 import yaml
-from jose import jwt
 
 from aether_os.phases.p05e_serverless.lambda_generator import gen_authorizer, gen_entity_lambda_handler, gen_sam_template
 

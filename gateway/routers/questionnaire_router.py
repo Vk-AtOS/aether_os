@@ -54,10 +54,9 @@ def _token_hash(token: str) -> str:
 
 
 def _by_token(token: str):
-    """WHERE clause for a presented token. Rows written before F18 hold the plain token (43 chars); a 64-char
-    presented value is never matched against the plain column, or a leaked hash would open the link."""
-    stored = [_token_hash(token)] + ([token] if len(token) != 64 else [])
-    return QuestionnaireSession.access_token.in_(stored)
+    """WHERE clause for a presented token: only its sha256 is ever compared (rows that held the plain token were
+    hashed by the hash_legacy_plaintext_tokens migration), so a leaked stored value opens nothing."""
+    return QuestionnaireSession.access_token == _token_hash(token)
 
 
 async def _get_session_by_token(token: str, db) -> QuestionnaireSession:
