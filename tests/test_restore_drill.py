@@ -123,3 +123,15 @@ def test_extensions_are_created_by_the_admin_and_skipped_by_the_low_privilege_re
 def test_a_dump_asking_for_other_extensions_is_refused_before_anything_is_created():
     toc = TOC + "5; 3079 16390 EXTENSION - plpython3u\n"
     assert sorted(set(rd.toc_extensions(toc)) - rd.SCHEMA_EXTENSIONS) == ["plpython3u"]
+
+
+def test_public_key_dir_names_the_key_by_its_id(tmp_path):
+    # A drill host has no ledger private key; it verifies external checkpoints with the public key kept beside them.
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from aether_os.core.audit import checkpoints
+    key = Ed25519PrivateKey.generate()
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+    d = rd.public_key_dir(pem, tmp_path / "keys")
+    assert (d / f"{checkpoints.key_id(key)}.pem").read_bytes() == pem
+    assert len(list(d.iterdir())) == 1
