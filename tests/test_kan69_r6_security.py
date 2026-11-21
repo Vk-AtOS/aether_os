@@ -46,6 +46,18 @@ def test_nginx_portal_location_is_rate_limited_and_body_capped():
     assert "client_max_body_size" in block
 
 
+def test_public_marketplace_pages_do_not_name_the_publishing_organisation(gw):
+    """The listing and detail pages need no login: a tenant id there is an enumeration aid."""
+    owner = gw.register("mktpub")
+    gw.sql("INSERT INTO marketplace_profiles (id, org_id, name, base_domain, profile_yaml, is_published, "
+           "usage_count, price_usd, created_at) VALUES ('p-pub', ?, 'n', 'd', 'y', 1, 0, 0, '2026-01-01 00:00:00')", (owner.org_id,))
+    listing = gw.client.get("/marketplace/profiles").json()
+    assert any(i["id"] == "p-pub" for i in listing["items"])
+    detail = gw.client.get("/marketplace/profiles/p-pub").json()
+    assert owner.org_id not in str(listing) and owner.org_id not in str(detail)
+    assert "org_id" not in detail
+
+
 @pytest.mark.asyncio
 async def test_change_password_is_throttled_per_user(monkeypatch):
     """A stolen access token must not allow unlimited guesses of the current password."""
