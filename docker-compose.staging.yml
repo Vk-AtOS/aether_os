@@ -95,6 +95,7 @@ services:
       OPENROUTER_LIGHT_MODEL: ${OPENROUTER_LIGHT_MODEL:-}
       OPENROUTER_COUNCIL_MODELS: ${OPENROUTER_COUNCIL_MODELS:-}
       OPENROUTER_TIMEOUT: ${OPENROUTER_TIMEOUT:-25}
+      OPENROUTER_EXTRA_BODY: ${OPENROUTER_EXTRA_BODY:-}   # provider switches, e.g. Nemotron thinking off (see .env.example)
       # Free/community model pools may log what they receive: off unless the operator opts in (restricted data never goes).
       ALLOW_COMMUNITY_LLM: ${ALLOW_COMMUNITY_LLM:-}
       PRIMARY_LLM: ${PRIMARY_LLM:-anthropic}

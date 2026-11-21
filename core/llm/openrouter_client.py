@@ -32,6 +32,7 @@ Task routing:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Optional
@@ -42,6 +43,24 @@ from aether_os.core.llm._org_context import _current_org_id
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def extra_body() -> dict:
+    """OPENROUTER_EXTRA_BODY: JSON object merged into every request, for provider-specific switches. NVIDIA's Nemotron
+    reasons before it answers and the reasoning counts against max_tokens, so short structured calls (council verdicts,
+    512 tokens) were cut off mid-JSON; '{"chat_template_kwargs": {"enable_thinking": false}}' turns that off."""
+    raw = os.environ.get("OPENROUTER_EXTRA_BODY", "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError as exc:
+        logger.warning("OPENROUTER_EXTRA_BODY is not valid JSON, ignored: %s", exc)
+        return {}
+    if not isinstance(value, dict):
+        logger.warning("OPENROUTER_EXTRA_BODY must be a JSON object, ignored")
+        return {}
+    return value
 
 
 def base_url() -> str:
@@ -147,6 +166,8 @@ async def call_openrouter(
         ],
         "max_tokens": max_tokens,
     }
+    # Provider switches never override what this call decided (model, messages, max_tokens).
+    payload = {**extra_body(), **payload}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -166,7 +187,13 @@ async def call_openrouter(
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            # A reply cut off at max_tokens is not an answer: returning it made the council report "could not parse"
+            # and strict mode reject a request the model had approved. Say what happened instead.
+            if choice.get("finish_reason") == "length":
+                raise RuntimeError(f"{chosen_model} reply truncated at max_tokens={max_tokens} "
+                                   f"(reasoning tokens count too; see OPENROUTER_EXTRA_BODY)")
+            return choice["message"]["content"]
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(
                 f"OpenRouter {chosen_model} HTTP {exc.response.status_code}: "
