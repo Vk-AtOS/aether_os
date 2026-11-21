@@ -118,7 +118,12 @@ ln -sf /etc/letsencrypt/live/$HOST/privkey.pem /etc/letsencrypt/live/preview.$HO
 
 # ── dashboard files + nginx (host network: upstream is 127.0.0.1:8000) ──
 rm -rf /home/aether_os/dashboard/dist && docker compose cp api:/srv/aether_os/dashboard/dist /home/aether_os/dashboard/dist >/dev/null
-sed -e "s/PREVIEW_DOMAIN_PLACEHOLDER/preview.$HOST/g" -e "s/APP_DOMAIN_PLACEHOLDER/$HOST/g" deploy/nginx.conf > /srv/nginx-aetheros.conf
+# connect-src: same default and character filter as deploy/deploy.sh. Leaving CSP_CONNECT_SRC_PLACEHOLDER in place made
+# browsers block every dashboard API call (production, 22 Nov 2026; curl-based smoke tests cannot see it).
+CSP_CONNECT_SRC_CLEAN=$(printf '%s' "${CSP_CONNECT_SRC:-'self' https: wss: blob:}" | tr -cd "A-Za-z0-9:/.*' _-")
+sed -e "s/PREVIEW_DOMAIN_PLACEHOLDER/preview.$HOST/g" -e "s/APP_DOMAIN_PLACEHOLDER/$HOST/g" \
+    -e "s|CSP_CONNECT_SRC_PLACEHOLDER|$CSP_CONNECT_SRC_CLEAN|g" deploy/nginx.conf > /srv/nginx-aetheros.conf
+grep -q PLACEHOLDER /srv/nginx-aetheros.conf && { echo "nginx config still has a PLACEHOLDER; refusing to start nginx"; exit 1; }
 docker run -d --name aether-nginx --restart unless-stopped --network host \
   -v /srv/nginx-aetheros.conf:/etc/nginx/conf.d/default.conf:ro \
   -v /home/aether_os/dashboard/dist:/home/aether_os/dashboard/dist:ro \
