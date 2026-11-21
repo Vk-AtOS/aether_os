@@ -16,7 +16,7 @@ Checked against `.github/workflows/ci.yml` and `scripts/ci/` at commit `e5c23fd`
 
 | CI step | What it runs (`ci.yml`) | Local command | Needs |
 |---------|-------------------------|---------------|-------|
-| ruff | `ruff check . --select F,E9,B904` (line 71) | same | `pip install ruff` |
+| ruff | `ruff check . --select F,E9,B904,E401,PIE790,W605` | same | `pip install ruff` |
 | bandit, high severity only | `bandit -r core gateway orchestrator phases agents -lll -q --exclude '*/tests/*'` (line 76) | same | bandit |
 | dependency audit | `bash scripts/ci/audit_deps.sh` (pip-audit on `requirements.lock`) | same | pip-audit, network |
 | secret scan, full git history | `scripts/ci/install_gitleaks.sh` then `scripts/ci/secret_scan.sh` | `bash scripts/ci/secret_scan.sh` | gitleaks (`brew install gitleaks`) |
@@ -31,6 +31,16 @@ no workflow or script in the repository calls it.
 `npm ci --no-audit --no-fund`, `npm run lint`, `npm test`, `npm audit --omit=dev --audit-level=high`,
 `npm run build`. Local: `cd dashboard && npm ci && npm run lint && npm test && npm run build`.
 
+## Jobs added for the deploy files (KAN-102, KAN-111, KAN-122)
+
+- `migrations`: Postgres (pgvector) service, `scripts/ci/check_migrations.sh`: one Alembic head, `scripts/db_migrate.py` on an
+  empty database prints `created`, a second run prints `upgraded`, the ledger triggers exist. Local: set `DATABASE_URL` to a
+  scratch database. Not covered: an upgrade from the previous release's real data.
+- `container-scan`: builds the API image and runs Trivy (CRITICAL/HIGH with a fix available, blocking).
+- `deploy-files`: `helm lint`, `helm template`, `bash -n` on the shell scripts, `docker compose config`.
+- ruff style rules beyond the set above (line length, import order, typing modernisation: thousands of findings) are not
+  enforced; a rule is added to the CI command only once it is clean.
+
 ## Not in CI
 
 - `actionlint` (workflow syntax): only `scripts/ci/run_all.sh` runs it, and only if it is installed.
@@ -39,8 +49,7 @@ no workflow or script in the repository calls it.
 ## Run everything locally
 
 `bash scripts/ci/run_all.sh` (add `--skip-tests` for the fast checks).
-Known difference: `run_all.sh:9` runs `ruff check . --select E9,F63,F7,F82`, a narrower rule set than CI
-(`F,E9,B904`). A local pass there does not prove the CI ruff step passes. Use the command in the table.
+Known difference: older copies of `run_all.sh` ran `ruff check . --select E9,F63,F7,F82`, a different rule set than CI. A local pass there does not prove the CI ruff step passes. Use the command in the table.
 
 ## Notes
 
