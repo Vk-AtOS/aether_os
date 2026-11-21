@@ -41,8 +41,11 @@ RUN pip install -e ./aether_os/
 
 # --home: a system user otherwise gets HOME=/nonexistent, and the code keeps its state under ~/.aether_os (compose mounts
 # /home/aether/.aether_os); the API and preview crashed at import with PermissionError: '/nonexistent'.
-RUN addgroup --system aether && adduser --system --ingroup aether --home /home/aether aether
-USER aether
+# Fixed numeric uid/gid 1000 (the Helm chart's securityContext.runAsUser): Kubernetes with runAsNonRoot refuses an image
+# whose USER is a name ("image has non-numeric user (aether), cannot verify user is non-root"), found by a real helm
+# install on kind, 22 Nov 2026. A --system user also got a build-dependent uid that never matched the chart's 1000.
+RUN addgroup --system --gid 1000 aether && adduser --system --uid 1000 --ingroup aether --home /home/aether aether
+USER 1000:1000
 
 EXPOSE 8000
 
