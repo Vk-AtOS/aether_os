@@ -44,6 +44,12 @@ __HOST__ {
 	header Strict-Transport-Security "max-age=63072000"
 }
 
+# Velaris public app (KAN-128): careers, scheduling, interview and signing links for people outside the organisation.
+# nginx on 127.0.0.1:8081 keeps the path allowlist, header stripping, rate limits and the masked access log.
+velaris.__HOST__ {
+	reverse_proxy 127.0.0.1:8081
+}
+
 # Loopback only: answers Caddy's on-demand question "may I get a certificate for {query.domain}?".
 http://127.0.0.1:9081 {
 	bind 127.0.0.1
