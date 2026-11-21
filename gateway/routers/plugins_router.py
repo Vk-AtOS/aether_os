@@ -163,7 +163,7 @@ async def test_plugin_connection(
 ) -> Dict[str, Any]:
     """Test credentials for an installed plugin by making a real API call."""
     from aether_os.core.plugins.registry import get_plugin_registry
-    from aether_os.core.plugins.connectors import get_connector, ConnectorError, assert_public_urls, generic_failure, GENERIC_CONNECTOR_ERROR
+    from aether_os.core.plugins.connectors import get_connector, assert_public_urls, generic_failure, GENERIC_CONNECTOR_ERROR
 
     config = await get_plugin_registry().get_installed_config(plugin_id, user["org_id"])
     if config is None:
