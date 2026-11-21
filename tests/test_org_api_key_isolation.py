@@ -196,3 +196,15 @@ async def test_openrouter_key_is_per_org_too(keys, monkeypatch):
     with pytest.raises(LLMUnavailable):
         await _call(ORG_B)
     assert FakeHttpx.auth_headers == ["Bearer or-org-a-key"]   # nothing sent for org B
+
+
+async def test_platform_key_still_used_after_the_no_org_key_answer_is_cached(keys, monkeypatch):
+    # Regression (AWS testbed, 21 Nov 2026): the first lookup cached "" for an org without its own key; every later
+    # lookup returned None from that cache entry instead of falling back to the platform key, so a pipeline's first
+    # model call worked and the rest failed with "OPENROUTER_API_KEY not configured".
+    monkeypatch.setenv("OPENROUTER_API_KEY", PLATFORM)
+    assert await api_key_store.get_api_key("openrouter", ORG_B) == PLATFORM
+    assert api_key_store._cache_get(ORG_B, "openrouter") == ""      # cached: ORG_B has no key of its own
+    assert await api_key_store.get_api_key("openrouter", ORG_B) == PLATFORM
+    await api_key_store.save_api_key("openrouter", ORG_B, "or-org-b-key")
+    assert await api_key_store.get_api_key("openrouter", ORG_B) == "or-org-b-key"   # its own key still wins
