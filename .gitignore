@@ -147,3 +147,6 @@ snapshots/
 *_snapshot.md
 tests/playwright_audit_report.md
 uv.lock
+
+# Guardian build manifest: generated inside the image at build time (Dockerfile)
+.guardian_build_manifest.json

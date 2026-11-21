@@ -485,6 +485,20 @@ async def generate_go_project(
     return backend_dir
 
 
+def service_dir(output_dir: Path, svc_name: Any) -> Path:
+    """output_dir/services/<svc_name>, refused when the model-written name escapes services/.
+
+    p00c already drops names that are not slugs; this is the defence in depth at the write site.
+    """
+    base = (output_dir / "services").resolve()
+    if not isinstance(svc_name, str) or not svc_name:
+        raise ValueError(f"refusing service name {svc_name!r}")
+    target = (base / svc_name).resolve()
+    if target == base or not target.is_relative_to(base):
+        raise ValueError(f"refusing service name {svc_name!r}: resolves outside {base}")
+    return target
+
+
 async def generate_go_multiservice(
     service_map: Dict[str, Any],
     all_entities: List[Dict[str, Any]],
@@ -516,7 +530,7 @@ async def generate_go_multiservice(
         if not svc_entities:
             svc_entities = [{"table": svc_name.replace("-", "_"), "fields": []}]
 
-        svc_dir = output_dir / "services" / svc_name
+        svc_dir = service_dir(output_dir, svc_name)
         slug = svc_name.lower()
         module_name = f"github.com/aetheros/{slug}"
 
