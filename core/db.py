@@ -121,6 +121,13 @@ def install_postgres_breaker(engine: AsyncEngine, breaker: CircuitBreaker | None
         breaker.before_call()          # raises CircuitOpen while open; in half-open exactly one caller probes
         try:
             conn = dialect.connect(*cargs, **cparams)
+        except OSError as exc:
+            breaker.record_failure(exc)
+            if isinstance(exc, ConnectionError):
+                raise
+            # A host name that does not resolve (socket.gaierror) or a connect timeout is an OSError but not a
+            # ConnectionError, so it missed DEPENDENCY_DOWN and every request answered 500 until the breaker opened.
+            raise ConnectionError(f"database connect failed: {type(exc).__name__}: {exc}") from exc
         except Exception as exc:
             breaker.record_failure(exc)
             raise
