@@ -196,3 +196,17 @@ def test_patched_preview_app_never_allows_credentials_from_any_origin(tmp_path):
     patched = "".join(p.read_text() for p in root.rglob("main.py"))
     assert "CORSMiddleware" in patched
     assert "allow_credentials=True" not in patched
+
+
+def test_install_network_allows_dns_only_to_the_host_resolver():
+    """AWS testbed run 8 (22 Nov 2026): the VPC resolver (172.31.0.2) is in a blocked private range, so every lookup from
+    the install network failed and npm install hung until its 300 s timeout. The firewall must open port 53 to the
+    configured resolver(s) only, ahead of the private-range drops, and never for the app network."""
+    from pathlib import Path
+    script = (Path(__file__).resolve().parents[1] / "core" / "sandbox" / "host_firewall.sh").read_text()
+    dns_rule = 'rule DOCKER-USER -i "$EGR_IF" -d "$NS" -p "$PROTO" --dport 53 -j RETURN'
+    assert dns_rule in script
+    # rule() inserts at position 1, so the DNS allowance must be added AFTER the drop loop to end up above it
+    assert script.index(dns_rule) > script.index('rule DOCKER-USER -i "$EGR_IF" -d "$CIDR" -j DROP')
+    assert '$RUN_IF" -d "$NS"' not in script and "--dport 53" not in script.split("# Install network")[0]
+    assert "!~ /^127\\./" in script   # never the loopback stub resolver
