@@ -78,3 +78,37 @@ groups:
         annotations:
           summary: "Bulkhead {{ $labels.name }} is refusing calls (saturated)"
           runbook: "docs/ops/RUNBOOKS.md#velaris"
+  - name: aetheros-gaps
+    rules:
+      - alert: ModelCallsRefused
+        # no_model / chain_exhausted: no provider could answer; admission: kill switch, unknown plan or budget stop
+        expr: sum by (reason) (increase(aether_llm_refused_total[10m])) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "Model calls refused in the last 10 minutes (reason {{ $labels.reason }}): no model or provider usable, or admission said no"
+          runbook: "docs/ops/RUNBOOKS.md#model-gateway"
+      - alert: ModelProvidersAllDown
+        expr: sum(increase(aether_llm_refused_total{reason=~"no_model|chain_exhausted"}[5m])) > 3
+        labels: {severity: page}
+        annotations:
+          summary: "Several model calls in 5 minutes found no usable provider: every model in the chain failed or none is configured"
+          runbook: "docs/ops/RUNBOOKS.md#model-gateway"
+      - alert: BackupTooOld
+        # inf = BACKUP_DIR is visible but holds no dump; a missing series means the directory is not mounted (see runbook)
+        expr: aether_backup_age_seconds > 26 * 3600
+        labels: {severity: page}
+        annotations:
+          summary: "The newest database dump is older than 26 hours (daily backup missed)"
+          runbook: "docs/ops/RUNBOOKS.md#backup-and-restore-read-this-before-you-need-it"
+      - alert: SandboxStartFailures
+        expr: increase(aether_sandbox_start_failures_total[15m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "Generated apps could not start: no sandbox available"
+          runbook: "docs/ops/RUNBOOKS.md#sandbox"
+      - alert: GuardianTamperDetected
+        expr: increase(aether_guardian_tamper_total[10m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The guardian reported a critical file changed or missing"
+          runbook: "docs/ops/RUNBOOKS.md#guardian"
