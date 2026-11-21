@@ -16,6 +16,7 @@ from typing import Any
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.llm.json_enforcer import extract_first_json
 from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
     tsc_errors = 0
     for round_num in range(1, max_rounds + 1):
+        ensure_local_modules(frontend_dir)  # LLM patches/revisions may add imports of files that do not exist
         try:
             # Type-check and build execute the project's own tooling and plugins: sandbox, no network.
             tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],
