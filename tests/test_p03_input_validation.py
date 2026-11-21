@@ -52,3 +52,22 @@ def test_p03_refuses_local_clone(tmp_path):
     pi = SimpleNamespace(project_id="p", input_data={"github_url": "file:///tmp/x", "project_name": "n"})
     res = asyncio.run(task_agent.run(pi, [], tmp_path))
     assert res.success is False and not (tmp_path / "n").exists()
+
+
+def test_clone_is_shallow_time_limited_and_after_double_dash(tmp_path, monkeypatch):
+    """KAN-97 accepted design: the clone runs on the host with a validated https URL, depth 1 and a timeout."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        if "clone" in cmd:  # the fallback scaffold also runs `git init`
+            seen["cmd"], seen["kw"] = cmd, kw
+        return SimpleNamespace(returncode=1, stderr="stop", stdout="")
+
+    monkeypatch.setattr(task_agent, "check_https_remote_pinned",
+                        lambda url: SimpleNamespace(git_args=lambda: []))
+    monkeypatch.setattr(task_agent.subprocess, "run", fake_run)
+    pi = SimpleNamespace(project_id="p", input_data={"github_url": "https://github.com/a/b", "project_name": "n"})
+    asyncio.run(task_agent.run(pi, [], tmp_path))
+    cmd = seen["cmd"]
+    assert "--depth=1" in cmd and cmd.index("--") < cmd.index("https://github.com/a/b")
+    assert "protocol.allow=never" in cmd and 0 < seen["kw"]["timeout"] <= 60
