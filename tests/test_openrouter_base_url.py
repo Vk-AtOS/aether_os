@@ -44,3 +44,40 @@ def test_council_models_can_be_replaced(monkeypatch):
     finally:
         monkeypatch.delenv("OPENROUTER_COUNCIL_MODELS")
         importlib.reload(orc)
+
+
+def _fake_post(monkeypatch, response_json, seen):
+    async def post(self, url, json=None, headers=None):
+        seen.update(json)
+        return httpx.Response(200, json=response_json, request=httpx.Request("POST", url))
+
+    async def no_kill():
+        return False
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    monkeypatch.setattr(controls, "global_kill_active", no_kill)
+    monkeypatch.setenv("ALLOW_COMMUNITY_LLM", "1")
+
+
+def test_extra_body_is_merged_but_never_overrides_the_call(monkeypatch):
+    seen = {}
+    _fake_post(monkeypatch, {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}, seen)
+    monkeypatch.setenv("OPENROUTER_EXTRA_BODY", '{"chat_template_kwargs": {"enable_thinking": false}, "max_tokens": 1}')
+    asyncio.run(orc.call_openrouter("hi", model="m", max_tokens=512, api_key="k"))
+    assert seen["chat_template_kwargs"] == {"enable_thinking": False}
+    assert seen["max_tokens"] == 512 and seen["model"] == "m"
+
+
+def test_bad_extra_body_is_ignored(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_EXTRA_BODY", "not json")
+    assert orc.extra_body() == {}
+    monkeypatch.setenv("OPENROUTER_EXTRA_BODY", "[1]")
+    assert orc.extra_body() == {}
+
+
+def test_a_truncated_reply_is_an_error_not_an_answer(monkeypatch):
+    # Regression (AWS testbed, 21 Nov 2026): a council verdict cut off mid-JSON was returned as the answer, the parse
+    # failed, and strict mode rejected a request the model had approved.
+    import pytest
+    _fake_post(monkeypatch, {"choices": [{"message": {"content": '{"passed": true, "sugg'}, "finish_reason": "length"}]}, {})
+    with pytest.raises(RuntimeError, match="truncated at max_tokens=512"):
+        asyncio.run(orc.call_openrouter("hi", model="m", max_tokens=512, api_key="k"))
