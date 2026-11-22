@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import pathlib
 from typing import Any, Dict, Optional
 
 from aether_os.core.run_app import preview_state
+from aether_os.core.run_app.build_checks import assets_outside_base
 from aether_os.core.run_app.child_env import child_env
 from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
 from aether_os.core.run_app.sandboxed import pip_install, venv_python
@@ -274,9 +276,13 @@ class RunAppManager:
                         break
 
                 _npx_bin = runner.tool("npx") or "npx"
+                # The app is served under /app-preview/, and generated vite configs take their base from
+                # VITE_BASE_PATH (s04 builds with it, npm_runner.PREVIEW_BUILD_ENV). Without it the bundle pointed at
+                # /assets/... and the Live App rendered a blank page (production run 20, 22 Nov 2026).
                 _node_env = child_env(
                     NODE_OPTIONS="--max-old-space-size=384",
                     ESBUILD_WORKER_THREADS="false",
+                    VITE_BASE_PATH=os.environ.get("AETHER_PREVIEW_BASE_PATH", "/app-preview/"),
                     **sandbox_dirs(root_dir),
                 )
                 _vite_result = await asyncio.to_thread(
@@ -333,6 +339,11 @@ class RunAppManager:
                 if frontend_dist and frontend_dist.is_dir() and any(frontend_dist.iterdir()):
                     with open(plat_log, "a") as _lf:
                         _lf.write(f"[AetherOS] Frontend built → {frontend_dist}\n")
+                        _bad = assets_outside_base(frontend_dist / "index.html",
+                                                   os.environ.get("AETHER_PREVIEW_BASE_PATH", "/app-preview/"))
+                        if _bad:
+                            _lf.write(f"[AetherOS] WARNING: the build loads assets outside the preview path, "
+                                      f"the page will be blank: {_bad[:3]}\n")
                 else:
                     # Build failed: synthesise a lightweight API-explorer page
                     frontend_dist = root_dir / "_preview_ui"
