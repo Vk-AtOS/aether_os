@@ -8,8 +8,8 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from aether_os.core.llm.client import get_llm_client
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p07a_unit_testing.crud_repair import repair_crud
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
@@ -326,6 +326,11 @@ def _fallback_tests(src_dir: Optional[Path], project_name: str = "App") -> str:
     """)
 
 
+async def _import_ok(cmd: list, parent: Path, env_patch: dict) -> bool:
+    done = await phase_exec.run(cmd, cwd=parent, env=env_patch, timeout=20, text=True)
+    return "IMPORT_OK" in done.stdout or done.returncode == 0
+
+
 async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
     """Try to import the generated app to catch import/syntax errors at runtime.
 
@@ -364,45 +369,16 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
     error_text = err[:1200] if err else f"return code {done.returncode}"
     logger.warning("[p07a] exec validation failed: %s", error_text[:200])
 
-    # Attempt LLM-based repair of crud.py if the error is there
+    # Attempt LLM-based repair of crud.py if the error is there (small verified patches, KAN-212)
     crud_path = src_dir / "routers" / "crud.py"
     if crud_path.exists() and ("crud" in err.lower() or "import" in err.lower()):
         try:
-            llm = get_llm_client()
-            crud_code = crud_path.read_text()
-            fix_prompt = (
-                f"The following FastAPI router file (src/routers/crud.py) causes this import error:\n\n"
-                f"ERROR:\n{error_text}\n\n"
-                f"FILE (crud.py):\n{crud_code[:12000]}\n\n"
-                "Fix the import error. Common fixes:\n"
-                "1. Remove imports of non-existent model classes\n"
-                "2. Fix relative imports (use ..models not models)\n"
-                "3. Remove hallucinated schema imports that don't exist in ..schemas\n"
-                "Return ONLY the complete fixed crud.py file. No markdown."
-            )
-            fixed_code = await asyncio.wait_for(
-                llm.call(fix_prompt, task_type="code_generation", max_tokens=4000),
-                timeout=60,
-            )
-            if fixed_code and len(fixed_code.strip()) > 200:
-                fixed_code = re.sub(r"^```(?:python)?\s*\n?", "", fixed_code.strip())
-                fixed_code = re.sub(r"\n?```\s*$", "", fixed_code.strip())
-            rejected = _reject_crud_fix(fixed_code or "", crud_code)
-            if rejected:
-                logger.warning("[p07a] LLM crud.py fix rejected (%s); keeping the original file", rejected)
-            elif fixed_code and len(fixed_code.strip()) > 200:
-                crud_path.write_text(fixed_code)
-                logger.info("[p07a] LLM fixed crud.py — re-validating")
-
-                # Re-validate
-                try:
-                    done2 = await phase_exec.run(cmd, cwd=parent, env=env_patch, timeout=20, text=True)
-                    if "IMPORT_OK" in done2.stdout or done2.returncode == 0:
-                        logger.info("[p07a] exec validation: FIXED by LLM")
-                        return {"passed": True, "error": None, "fixed": True}
-                except asyncio.TimeoutError:
-                    logger.warning("[p07a] exec validation: re-validation after LLM fix timed out")
-                    return {"passed": False, "error": "App startup timed out after LLM fix (20s)", "fixed": False}
+            if await repair_crud(src_dir, error_text) and await _import_ok(cmd, parent, env_patch):
+                logger.info("[p07a] exec validation: FIXED by LLM patches")
+                return {"passed": True, "error": None, "fixed": True}
+        except asyncio.TimeoutError:
+            logger.warning("[p07a] exec validation: re-validation after LLM fix timed out")
+            return {"passed": False, "error": "App startup timed out after LLM fix (20s)", "fixed": False}
         except SandboxUnavailable:
             raise
         except Exception as _fix_exc:

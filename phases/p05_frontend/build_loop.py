@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from aether_os.core.sandbox import phase_exec
-from aether_os.core.llm.json_enforcer import extract_first_json
+from aether_os.core.codegen.patching import (
+    apply_patch_text, apply_verified, build_prompt, error_context, extract_json_array as _extract_json_array, request_patches, resolve_in_project,
+)
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
@@ -26,20 +28,6 @@ logger = logging.getLogger(__name__)
 _TS_ERROR_RE = re.compile(r"error TS\d+:")
 _MAX_ERR_CHARS = 3000
 MAX_TSC_MESSAGES = 10
-_PROMPT_TEMPLATE = (
-    "You are a TypeScript/React developer. The following errors occurred "
-    "during `tsc --noEmit` and/or `vite build`. List the exact file:line "
-    "fixes needed as a JSON array of "
-    '{{"file": "src/pages/X.tsx", "find": "old text", "replace": "new text"}} '
-    "objects. `find` must be copied exactly from the source below (without the line-number prefix) and should be "
-    "short and unique. Return ONLY the JSON array, no prose. Errors:\n{errors}\n\nSource around the errors:\n{source}"
-)
-# tsc: "src/pages/X.tsx(254,306): error"; vite/esbuild: "/abs/.../src/pages/X.tsx:291:42: ERROR"
-_LOC_RE = re.compile(r"((?:[\w@.-]+/)*[\w@.-]+\.(?:tsx|ts|jsx|js|css))(?:\((\d+),\d+\)|:(\d+):\d+)")
-_CONTEXT_RADIUS = 12
-_MAX_SOURCE_CHARS = 6000
-
-
 def _count_tsc_errors(text: str) -> int:
     return len(_TS_ERROR_RE.findall(text or ""))
 
@@ -49,89 +37,46 @@ def _combine_output(result: subprocess.CompletedProcess) -> str:
     return out[-_MAX_ERR_CHARS:]
 
 
-def _extract_json_array(raw: str) -> list[dict[str, Any]]:
-    """Pull first JSON array out of an LLM response (may be fenced or prefaced)."""
-    if not raw:
-        return []
-    try:
-        return extract_first_json(raw, expect=list)
-    except ValueError as exc:
-        logger.warning("p05 build_loop: JSON parse failed: %s", exc)
-        return []
+def _error_context(frontend_dir: Path, error_output: str) -> str:
+    return error_context(frontend_dir, error_output)
 
 
 def _apply_patch(frontend_dir: Path, patch: dict) -> bool:
-    path_str = patch.get("file", "")
-    find = patch.get("find", "")
-    replace = patch.get("replace", "")
-    if not path_str or not find:
-        return False
-    # The path comes from a model's answer: `../../x` or an absolute path or a symlink must not leave the project
-    # (it used to write wherever the process could), and node_modules is not ours to patch.
-    root = frontend_dir.resolve()
-    target = (frontend_dir / path_str).resolve()
-    if not target.is_relative_to(root) or "node_modules" in target.relative_to(root).parts:
-        logger.warning("p05 build_loop: patch path %r rejected (outside the project)", path_str)
-        return False
-    if not target.exists() or not target.is_file():
+    """Apply one find/replace patch unverified (kept for callers/tests; the build loop uses apply_verified)."""
+    target = resolve_in_project(frontend_dir, patch.get("file", ""))
+    if target is None or not patch.get("find"):
         return False
     try:
-        text = target.read_text()
-    except Exception as exc:
+        new, why = apply_patch_text(target.read_text(), patch["find"], patch.get("replace", ""))
+    except (OSError, UnicodeDecodeError) as exc:
         logger.warning("p05 build_loop: read %s failed: %s", target, exc)
         return False
-    if find not in text:
+    if why:
         return False
-    target.write_text(text.replace(find, replace, 1))
+    target.write_text(new)
     return True
 
 
-def _error_context(frontend_dir: Path, error_output: str) -> str:
-    """Numbered source lines around the first error of each file (at most 3 files).
-
-    Without them the model had to guess the exact text to replace: production acceptance run 12 (22 Nov 2026) failed
-    s04 three times with "applied 0 patches" on a broken JSX line it had never been shown.
-    """
-    root = frontend_dir.resolve()
-    seen: dict[Path, int] = {}
-    for m in _LOC_RE.finditer(error_output or ""):
-        rel = m.group(1)
-        rel = rel[rel.index("src/"):] if "src/" in rel else rel
-        target = (frontend_dir / rel).resolve()
-        if target in seen or not target.is_relative_to(root) or not target.is_file():
-            continue
-        seen[target] = int(m.group(2) or m.group(3))
-        if len(seen) == 3:
-            break
-    parts = []
-    for target, line in seen.items():
-        try:
-            lines = target.read_text().splitlines()
-        except (OSError, UnicodeDecodeError) as exc:
-            logger.warning("p05 build_loop: cannot read %s for error context: %s", target, exc)
-            continue
-        lo, hi = max(1, line - _CONTEXT_RADIUS), min(len(lines), line + _CONTEXT_RADIUS)
-        body = "\n".join(f"{n}| {lines[n - 1][:400]}" for n in range(lo, hi + 1))
-        parts.append(f"--- {target.relative_to(root)} (lines {lo}-{hi})\n{body}")
-    return "\n".join(parts)[:_MAX_SOURCE_CHARS] or "(no source located)"
-
-
 async def _llm_fix(error_output: str, source: str = "") -> list[dict[str, Any]]:
-    from aether_os.core.llm.client import get_llm_client
-    prompt = _PROMPT_TEMPLATE.format(errors=error_output, source=source or "(no source located)")
-    try:
-        raw = await asyncio.wait_for(
-            # Reasoning models spend part of max_tokens thinking; 2000 truncated replies on production runs.
-            get_llm_client().call(prompt, task_type="code_generation", max_tokens=4000),
-            timeout=60.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("p05 build_loop: LLM fix call timed out")
-        return []
-    except Exception as exc:
-        logger.warning("p05 build_loop: LLM fix call failed: %s", exc)
-        return []
-    return _extract_json_array(raw)
+    prompt = build_prompt("You are a TypeScript/React developer. The errors occurred during `tsc --noEmit` and/or "
+                          "`vite build`.", error_output, source, example="src/pages/X.tsx")
+    return await request_patches(prompt, "p05 build_loop")
+
+
+def _may_patch(frontend_dir: Path):
+    """Only the app's own sources and package.json: never configs, tests or anything outside the frontend."""
+    root = frontend_dir.resolve()
+
+    def allowed(target: Path) -> bool:
+        rel = target.relative_to(root).parts
+        return rel == ("package.json",) or (rel[0] == "src" and not any(t in ("tests", "__tests__") for t in rel))
+    return allowed
+
+
+async def _tsc_not_worse(frontend_dir: Path, before: int) -> bool:
+    """True when `tsc --noEmit` (sandboxed, as in the loop) reports no more errors than before the patches."""
+    res = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"], cwd=frontend_dir, timeout=60, text=True)
+    return len(_tsc_messages(res)) <= before if res.returncode != 0 else True
 
 
 def _tsc_messages(tsc_result: subprocess.CompletedProcess) -> list[str]:
@@ -239,9 +184,10 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
         combined = (_combine_output(tsc_result) + "\n" + _combine_output(build_result))[-_MAX_ERR_CHARS:]
         patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
-        applied = sum(1 for p in patches if isinstance(p, dict) and _apply_patch(frontend_dir, p))
-        logger.info("p05 build_loop: round %d - applied %d of %d proposed patches", round_num, applied, len(patches))
-        if applied == 0:
+        report = await apply_verified(frontend_dir, patches, _may_patch(frontend_dir), "p05 build_loop",
+                                      lambda: _tsc_not_worse(frontend_dir, len(tsc_lines)))
+        report.log("p05 build_loop", round_num)
+        if report.applied == 0:
             break  # no progress possible: do not burn rounds
     logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])
     return _outcome(built, tsc_lines, round_num, build_errors)
