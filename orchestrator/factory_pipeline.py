@@ -89,6 +89,7 @@ from aether_os.orchestrator.phase_selector import (
     restore_from_checkpoint,
 )
 from aether_os.orchestrator.phase_hooks import run_phase_hooks
+from aether_os.core.run_limits import pipeline_timeout_seconds
 from aether_os.orchestrator.stage_gate import (
     apply_stage_toggles,
     gate_block_reason,
@@ -160,7 +161,7 @@ class FactoryPipeline:
                   agency_name: Optional[str] = None,
                   agency_logo_url: Optional[str] = None) -> dict:
 
-        timeout = float(os.environ.get("PIPELINE_TIMEOUT_MINUTES", "30")) * 60
+        timeout = pipeline_timeout_seconds()
         sem = _get_pipeline_semaphore()
         _limit = int(os.environ.get("PIPELINE_MAX_CONCURRENT", "2"))
         logger.info("Pipeline %s waiting for concurrency slot (%d/%d in use)", run_id, _slots_in_use(sem, _limit), _limit)

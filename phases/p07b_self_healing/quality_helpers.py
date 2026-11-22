@@ -234,6 +234,9 @@ def apply_deterministic_fallback(project_dir: Path, entities: list, input_data: 
             _fallback_crud_routers,
             _fallback_seed,
         )
+        from aether_os.phases.p07a_unit_testing.task_agent import _normalise_entities  # noqa: PLC0415
+        # Bare entity names ("Task") crashed the generator with "'str' object has no attribute 'get'" (acceptance run 11).
+        entities = _normalise_entities(entities)
         project_name = input_data.get("project_name", "App") if isinstance(input_data, dict) else "App"
         crud_path = find_crud_py(project_dir)
         seed_path = find_seed_py(project_dir)
