@@ -61,6 +61,21 @@ def _find_src_dir(data: dict) -> Optional[Path]:
     return None
 
 
+def _normalise_entities(raw: Any) -> list:
+    """Entities as dicts. The architecture step sometimes lists them as bare names ("Task"), and every consumer here
+    calls .get() on them: production acceptance run 9 (22 Nov 2026) failed Stage 6 with "'str' object has no attribute
+    'get'" before any test ran."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for e in raw:
+        if isinstance(e, dict):
+            out.append(e)
+        elif isinstance(e, str) and e.strip():
+            out.append({"name": e.strip()})
+    return out
+
+
 def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: list) -> str:
     """Deterministic CRUD test generator — no LLM needed.
 
@@ -346,7 +361,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     data = phase_input.input_data if hasattr(phase_input, "input_data") else {}
     project_name: str = data.get("project_name", "App")
-    entities: list = data.get("entities", [])
+    entities: list = _normalise_entities(data.get("entities", []))
 
     src_dir = _find_src_dir(data)
 
