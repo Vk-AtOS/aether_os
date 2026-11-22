@@ -19,6 +19,7 @@ from aether_os.phases.p05_frontend.llm_page_writer import (
     write_dashboard_llm,
     get_design_tokens,
 )
+from aether_os.phases.p05_frontend.page_concurrency import page_semaphore
 from aether_os.phases.p05_frontend.code_writer import (
     _generate_pagination, _generate_role_guard, _generate_skeleton,
 )
@@ -380,7 +381,7 @@ async def assemble_domain_pages(
                 _gen_dash(domain_ir, entities, project_name, domain=domain)
             )
             template_count += 1
-        _ir_sem = asyncio.Semaphore(4)
+        _ir_sem = page_semaphore()
 
         async def _write_ir_entity(ir_entity):
             pascal_name = ir_entity.name
@@ -445,7 +446,7 @@ async def assemble_domain_pages(
             except Exception as _fk_exc:
                 logger.warning("p05: FK refs extraction failed: %s", _fk_exc)
 
-        _ent_sem = asyncio.Semaphore(4)
+        _ent_sem = page_semaphore()
 
         async def _write_non_ir_entity(ent):
             if asyncio.get_event_loop().time() - phase_start > phase_timeout:
