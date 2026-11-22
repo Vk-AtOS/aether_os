@@ -19,5 +19,5 @@ def test_fallback_accepts_string_entities(tmp_path, monkeypatch):
     import aether_os.phases.p04a_backend_codegen.crud_generator as gen
     monkeypatch.setattr(gen, "_fallback_crud_routers", fake_crud)
     quality_helpers.apply_deterministic_fallback(tmp_path, ["Task", {"name": "Project"}, 7, ""], {"project_name": "x"})
-    assert seen["entities"] == [{"name": "Task"}, {"name": "Project"}]
+    assert seen["entities"] == [{"name": "Task", "table": "tasks"}, {"name": "Project"}]
     assert crud.read_text() == "all_routers = []\n"

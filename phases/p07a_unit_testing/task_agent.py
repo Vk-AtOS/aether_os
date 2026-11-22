@@ -72,8 +72,38 @@ def _normalise_entities(raw: Any) -> list:
         if isinstance(e, dict):
             out.append(e)
         elif isinstance(e, str) and e.strip():
-            out.append({"name": e.strip()})
+            out.append(_entity_from_label(e.strip()))
     return out
+
+
+def _singular(word: str) -> str:
+    w = word.lower()
+    if w.endswith("ies") and len(w) > 3:
+        return word[:-3] + "y"
+    if w.endswith(("sses", "uses", "xes", "ches", "shes", "zes")):
+        return word[:-2]
+    if w.endswith("s") and not w.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return word
+
+
+def _entity_from_label(label: str) -> dict:
+    """A bare entity label as the generators expect it: class name singular PascalCase, table plural snake_case.
+
+    The architecture step lists either class names ("Task") or table names ("users"). Using the label as the class name
+    produced `models.users` / `userss_router` in p07b's fallback and `/api/projectss` in p07a's tests (production
+    acceptance run 13, 22 Nov 2026): the fallback broke a backend s03 had validated, and the CRUD tests hit 404.
+    """
+    words = [w for w in re.split(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])", label) if w]
+    if not words:
+        return {"name": "Item", "table": "items"}
+    words[-1] = _singular(words[-1])
+    name = "".join(w[:1].upper() + w[1:].lower() for w in words)
+    last = words[-1].lower()
+    plural = last[:-1] + "ies" if last.endswith("y") and last[-2:-1] not in "aeiou" else (
+        last + "es" if last.endswith(("s", "x", "ch", "sh", "z")) else last + "s")
+    table = "_".join([w.lower() for w in words[:-1]] + [plural])
+    return {"name": name, "table": table}
 
 
 def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: list) -> str:
