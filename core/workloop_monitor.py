@@ -20,6 +20,8 @@ import time
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.run_limits import pipeline_timeout_seconds
+
 logger = logging.getLogger(__name__)
 
 _INTERVAL_SECONDS = int(os.environ.get("WORKLOOP_INTERVAL", "300"))  # 5 min default
@@ -166,13 +168,14 @@ class WorkloopMonitor:
             if msg and len(msg) > 10:
                 error_messages.append(msg[:300])
 
-        # Detect runs that have been "running" for >30 minutes (hung)
+        # Runs still "running" past the whole-build limit are hung (the pipeline should have stopped them).
         now = time.time()
+        limit = pipeline_timeout_seconds()
         hung_runs = [
             r for r in runs
             if r["status"] == "running"
             and r["started_at"]
-            and (now - r["started_at"]) > 1800
+            and (now - r["started_at"]) > limit
         ]
 
         has_issues = bool(failed or hung_runs or statuses.get("failed", 0) > 0)
