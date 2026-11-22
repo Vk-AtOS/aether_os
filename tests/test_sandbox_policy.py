@@ -43,6 +43,9 @@ def test_container_is_locked_down():
     assert _pairs(args, "--memory") == ["512m"] and _pairs(args, "--memory-swap") == ["512m"]
     assert _pairs(args, "--cpus") == ["0.5"] and _pairs(args, "--pids-limit") == ["128"]
     assert any(u.startswith("fsize=") for u in _pairs(args, "--ulimit"))
+    # Bounded, and high enough for real frontend builds (1024 caused EMFILE in rollup and half-installed npm packages).
+    nofile = [u for u in _pairs(args, "--ulimit") if u.startswith("nofile=")]
+    assert len(nofile) == 1 and 4096 <= int(nofile[0].split("=")[1].split(":")[0]) <= 1048576
     assert args[-3:] == ["aether-sandbox:1", "python3", "-V"]
 
 
