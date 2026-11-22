@@ -446,6 +446,10 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("  },")
     lines.append(")")
     lines.append("")
+    lines.append("// The backend's PaginatedResponse. Pages must import the *Api helpers below (never declare their own list type):")
+    lines.append("// rows are `.items`, there is no `.data` field.")
+    lines.append("export interface Paginated<T> { items: T[]; total: number; page: number; page_size: number; limit: number }")
+    lines.append("")
     lines.append("export const authApi = {")
     lines.append("  login: (email: string, password: string) =>")
     lines.append("    apiClient.post<{ access_token: string; refresh_token: string }>('/auth/login', { email, password }).then(r => r.data),")
@@ -467,10 +471,11 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
         lines.append(f"export const {camel}Api = {{")
         lines.append(
             f"  list: (page = 1, pageSize = 20) => "
-            f"apiClient.get<{{items: {type_name}[]; total: number; page: number; page_size: number}}>("
+            f"apiClient.get<Paginated<{type_name}>>("
             f"'{endpoint}', {{ params: {{ page, page_size: pageSize }} }}"
             f").then(r => r.data),"
         )
+        lines.append(f"  get: (id: string | number) => apiClient.get<{type_name}>(`{endpoint}/${{id}}`).then(r => r.data),")
         lines.append(f"  create: (data: {type_name}Create) => apiClient.post<{type_name}>('{endpoint}', data).then(r => r.data),")
         lines.append(f"  update: (id: string | number, data: Partial<{type_name}Create>) =>")
         lines.append(f"    apiClient.patch<{type_name}>(`{endpoint}/${{id}}`, data).then(r => r.data),")
