@@ -1,6 +1,7 @@
 """The build fixer is shown the source around each error, so its find/replace patches can match (run 12, 22 Nov 2026)."""
 from __future__ import annotations
 
+from aether_os.core.codegen.patching import MAX_SOURCE_CHARS, build_prompt
 from aether_os.phases.p05_frontend import build_loop as bl
 
 
@@ -30,9 +31,9 @@ def test_context_ignores_paths_outside_the_project_and_missing_files(tmp_path):
 def test_context_is_bounded(tmp_path):
     root = _project(tmp_path)
     (root / "src" / "pages" / "TaskPage.tsx").write_text("\n".join("x" * 2000 for _ in range(300)))
-    assert len(bl._error_context(root, "src/pages/TaskPage.tsx(150,1): error TS1")) <= bl._MAX_SOURCE_CHARS
+    assert len(bl._error_context(root, "src/pages/TaskPage.tsx(150,1): error TS1")) <= MAX_SOURCE_CHARS
 
 
 def test_prompt_carries_errors_and_source():
-    prompt = bl._PROMPT_TEMPLATE.format(errors="E1", source="S1")
+    prompt = build_prompt("R", "E1", "S1")
     assert "E1" in prompt and "S1" in prompt and "copied exactly" in prompt

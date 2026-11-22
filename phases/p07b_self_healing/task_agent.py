@@ -27,6 +27,7 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     apply_deterministic_fallback,
 )
 from aether_os.core.error_registry import ErrorCategory
+from aether_os.phases.p07b_self_healing.patch_repair import heal_file
 from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
@@ -221,42 +222,9 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,
         # Never "heal" a test: rewriting tests makes them pass without fixing the app.
         if failing_file.name.startswith(("test_", "conftest")) or "tests" in failing_file.parts:
             failing_file = main_py
-        fix = await _get_fix(failing_file, test_file, last_output, _quality_details, _council_feedback)
-        if not fix:
-            logger.warning("[p07b_self_healing] LLM returned no fix for attempt %d", attempt)
-            # Only apply deterministic fallback on the truly final attempt
-            if attempt >= MAX_ATTEMPTS:
-                apply_deterministic_fallback(project_dir, _raw_entities, _input_data)
-            continue
-
-        # Validate syntax before applying — use compile() not ast.parse() because
-        # compile() catches duplicate keyword arguments that ast.parse() silently accepts.
-        try:
-            compile(fix, failing_file.name, "exec")
-        except SyntaxError as e:
-            logger.warning("[p07b_self_healing] LLM fix has syntax error: %s", e)
-            continue
-
-        # Deterministically fix relative imports → flat absolute imports
-        # The generated app runs from src/ so all sibling modules are importable directly
-        fix = re.sub(r'from\s*\.+\s*(\w)', r'from \1', fix)   # from .foo → from foo
-        fix = re.sub(r'import\s*\.+\s*(\w)', r'import \1', fix)  # import .foo → import foo
-
-        # Re-validate after sanitization
-        try:
-            compile(fix, failing_file.name, "exec")
-        except SyntaxError as e:
-            logger.warning("[p07b_self_healing] Fix still has syntax error after sanitize: %s", e)
-            continue
-
-        # Deterministically ensure crud.py always exports all_routers
-        if failing_file.name == "crud.py" and "all_routers" not in fix:
-            router_vars = re.findall(r'^(\w+_router)\s*=\s*APIRouter', fix, re.MULTILINE)
-            if router_vars:
-                fix = fix.rstrip() + f"\n\nall_routers = [{', '.join(router_vars)}]\n"
-                logger.info("[p07b_self_healing] Auto-injected all_routers: %s", router_vars)
-
-        failing_file.write_text(fix)
+        if not await heal_file(failing_file, project_dir, test_file, last_output, _quality_details,
+                               _council_feedback, attempt, _get_fix):
+            logger.warning("[p07b_self_healing] no verified fix for attempt %d", attempt)
 
         # Only fall back to deterministic regen on the final attempt —
         # earlier attempts leave the LLM-fixed code in place for further iteration
