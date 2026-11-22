@@ -13,7 +13,7 @@ from aether_os.core.models import GlobalPattern
 from aether_os.core.models_memory import FixMemory, RunPatternMemory
 from aether_os.phases.p05_frontend import build_loop
 
-PATCH = {"file": "src/pages/TaskPage.tsx", "find": "const n: number = 'x'", "replace": "const n: number = 1"}
+PATCH = {"file": "src/pages/TaskPage.tsx", "find": "const n = totl", "replace": "const n = total"}
 
 
 @pytest.fixture
@@ -91,19 +91,19 @@ def test_prompt_summary_is_bounded_org_scoped_and_has_no_other_org_content(facto
     run(body())
 
 
-ERR = "src/pages/TaskPage.tsx(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n"
+ERR = "src/pages/TaskPage.tsx(1,11): error TS2304: Cannot find name 'totl'.\n"
 
 
 def _loop(monkeypatch, tmp_path, factory, org, llm_calls):
-    """The build fails while the file holds a string typed as number; the patch fixes the build."""
+    """The build fails while the file uses `totl`; renaming it to `total` fixes the build."""
     monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setattr(fm, "get_session_factory", lambda: factory)
     page = tmp_path / "src/pages/TaskPage.tsx"
     page.parent.mkdir(parents=True, exist_ok=True)
-    page.write_text("const n: number = 'x'\n")
+    page.write_text("const n = totl\n")
 
     async def fake_exec(argv, **kw):
-        broken = "'x'" in page.read_text()
+        broken = "totl" in page.read_text()
         if argv[1] == "tsc":
             return subprocess.CompletedProcess([], 2 if broken else 0, stdout=ERR if broken else "", stderr="")
         if not broken:
@@ -130,7 +130,7 @@ def test_build_loop_records_model_fix_then_reuses_it_without_a_model_call(monkey
 
     out, page = _loop(monkeypatch, tmp_path / "two", factory, "org-1", calls)
     assert out["success"] and len(calls) == 1           # second run: memory hit, no model call
-    assert "= 1" in page.read_text()
+    assert "total" in page.read_text()
 
     out, _ = _loop(monkeypatch, tmp_path / "three", factory, "org-2", calls)
     assert out["success"] and len(calls) == 2           # another org does not see org-1's memory
@@ -138,7 +138,7 @@ def test_build_loop_records_model_fix_then_reuses_it_without_a_model_call(monkey
 
 # --- memory poisoning guard ---------------------------------------------------------------------------------------
 
-SRC = "\n".join(["// filler"] * 30 + ["const n: number = 'x'"] + ["// tail"] * 30)   # error line is 31
+SRC = "\n".join(["// filler"] * 30 + ["const n = totl"] + ["// tail"] * 30)   # error line is 31
 ERR31 = {"file": "src/pages/TaskPage.tsx", "line": 31, "signature": "s", "file_kind": "tsx:pages"}
 
 
@@ -151,7 +151,8 @@ def test_only_small_local_same_file_safe_patches_are_storable():
     assert not fm.patch_targets_error(_p(find="x" * 401), ERR31, SRC)                    # oversized find
     assert not fm.patch_targets_error(_p(replace="y" * 401), ERR31, SRC)                 # oversized replace
     assert not fm.patch_targets_error(_p(file="src/pages/Other.tsx"), ERR31, SRC)        # other file
-    assert not fm.patch_targets_error(_p(find="// filler"), ERR31, SRC)                  # first match: line 1, far away
+    assert not fm.patch_targets_error(_p(), {**ERR31, "line": 60}, SRC)                  # error far from the find span
+    assert not fm.patch_targets_error(_p(), ERR31, "const n = x\n")                      # find no longer in the source
     assert not fm.patch_targets_error(_p(find="not in the file"), ERR31, SRC)
 
 
@@ -172,7 +173,7 @@ def test_replay_targets_the_current_errors_file_not_the_stored_path(factory):
 def test_hook_screen_rejects_patch_for_another_file(tmp_path):
     from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
     (tmp_path / "src/pages").mkdir(parents=True)
-    (tmp_path / "src/pages/TaskPage.tsx").write_text("const n: number = 'x'\n")
+    (tmp_path / "src/pages/TaskPage.tsx").write_text("const n = totl\n")
     mem = RoundMemory("org", tmp_path, lambda d, p: True)
     mem.screen_model_patches(ERR, [_p(file="src/pages/Other.tsx"), _p(replace="fetch('http://x')")])
     assert mem._candidates == []
@@ -196,7 +197,11 @@ def test_provenance_is_recorded_and_rows_can_be_purged_by_run(factory):
     run(body())
 
 
-# --- token rule: every bypass from the three review rounds must be refused ------------------------------------------
+# --- edit-shape allowlist: every bypass from the four review rounds must be refused ----------------------------------
+
+def _safe(find, replace):
+    return fm.is_safe_patch({"file": "src/a.tsx", "find": find, "replace": replace})
+
 
 @pytest.mark.parametrize("bad", [
     "import x from 'left-pad'", "import 'evil'", "import('evil')",                    # round 1
@@ -209,42 +214,66 @@ def test_provenance_is_recorded_and_rows_can_be_purged_by_run(factory):
     "setTimeout('alert(1)', 0)", "setInterval(\"x()\", 5)",                            # string timer
     "window['ev'+'al'](c)", "globalThis['x']", "document['cookie']", "self['fetch']",
     "document.write(x)",
-    "const n = 1 /* a */ ; ev/**/al(c)", "const n = 1 // fine, a comment",             # round 3: comments split tokens
+    "const n = 1 /* a */ ; ev/**/al(c)", "const n = totl // a comment",                 # round 3: comments split tokens
     "a.constructor", "Reflect.get(a, b)", "a?.[k]", "const p = a + '/' + '/'",         # ?.[ and concatenated '//'
     "const n = 1; x.__proto__ = y", "const n = `t`", "localStorage.x", "n = atob(s)",
-    "const \\u0065val = 1", "ev\\u0061l(c)", "n = \"\\x41\"",                         # escapes
-    "n = 1 + \\ 2",
-    "foo(1)", "n = a[1]",                                                              # added call / computed access
+    "const \\u0065val = 1", "ev\\u0061l(c)", "n = \"\\x41\"", "n = 1 + \\ 2",       # escapes
+    "foo(1)", "n = a[1]",
     "import x from 'javascript:alert(1)'", "import x from '//evil.example/a'", "import x from 'data:text/js,1'",
     "import x from './a:b'", "import x from './a//b'",
+    "const n = 1e3constructor", "const n = 0xconstructor", "const n = 1constructor",   # round 4: number grammar
+    "import('x'); a from './a'", "const n = import('x') from './a'",                    # import() balanced by from
 ])
-def test_token_rule_refuses_bypass(bad):
+def test_every_known_bypass_is_refused(bad):
     assert not fm.is_safe_patch(_p(replace=bad))
 
 
-def test_specifier_already_in_find_is_exact_set_membership_not_substring():
-    ok = dict(find="import a from 'react'", replace="import b from 'react'")
-    assert fm.is_safe_patch(_p(**ok))
-    assert not fm.is_safe_patch(_p(find="import a from 'react-dom'", replace="import b from 'react'"))   # substring only
-    assert not fm.is_safe_patch(_p(find="import a from 'javascript:x'", replace="import b from 'javascript:x'"))
+def test_added_call_balanced_by_a_removed_one_is_refused():
+    assert not _safe("const a = f(b) + g(c)", "const a = f(b) + h")         # tokens differ in shape, not just counts
+    assert not _safe("x(1); y", "x; y(1)")
+    assert not _safe("f(a)", "f(a)(b)")
+    assert not _safe("const a = (b)", "const a = fetch")                    # rename to a denied identifier
 
 
-def test_fail_closed_when_an_import_cannot_be_parsed():
-    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from"))
-    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from foo"))
-    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import { a }"))
-    assert not fm.is_safe_patch(_p(find="import a from './a'", replace="import a from './a"))        # unterminated
+def test_shape_a_import_path_fix():
+    assert _safe("import Card from './components/ui/card'", "import Card from './components/ui/Card'")
+    assert _safe("export { A } from './a/b'", "export { A } from './a/c'")
+    assert _safe("import { A } from '../x'", "import { A } from '../y'")
+    assert not _safe("import Card from './card'", "import Card from 'left-pad'")        # not relative
+    assert not _safe("import Card from './card'", "import Card from \"./card\"")       # quote change
+    assert not _safe("import Card from 'react'", "import Card from './react'")           # old one is a package
+    assert not _safe("import Card from './card'", "import Cart from './Card'")           # two changes
+    assert not _safe("const a = './card'", "const a = './Card'")                          # not an import statement
+    assert not _safe("import a from './a'", "import a from './a:b'")
 
 
-@pytest.mark.parametrize("find,replace", [
-    ("import Card from './components/ui/card'", "import Card from './components/ui/Card'"),   # import path case fix
-    ("<div>\n  <p>hi</p>", "<div>\n  <p>hi</p>\n</div>"),                                    # missing closing tag
-    ("const totl = items.length", "const total = items.length"),                                # identifier rename
-    ("import { A } from './ui'", "import { A, B } from './ui'"),                               # named import, same module
-    ("const n: number = 'x'", "const n: number = 1"),
-])
-def test_legitimate_repairs_stay_storable(find, replace):
-    assert fm.is_safe_patch({"file": "src/a.tsx", "find": find, "replace": replace})
+def test_shape_b_identifier_rename():
+    assert _safe("const totl = items.length", "const total = items.length")
+    assert not _safe("const a = 1", "const a = 2")                                         # numbers never change
+    assert not _safe("const a = 'x'", "const a = 'y'")                                     # strings never change
+    assert not _safe("const a = b", "const a = fetch") and not _safe("a.b", "a.constructor")
+    assert not _safe("const a = b", "const a = b;")                                         # punctuation never changes
+    assert not _safe("x", "String")
+
+
+def test_shape_c_missing_closing_tag():
+    assert _safe("<div>\n  <p>hi</p>", "<div>\n  <p>hi</p>\n</div>")
+    assert _safe("<Card><b>x", "<Card><b>x</b></Card>")
+    assert not _safe("<div>", "<div></span>")                                            # tag never opened
+    assert not _safe("<div>", "<div></div><script>")
+    assert not _safe("<div>", "<div></div>alert(1)")
+    assert not _safe("<script>", "<script></script>")                                    # denied identifier
+
+
+def test_shape_d_named_import_from_an_existing_relative_module():
+    assert _safe("import { A } from './ui'", "import { A, B } from './ui'")
+    assert _safe("import { A, B } from './ui';", "import { A, B, C } from './ui';")
+    assert not _safe("import { A } from './ui'", "import { A, B } from './other'")        # specifier changed
+    assert not _safe("import { A } from 'react'", "import { A, B } from 'react'")        # not relative
+    assert not _safe("import { A } from './ui'", "import { A, fetch } from './ui'")
+    assert not _safe("import { A } from './ui'", "import { A, b() } from './ui'")
+    assert not _safe("import { A } from './ui'", "import { A as B } from './ui'")
+    assert not _safe("import { A, B } from './ui'", "import { A, B, C(1) } from './ui'")
 
 
 def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line(tmp_path, factory, monkeypatch):
@@ -253,8 +282,8 @@ def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line
     monkeypatch.setattr(fm, "get_session_factory", lambda: factory)
     page = tmp_path / "src/pages/TaskPage.tsx"
     page.parent.mkdir(parents=True)
-    far = "const n: number = 'x'"
-    page.write_text("\n".join(["// filler"] * 40 + [far, "const m: number = 'y'"]))   # stored find sits at line 41
+    far = "const n = totl"
+    page.write_text("\n".join(["// filler"] * 40 + [far, "const m = 2"]))   # stored find sits at line 41
     sig = fm.parse_errors(ERR)[0]["signature"]                                      # current error is on line 1
     run(fm.record("org", sig, "tsx:pages", [_p()]))
     applied = []
