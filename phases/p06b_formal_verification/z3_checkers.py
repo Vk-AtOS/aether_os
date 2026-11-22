@@ -54,12 +54,17 @@ def _z3_bool_invariant(
 
 # Routes that must be callable without a token: logging in, signing up, token refresh,
 # health probes and API docs. Flagging them VIOLATED made every app fail the gate.
-_PUBLIC_TAILS = ("/login", "/register", "/signup", "/refresh", "/token", "/forgot-password",
+# Also public: /logout (it only ends the caller's own session) and a GET on the bare root (the service banner every
+# generated backend serves). Both failed INV-001 on the production acceptance run (22 Nov 2026), blocking s05.
+_PUBLIC_TAILS = ("/login", "/logout", "/register", "/signup", "/refresh", "/token", "/forgot-password",
                  "/reset-password", "/health", "/healthz", "/ready", "/docs", "/redoc", "/openapi.json")
 
 
-def _is_public_route(path: str) -> bool:
-    return (path or "").rstrip("/").lower().endswith(_PUBLIC_TAILS)
+def _is_public_route(path: str, method: str = "") -> bool:
+    p = (path or "").rstrip("/").lower()
+    if p == "" and (method or "GET").upper() in ("GET", "HEAD"):
+        return True                                   # GET / only: a POST/PUT/DELETE on the root still needs auth
+    return p.endswith(_PUBLIC_TAILS)
 
 
 def _check_inv001_auth(route: "RouteInfo") -> "InvariantResult":
@@ -72,12 +77,12 @@ def _check_inv001_auth(route: "RouteInfo") -> "InvariantResult":
     """
     from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult  # noqa: PLC0415
 
-    if _is_public_route(route.path) and not route.has_auth_depends:
+    if _is_public_route(route.path, getattr(route, "method", "")) and not route.has_auth_depends:
         return InvariantResult(
             invariant_id="INV-001",
             invariant_name="No route reachable without valid JWT",
             route_name=route.name, status="N/A",
-            proof_method="public by design (login/register/refresh/health/docs)",
+            proof_method="public by design (login/logout/register/refresh/health/docs, GET /)",
         )
 
     import z3  # noqa: PLC0415
