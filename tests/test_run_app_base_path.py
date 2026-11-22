@@ -23,3 +23,13 @@ def test_assets_outside_base(tmp_path):
                    '<link href="//cdn.example/x.css">')
     assert assets_outside_base(idx, "/app-preview/") == []
     assert assets_outside_base(tmp_path / "missing.html", "/app-preview/") == []
+
+
+def test_a_dist_built_for_the_wrong_path_is_not_reused():
+    """Run 20 relaunch: run-app reused a dist built for "/" ("Skipping frontend rebuild") and stayed blank."""
+    tree = ast.parse(SRC.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "_dist_already_built" for t in node.targets):
+            assert "assets_outside_base" in ast.unparse(node.value)
+            return
+    raise AssertionError("_dist_already_built not found")
