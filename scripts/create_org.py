@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 import argparse
 import sys
@@ -14,8 +15,8 @@ sys.path.append(str(_root))
 try:
     from dotenv import load_dotenv
     load_dotenv(_root / ".env")
-except ImportError:
-    pass
+except ImportError as e:
+    logging.getLogger(__name__).debug("python-dotenv not installed, skipping .env: %s", e)
 
 from core.db import get_session_factory, init_db
 from core.models import Organisation, User

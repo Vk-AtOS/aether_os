@@ -5,6 +5,7 @@ Usage:
     python3 scripts/embed_existing.py
 """
 import asyncio
+import logging
 import sys
 import os
 from pathlib import Path
@@ -15,8 +16,8 @@ sys.path.insert(0, str(_root.parent))
 try:
     from dotenv import load_dotenv
     load_dotenv(_root / ".env")
-except ImportError:
-    pass
+except ImportError as e:
+    logging.getLogger(__name__).debug("python-dotenv not installed, skipping .env: %s", e)
 
 _PROJECTS_DIR = Path.home() / ".aether_os" / "projects"
 _EMBED_EXTENSIONS = {".py", ".js", ".ts", ".html", ".css", ".json", ".md", ".sql"}

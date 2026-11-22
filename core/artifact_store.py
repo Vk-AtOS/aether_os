@@ -14,12 +14,12 @@ import numpy as np
 from aether_os.core import vector_store
 from aether_os.core.run_app import safe_fs
 
+logger = logging.getLogger(__name__)
+
 try:
     from aether_os.core.llm.client import get_llm_client
-except ImportError:
-    pass
-
-logger = logging.getLogger(__name__)
+except ImportError as e:
+    logger.debug("LLM client unavailable, embeddings disabled: %s", e)
 
 _S3_BUCKET = os.environ.get("S3_BUCKET", "")
 _S3_PREFIX = "runs"

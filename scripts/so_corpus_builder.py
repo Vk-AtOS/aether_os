@@ -259,8 +259,8 @@ def _stream_questions_and_answers(
 
             elem.clear()
 
-    except StopIteration:
-        pass
+    except StopIteration as e:
+        logger.debug("XML stream ended early: %s", e)
 
     logger.info("Pass 1 complete: %d qualifying questions found.", len(questions))
 
@@ -285,8 +285,8 @@ def _stream_questions_and_answers(
 
             elem.clear()
 
-    except StopIteration:
-        pass
+    except StopIteration as e:
+        logger.debug("XML stream ended early: %s", e)
 
     logger.info("Pass 2 complete: %d answers matched.", len(answers))
 
