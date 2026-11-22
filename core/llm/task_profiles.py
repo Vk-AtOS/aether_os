@@ -20,7 +20,9 @@ import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
-from aether_os.core.errors import LLMTruncated
+from aether_os.core.llm.budget import get_budget_manager
+from aether_os.core.llm.plans import PLATFORM_ORG
+from aether_os.core.errors import LLMTruncated, LLMUnavailable
 from aether_os.core.model_router_providers import ModelSpec
 
 logger = logging.getLogger(__name__)
@@ -111,18 +113,45 @@ def grown_max_tokens(current: int) -> int:
     return min(current * 2, max(_env_int("LLM_MAX_TOKENS_CEILING", 32768), current))
 
 
-async def call_with_growth(call: Callable[[int], Awaitable[str]], max_tokens: int, timeout: float, label: str) -> str:
+async def record_truncated(org_id: Optional[str], model: str, prompt: str, output_tokens: int, enforce_local: bool) -> None:
+    """A truncated reply was generated and billed but returns no text, so the success path never books it."""
+    if enforce_local and not org_id:
+        return
+    try:
+        await get_budget_manager().record_usage(org_id=org_id or PLATFORM_ORG, input_tokens=len(prompt) // 4,
+                                                output_tokens=output_tokens, model=model, cache_hit=False)
+    except Exception as exc:
+        logger.warning("Budget record for a truncated reply failed (spend not recorded): %s", exc)
+
+
+async def call_with_growth(call: Callable[[int], Awaitable[str]], max_tokens: int, timeout: float, label: str,
+                           admit: Optional[Callable[[int], Awaitable[object]]] = None,
+                           record: Optional[Callable[[int], Awaitable[None]]] = None) -> str:
     """Run call(max_tokens); if the reply was truncated, retry ONCE on the same model with a larger limit.
-    A second cut-off raises LLMTruncated with the reason: a truncated reply is never returned, so nobody writes it."""
+    A second cut-off raises LLMTruncated with the reason: a truncated reply is never returned, so nobody writes it.
+
+    A truncated reply was still generated and billed, so record(n) books it (n output tokens: the limit it hit) on
+    both attempts. The larger request is a new spend: admit(n) (the budget check for that worst case) must pass
+    before the retry, and a refusal ends the call with the truncation error instead of skipping the cap."""
     try:
         return await asyncio.wait_for(call(max_tokens), timeout=timeout)
     except LLMTruncated as first:
+        if record:
+            await record(max_tokens)
         bigger = grown_max_tokens(max_tokens)
         if bigger <= max_tokens:
             raise
+        if admit:
+            try:
+                await admit(bigger)
+            except LLMUnavailable as refused:
+                raise LLMTruncated(f"{label}: reply truncated at max_tokens={max_tokens} and the retry at {bigger} "
+                                   f"was refused by the budget check ({refused})") from first
         logger.warning("%s truncated at max_tokens=%d, retrying once at %d", label, max_tokens, bigger)
         try:
             return await asyncio.wait_for(call(bigger), timeout=timeout)
         except LLMTruncated as second:
+            if record:
+                await record(bigger)
             raise LLMTruncated(f"{label}: reply truncated at max_tokens={max_tokens} and again at {bigger}; "
                                f"raise LLM_MAX_TOKENS_* / LLM_MAX_TOKENS_CEILING or shrink the request ({second})") from first
