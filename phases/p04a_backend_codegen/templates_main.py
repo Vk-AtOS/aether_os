@@ -52,6 +52,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from database import engine, Base
 from routers.auth import router as auth_router
+from routers.users import router as users_router
 {ROUTER_IMPORTS}
 
 try:
@@ -168,6 +169,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(auth_router, prefix="/api")
+# Before the entity routers: the admin users API owns /users even if the domain has a User entity.
+app.include_router(users_router, prefix="/api")
 {ROUTER_INCLUDES}
 
 # Stats router (generated when Domain IR is available)

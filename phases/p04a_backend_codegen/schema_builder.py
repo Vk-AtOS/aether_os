@@ -219,6 +219,7 @@ def _fallback_models(project_name: str, entities: list, domain: str = "", multi_
         "    password_hash = Column(String(255), nullable=False)\n"
         "    role = Column(String(50), nullable=False, default=\"user\")\n"
         "    is_active = Column(Boolean, nullable=False, default=True)\n"
+        "    full_name = Column(String(255), nullable=True)\n"   # the generated Users page shows and edits it
         + ("    org_id = Column(String(64), nullable=True, index=True)\n" if multi_tenancy else "")
         + "    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)\n"
         "    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)\n"
