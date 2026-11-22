@@ -15,6 +15,8 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from aether_os.phases.p05_frontend.page_concurrency import call_with_backoff
+
 logger = logging.getLogger(__name__)
 
 # Fallback design tokens — design_system module does not yet exist in p05_frontend.
@@ -257,7 +259,7 @@ async def write_entity_page_llm(
     client = get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="code_generation"),
+            call_with_backoff(lambda: client.call(prompt, task_type="code_generation"), f"entity page {name}"),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
