@@ -15,7 +15,7 @@ from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_stripe_service,
     generate_s3_service,
 )
-from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, write_inside
+from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, normalise_event_names, write_inside
 from aether_os.phases.p04b_business_logic.helpers import (
     _FALLBACK_WORKFLOW_ENGINE,
     _FALLBACK_BUSINESS_RULES,
@@ -71,6 +71,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 issues=[f"DomainIR unavailable and inline recovery failed: {exc}"],
             )
 
+    for old_name, new_name in normalise_event_names(ir_data):
+        logger.info("p04b: notification event %r named %r", old_name[:60], new_name)
     bad_names = check_logic_names(ir_data)
     if bad_names:     # fail closed before anything is written (KAN-69 G6)
         logger.error("p04b: refusing the IR: %s", bad_names)
