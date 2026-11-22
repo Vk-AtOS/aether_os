@@ -590,3 +590,5 @@ from . import scim_models  # noqa: E402,F401  registers scim_groups / scim_group
 from . import models_ops  # noqa: E402,F401  (registers webhook_outbox / notification_quiet_hours on Base.metadata)
 
 from .models_learning import LearningClarificationPending, UserLearningPattern  # noqa: E402,F401  (split out: line limit)
+
+from .models_memory import FixMemory, RunPatternMemory  # noqa: E402,F401  (KAN-215 run memory; split out: line limit)
