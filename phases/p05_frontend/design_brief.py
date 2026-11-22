@@ -39,7 +39,7 @@ Answer with ONE JSON object and nothing else, with exactly these keys:
 - "border_radius": one of {radii}.
 - "density": one of {densities}.
 - "widget_description": 1-3 sentences describing ONE dashboard widget that is specific to this product and uses
-  its own records and vocabulary (static mock data only, no API calls).
+  its own records and vocabulary (its numbers come from the /stats counts of those records; no invented data).
 """
 
 

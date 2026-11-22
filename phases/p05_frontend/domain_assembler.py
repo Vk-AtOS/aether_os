@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.domain_ir import AetherType
+from aether_os.phases.p05_frontend.dashboard_stats import ensure_real_stats
 from aether_os.phases.p05_frontend.llm_page_writer import (
     write_entity_page_llm,
     write_dashboard_llm,
@@ -373,12 +374,13 @@ async def assemble_domain_pages(
             domain=domain, entities=entities, project_name=project_name,
             raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
         )
-        if _dash_llm:
+        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name) if _dash_llm else (None, False)
+        if _dash_llm and not _refused:
             (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
             llm_count += 1
         else:
             (src_dir / "pages" / "Dashboard.tsx").write_text(
-                _gen_dash(domain_ir, entities, project_name, domain=domain)
+                _dash_llm or _gen_dash(domain_ir, entities, project_name, domain=domain)
             )
             template_count += 1
         _ir_sem = page_semaphore()
@@ -421,11 +423,12 @@ async def assemble_domain_pages(
             domain=domain, entities=entities, project_name=project_name,
             raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
         )
-        if _dash_llm:
+        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name) if _dash_llm else (None, False)
+        if _dash_llm and not _refused:
             (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
             llm_count += 1
         else:
-            _dash_code = generate_domain_dashboard_fn(domain, entities)
+            _dash_code = _dash_llm or generate_domain_dashboard_fn(domain, entities)
             (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_code)
             template_count += 1
 
