@@ -34,3 +34,11 @@ def test_nothing_left_is_still_refused():
     ir = _ir("!!!")
     normalise_event_names(ir)
     assert check_logic_names(ir)            # empty slug stays refused
+
+
+def test_a_quoted_value_in_a_condition_is_a_sentence():
+    """Production acceptance run 18: this event was refused and the whole business-logic step was skipped."""
+    ir = _ir("Daily cron: Task.due_date < CURRENT_DATE AND Task.status != 'done'")
+    assert normalise_event_names(ir)
+    assert ir["notifications"][0]["event"] == "daily_cron_task_due_date_current_date_and_task_status_done"
+    assert check_logic_names(ir) == []

@@ -14,8 +14,9 @@ _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
 _NON_IDENT = re.compile(r"[^a-z0-9]+")
-# Path or code syntax in an event name looks like an injected spec, not a sentence: leave it for the check to refuse.
-_HOSTILE = re.compile(r"[/\\'\"`;]|\.\.")
+# Path syntax or a code-injection shape in an event name looks like an injected spec, not a sentence: leave it for the
+# check to refuse. A quoted value in a condition ("Task.status != 'done'", production run 18) is a sentence.
+_HOSTILE = re.compile(r"[/\\`]|\.\.|['\"]\s*[);]|;\s*(?:import|from|exec|eval)\b|__\w+__")
 
 
 def _event_identifier(text: str) -> str:
