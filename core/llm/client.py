@@ -99,6 +99,18 @@ def is_local_provider():
 
 # ── LLMClient ─────────────────────────────────────────────────────────────────
 
+def build_full_prompt(prompt: str, context: Optional[Dict[str, Any]]) -> str:
+    """Stable text first, variable text last (KAN-213).
+
+    The context (spec / architecture summary, constant within a run) is serialised
+    deterministically and placed before the per-call prompt, so two calls in one run
+    share a byte-identical prefix that provider prompt caches can reuse.
+    """
+    if not context:
+        return prompt
+    return f"Context:\n{json.dumps(context, indent=2, sort_keys=True, default=str)}\n\n{prompt}"
+
+
 class LLMClient:
     """
     Unified async LLM client for AetherOS.
@@ -169,11 +181,7 @@ class LLMClient:
             except Exception as exc:
                 logger.debug("LLMClient.call: org data_region lookup failed (non-blocking): %s", exc)
 
-        if context:
-            ctx_str = json.dumps(context, indent=2)
-            full_prompt = f"Context:\n{ctx_str}\n\n{prompt}"
-        else:
-            full_prompt = prompt
+        full_prompt = build_full_prompt(prompt, context)
 
         # ── Context compression ──────────────────────────────────────────────
         if not enforce_local:
