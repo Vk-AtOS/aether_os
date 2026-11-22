@@ -1,5 +1,5 @@
 # 10_core_platform_governance: core platform services, governance, security, compliance, SRE
-Scope: core/{approval,audit,compliance,policy,security,identity,guardian,snapshot,chaos_engineering,capacity_planner,cell_architecture,cloud_primitives,sandbox,run_app,telemetry,scheduler,queue,billing,webhooks,notifications,connectors,plugins,services,bootstrap,config,validators}/ plus core/{encryption,webhooks_model,api_key_store,app_state,artifact_store,context_helpers,db_utils,db,errors,error_registry(.py/.json),feature_flags,logging_config,models,pipeline_state,projects,prometheus_patch,rate_limiter,seed,workloop_monitor,workspace_model}.py
+Scope: core/{approval,audit,compliance,policy,security,identity,guardian,snapshot,chaos_engineering,capacity_planner,cell_architecture,cloud_primitives,sandbox,run_app,telemetry,scheduler,queue,billing,webhooks,notifications,connectors,plugins,services,bootstrap,config,validators}/ plus core/{encryption,webhooks_model,api_key_store,app_state,artifact_store,context_helpers,db_utils,db,errors,error_registry(.py/.json),feature_flags,logging_config,models,pipeline_state,projects,rate_limiter,route_walk,seed,workloop_monitor,workspace_model}.py
 About 135 .py files, about 24.1K LOC. Commit 052a101. Mapped 2026-11-08. Read-only.
 
 Status tags:
@@ -162,8 +162,8 @@ Top live risks:
 | logging_config.py | 70 | structlog JSON | REAL |
 | pipeline_state.py | 140 | Redis pub/sub event bus plus control keys, also inserts into Postgres | REAL (25 importers) |
 | projects.py | 98 | `~/.aether_os/projects/_index.json` manager | REAL (filesystem) |
-| prometheus_patch.py | 45 | Monkey-patch for the instrumentator route name | REAL |
 | rate_limiter.py | 475 | Redis ZSET sliding window, SSE tokens, port registry, client IP | REAL |
+| route_walk.py | 37 | Route enumeration and request route template for FastAPI 0.16x (included routers are not flattened into app.routes) | REAL |
 | seed.py | 128 | Admin user and org from env vars, 10 marketplace skills | REAL |
 | workloop_monitor.py | 312 | 5-minute LLM diagnosis of runs that auto-sets `os.environ` | LLM |
 | workspace_model.py | 18 | Duplicate `workspaces` table | DEAD; would fail if imported |
@@ -408,7 +408,7 @@ No file in scope is over 600 lines. The largest is `sandbox/manager.py` at 599 (
 **Telemetry**
 - Live: only the LangSmith tracer, gated on `LANGSMITH_OPT_IN` plus an API key (:43-53) and wrapped around `model_router.call` (model_router.py:93). Its synchronous `create_run` and `update_run` calls block the event loop.
 - `spine.py` (a JSONL sink with 500MB rotation) is DEAD. `phases/p08_cicd/temporal_prediction.py:31` imports a `.telemetry_spine` module that does not exist. `telemetry/notifications.py` imports a `src.notifications` package that does not exist.
-- There is no OpenTelemetry. Prometheus metrics come from prometheus_fastapi_instrumentator in the gateway, patched by prometheus_patch.py.
+- There is no OpenTelemetry. Prometheus metrics come from prometheus_fastapi_instrumentator in the gateway (8.x resolves FastAPI 0.16x included routers itself, so no patch is needed).
 
 **Scheduler (DEAD)**
 - An in-memory list sorted by (-priority, seq) and awaited serially, with no cron, no APScheduler and no driving loop. Its `schedule(name, coro, priority, *args)` signature mis-binds arguments.
@@ -612,7 +612,6 @@ Where state is stored:
   - Guardian: watchdog, threat_detector, snapshot_manager, auto_recovery; guardian_service plus the routers.
   - workloop_monitor (LLM self-tuning).
   - langsmith_tracer.
-  - prometheus_patch with the gateway instrumentator.
   - logging_config (structlog).
   - DB pool settings and `statement_timeout`.
   - SQS visibility heartbeat.

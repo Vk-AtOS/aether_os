@@ -141,8 +141,6 @@ def create_app() -> FastAPI:
     app.add_middleware(TraceIdMiddleware)
     # C9: Prometheus metrics — instrumentation only; /metrics endpoint is in metrics_router
     try:
-        from aether_os.core.prometheus_patch import apply as _apply_prom_patch
-        _apply_prom_patch()  # must run before .instrument() — see core/prometheus_patch.py
         from prometheus_fastapi_instrumentator import Instrumentator  # type: ignore
         Instrumentator(
             should_group_status_codes=True,
