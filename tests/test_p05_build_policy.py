@@ -58,7 +58,7 @@ def test_build_ok_but_no_dist_is_failure(monkeypatch, tmp_path):
 
 def test_clean_run_is_one_round(monkeypatch, tmp_path):
     res, calls = _run(monkeypatch, tmp_path, _cp(0), _cp(0))
-    assert res == {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "rounds": 1}
+    assert res == {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "tsc_all": [], "rounds": 1}
 
 
 def test_loop_keeps_trying_to_fix_tsc_errors(monkeypatch, tmp_path):
