@@ -29,7 +29,7 @@ def _run(monkeypatch, tmp_path, tsc, build, make_dist=True, patches=None):
             (tmp_path / "dist" / "index.html").write_text("<html/>")
         return build
 
-    async def fake_fix(_):
+    async def fake_fix(*_):
         return patches or []
 
     monkeypatch.setattr(build_loop.phase_exec, "run", fake_exec)
