@@ -89,6 +89,9 @@ unset DBP
 # ── sandbox network isolation, images, stack ──
 AETHER_SANDBOX_PUBLISH_IP=$GW bash core/sandbox/host_firewall.sh >/srv/logs/fw.log 2>&1 && echo "host firewall applied" || { echo "firewall FAILED"; tail -5 /srv/logs/fw.log; }
 docker build -q -t aether-sandbox:1 -f core/sandbox/Dockerfile core/sandbox >/dev/null && echo "sandbox image ok"
+# The browser image (screenshots of the generated frontend, s04) builds FROM aether-sandbox:1. Without it every run
+# logs "browser sandbox unavailable" and ships without a screenshot (production acceptance run 11, 22 Nov 2026).
+docker build -q -t aether-sandbox-browser:1 -f core/sandbox/Dockerfile.browser core/sandbox >/dev/null && echo "browser sandbox image ok"
 docker build -q -t velaris:prod -f /srv/velaris/deploy/Dockerfile /srv/velaris >/dev/null && echo "velaris image ok"
 # The vault key is read by the non-root Velaris user inside its container: owner-only, owned by that user, not world-readable.
 chown "$(docker run --rm --entrypoint id velaris:prod -u):$(docker run --rm --entrypoint id velaris:prod -g)" secrets/vault.key
