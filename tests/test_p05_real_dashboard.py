@@ -167,3 +167,27 @@ def test_stats_router_without_due_field_has_no_overdue():
     code = generate_stats_router(ir)
     assert "overdue_" not in code
     compile(code, "stats.py", "exec")
+
+
+# Production run 21 (22 Nov 2026): the model's Dashboard read /stats but with keys total_User / total_Project (entity
+# names); the stats router serves total_projects (table names), so every card showed a dash. The post-check passed it.
+_RUN21_ENTITIES = [
+    {"name": "User", "table": "users", "fields": [{"name": "email", "type": "string"}]},
+    {"name": "Project", "table": "projects", "fields": [{"name": "name", "type": "string"}]},
+    {"name": "Task", "table": "tasks", "fields": [{"name": "status", "type": "string"}, {"name": "due_date", "type": "date"}]},
+    {"name": "ProjectMember", "table": "project_members", "fields": [{"name": "role", "type": "string"}]},
+]
+
+
+def test_dashboard_reading_unserved_stats_keys_is_replaced():
+    from aether_os.phases.p05_frontend.dashboard_stats import ensure_real_stats, hardcoded_counts_reason
+    code = (Path(__file__).parent / "fixtures" / "run21" / "Dashboard.tsx").read_text()
+    reason = hardcoded_counts_reason(code, _RUN21_ENTITIES)
+    assert reason and "total_Project" in reason
+    fixed, replaced = ensure_real_stats(code, _RUN21_ENTITIES, "Tracker")
+    assert replaced and "total_projects" in fixed and "overdue_tasks" in fixed
+
+
+def test_the_stats_template_passes_its_own_key_check():
+    from aether_os.phases.p05_frontend.dashboard_stats import hardcoded_counts_reason, stats_dashboard_tsx
+    assert hardcoded_counts_reason(stats_dashboard_tsx(_RUN21_ENTITIES, "Tracker"), _RUN21_ENTITIES) is None
