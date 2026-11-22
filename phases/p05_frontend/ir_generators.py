@@ -348,13 +348,15 @@ def generate_ir_entity_page(entity: IREntity) -> str:
 
     return f"""import React, {{ useState }} from 'react';
 import {{ useQuery, useMutation, useQueryClient }} from '@tanstack/react-query';
-import {{ api }} from '../lib/api';
+import {{ api, apiErrorMessage }} from '../lib/api';
 import type {{ {name} }} from '../types';
 
 export default function {name}Page() {{
   const qc = useQueryClient();
   const [editing, setEditing] = useState<{name} | null | 'new'>(null);
   const [page, setPage] = useState(1);
+  // A rejected save keeps the dialog open and says why (KAN-242: a 422 used to leave it silently open).
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const {{ data, isLoading }} = useQuery({{
     queryKey: ['{table}', page],
@@ -366,12 +368,14 @@ export default function {name}Page() {{
       editing === 'new'
         ? api.post('/{table}', payload)
         : api.patch(`/{table}/${{(editing as {name}).id}}`, payload),
-    onSuccess: () => {{ qc.invalidateQueries({{ queryKey: ['{table}'] }}); setEditing(null); }},
+    onSuccess: () => {{ qc.invalidateQueries({{ queryKey: ['{table}'] }}); setEditing(null); setSaveError(null); }},
+    onError: (err: unknown) => setSaveError(apiErrorMessage(err, 'Could not save {label}')),
   }});
 
   const remove = useMutation({{
     mutationFn: (id: number) => api.delete(`/{table}/${{id}}`),
     onSuccess: () => qc.invalidateQueries({{ queryKey: ['{table}'] }}),
+    onError: (err: unknown) => window.alert(apiErrorMessage(err, 'Could not delete {label}')),
   }});
 
   const rows: {name}[] = data?.items ?? data ?? [];
@@ -383,6 +387,7 @@ export default function {name}Page() {{
     const payload: Partial<{name}> = {{
 {payload_jsx}
     }};
+    setSaveError(null);
     save.mutate(payload as any);
   }}
 
@@ -484,8 +489,11 @@ export default function {name}Page() {{
 {form_fields}
                 </>
               ); }})()}}
+              {{saveError && (
+                <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{{saveError}}</p>
+              )}}
               <div className="flex justify-end gap-3 pt-6 border-t mt-6">
-                <button type="button" onClick={{() => setEditing(null)}}
+                <button type="button" onClick={{() => {{ setEditing(null); setSaveError(null); }}}}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100">
                   Cancel
                 </button>
