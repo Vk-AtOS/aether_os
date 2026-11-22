@@ -164,6 +164,9 @@ def main(pw_file: str, rid: str, out: str) -> int:
             page.wait_for_timeout(4000)
             page.screenshot(path=str(out_dir / "c5_after_submit.png"))
             created = any(m == "POST" and 200 <= s < 300 for m, _, s in api)
+            if not created:     # KAN-242: say why, from what the user sees (alert, toast or the still-open dialog)
+                shown = page.locator('[role="alert"], [role="status"], [role="dialog"]').all_inner_texts()
+                print("  C5 no 2xx POST; page shows:", re.sub(r"\s+", " ", " | ".join(shown))[:300] or "(nothing)")
             print("  create calls:", [c for c in api if c[0] in ("POST", "PUT", "PATCH")][:3])
         results["C5 create via form"] = created
         b.close()

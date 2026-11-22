@@ -203,6 +203,20 @@ async def write_dashboard_llm(
     return cleaned
 
 
+def mutations_without_error_handler(code: str) -> int:
+    """How many useMutation({...}) calls have no onError. Run 23's page had three: a rejected save (422) left the
+    dialog open with no message (KAN-242)."""
+    missing = 0
+    for m in re.finditer(r"useMutation\s*(?:<[^>]*>)?\s*\(", code):
+        depth, i = 1, m.end()
+        while i < len(code) and depth:
+            depth += {"(": 1, ")": -1}.get(code[i], 0)
+            i += 1
+        if "onError" not in code[m.end():i]:
+            missing += 1
+    return missing
+
+
 async def write_entity_page_llm(
     entity: dict,
     route_map: dict,
@@ -258,6 +272,9 @@ async def write_entity_page_llm(
         "(no ListResponse / PaginatedResponse interface) and never write `data.data` or `data?.data.map`. For related entities use "
         "their helpers too (e.g. usersApi.list(1, 200)); import entity types from '@/types'\n"
         "- Full CRUD: list table, Create button opening modal, Edit row → modal, Delete with confirm\n"
+        "- Every useMutation has an onError that shows the server's reason: import { apiErrorMessage } from '@/lib/api' and show "
+        "apiErrorMessage(err, 'Could not save') in the open dialog (role=\"alert\") or a toast. A rejected save keeps the dialog "
+        "open with the user's input; never swallow an error\n"
         "- Use shadcn/ui components imported from '@/components/ui/*' (Button, Card, Input, Table, Modal)\n"
         "- No hardcoded data — all rows come from the API\n"
         "- Export: export default function {name}Page()\n"
@@ -290,6 +307,11 @@ async def write_entity_page_llm(
 
     if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
         logger.warning("p05: LLM entity page for %s missing required tokens — falling back", name)
+        return None
+
+    silent = mutations_without_error_handler(cleaned)
+    if silent:
+        logger.warning("p05: LLM entity page for %s has %d mutation(s) without onError — falling back", name, silent)
         return None
 
     return enforce_list_contract(cleaned, f"{name}Page")

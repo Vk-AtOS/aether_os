@@ -127,7 +127,7 @@ import {{ CrudModal, type FieldDef }} from '../components/CrudModal'
 import {{ Pagination }} from '../components/Pagination'
 import {{ TableSkeleton }} from '../components/Skeleton'
 import {{ RoleGuard }} from '../components/RoleGuard'
-import {{ {camel}Api }} from '../lib/api'
+import {{ {camel}Api, apiErrorMessage }} from '../lib/api'
 import {{ type {type_name} }} from '../types'
 import {{ useToast }} from '../components/Toaster'
 import {{ Plus, Pencil, Trash2 }} from 'lucide-react'
@@ -170,8 +170,7 @@ export default function {pascal}Page() {{
       toast('{singular} created', 'success')
     }},
     onError: (err: unknown) => {{
-      const msg = (err as {{ response?: {{ data?: {{ detail?: string }} }} }})?.response?.data?.detail ?? 'Failed to create {singular}'
-      toast(msg, 'error')
+      toast(apiErrorMessage(err, 'Failed to create {singular}'), 'error')
     }},
   }})
 
@@ -185,8 +184,7 @@ export default function {pascal}Page() {{
       toast('{singular} updated', 'success')
     }},
     onError: (err: unknown) => {{
-      const msg = (err as {{ response?: {{ data?: {{ detail?: string }} }} }})?.response?.data?.detail ?? 'Failed to update {singular}'
-      toast(msg, 'error')
+      toast(apiErrorMessage(err, 'Failed to update {singular}'), 'error')
     }},
   }})
 
@@ -196,7 +194,7 @@ export default function {pascal}Page() {{
       qc.invalidateQueries({{ queryKey: ['{table}'] }})
       toast('{singular} deleted', 'success')
     }},
-    onError: () => toast('Failed to delete {singular}', 'error'),
+    onError: (err: unknown) => toast(apiErrorMessage(err, 'Failed to delete {singular}'), 'error'),
   }})
 
   const columns: ColumnDef<{type_name}>[] = [

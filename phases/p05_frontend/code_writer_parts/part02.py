@@ -460,6 +460,20 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("// GET /stats: per-entity total_<table>, overdue_<table>, stage_<value> counts. The dashboard shows these, never literals.")
     lines.append("export type Stats = Record<string, number>")
     lines.append("export const stats = () => apiClient.get<Stats>('/stats').then(r => r.data)")
+    lines.append("")
+    lines.append("// A failed save must say why (KAN-242): FastAPI's detail is a string, or for a 422 a list of {loc, msg}.")
+    lines.append("export function apiErrorMessage(err: unknown, fallback: string): string {")
+    lines.append("  const res = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response")
+    lines.append("  const detail = res?.data?.detail")
+    lines.append("  if (typeof detail === 'string' && detail) return detail")
+    lines.append("  if (Array.isArray(detail) && detail.length) {")
+    lines.append("    return detail.map((d: { loc?: unknown[]; msg?: string }) => {")
+    lines.append("      const field = Array.isArray(d?.loc) ? d.loc.filter(p => p !== 'body').join('.') : ''")
+    lines.append("      return field ? `${field}: ${d?.msg ?? 'invalid'}` : String(d?.msg ?? d)")
+    lines.append("    }).join('; ')")
+    lines.append("  }")
+    lines.append("  return res?.status ? `${fallback} (HTTP ${res.status})` : fallback")
+    lines.append("}")
 
     exported = {"authApi"}
     for ent in entities:
