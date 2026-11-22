@@ -27,3 +27,9 @@ def test_error_boundary_text_counts_as_a_crash():
     assert mod.crashed("Something went wrong Show Error Try again")
     assert mod.crashed("Failed to load projects")
     assert not mod.crashed("Dashboard Users 12 Projects 3")
+
+
+def test_sidebar_hrefs_resolve_against_the_preview_origin():
+    """C5 visits sidebar pages (root-relative hrefs) to find a create button; run 23's landing page had none."""
+    mod = _load()
+    assert mod.base_origin("https://abc.preview.example.io/app-preview/admin") == "https://abc.preview.example.io"
