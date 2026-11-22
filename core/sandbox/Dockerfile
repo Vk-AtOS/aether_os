@@ -17,5 +17,5 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 RUN pip install --no-cache-dir \
       "fastapi>=0.110" "uvicorn[standard]>=0.29" "sqlalchemy[asyncio]>=2" aiosqlite httpx alembic \
       pydantic pydantic-settings email-validator python-multipart \
-      "pyjwt[crypto]" passlib bcrypt pytest pytest-asyncio
+      "pyjwt[crypto]" passlib bcrypt pytest pytest-asyncio pytest-timeout
 USER 10001:10001
