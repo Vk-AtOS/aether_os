@@ -37,7 +37,8 @@ for agent, ms in METHODS.items():
         out["methods"][f"{agent}.{m}"] = {"kind": r.kind, "roles": sorted(r.roles or []), "actor": r.actor,
             "loaded": fn is not None, "params": None if fn is None else [[p.name, p.default is p.empty] for p in http_params(fn)]}
 app = create_app(Settings(secret=b"x" * 32, identity_key=Ed25519PrivateKey.generate().public_key(), org="o"), engine=object())
-out["routes"] = sorted({(m, r.path) for r in app.routes for m in (getattr(r, "methods", None) or ()) if m not in ("HEAD", "OPTIONS")})
+from fastapi.routing import iter_route_contexts  # FastAPI 0.16x: included routers are not flattened into app.routes
+out["routes"] = sorted({(m, r.path) for r in iter_route_contexts(app.routes) for m in (getattr(r, "methods", None) or ()) if m not in ("HEAD", "OPTIONS")})
 json.dump(out, sys.stdout)
 """
 

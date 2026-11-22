@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from sqlalchemy import update
 
 import aether_os.core.db as db
+from aether_os.core.route_walk import iter_routes
 from aether_os.core.audit import chain
 from aether_os.core.models import User
 from aether_os.core.velaris.client import VelarisClient
@@ -134,7 +135,7 @@ async def test_api_keys_ghosts_and_strangers_are_refused(http, velaris):
 async def test_every_endpoint_requires_auth(svc):
     app = make_app()
     n = 0
-    for route in app.routes:
+    for route in iter_routes(app.routes):
         if not getattr(route, "dependant", None) or not route.path.startswith(("/chat", "/mail", "/control", "/hr")):
             continue
         calls = [d.call for d in route.dependant.dependencies]
@@ -142,7 +143,7 @@ async def test_every_endpoint_requires_auth(svc):
         n += 1
     assert n >= 90
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-        for route in app.routes:
+        for route in iter_routes(app.routes):
             if getattr(route, "dependant", None) and route.path.startswith(("/chat", "/mail", "/control", "/hr")):
                 path = route.path.replace("{", "").replace("}", "") if "{" not in route.path else route.path
                 for m in route.methods:

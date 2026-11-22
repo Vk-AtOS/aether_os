@@ -10,6 +10,7 @@ import time
 import uuid
 
 
+from aether_os.core.route_walk import iter_routes
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import Run
 
@@ -44,7 +45,7 @@ def _seed_b(gw, b):
 
 def _routes(app):
     out = []
-    for r in app.routes:
+    for r in iter_routes(app.routes):
         path = getattr(r, "path", "")
         params = re.findall(r"{(\w+)(?::\w+)?}", path)
         if not params or path.startswith(SKIP_PREFIXES):

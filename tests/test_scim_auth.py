@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import uuid
 
+from aether_os.core.route_walk import iter_routes
+
 
 def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
@@ -22,7 +24,7 @@ def test_user_jwt_is_rejected_on_every_scim_route(gw):
         ("POST", "/scim/v2/Groups", {"displayName": "x"}),
         ("GET", "/scim/v2/ServiceProviderConfig", None),
     ]
-    scim_paths = {r.path for r in gw.app.routes if getattr(r, "path", "").startswith("/scim/")}
+    scim_paths = {r.path for r in iter_routes(gw.app.routes) if getattr(r, "path", "").startswith("/scim/")}
     assert {"/scim/v2/Users", "/scim/v2/Users/{user_id}", "/scim/v2/Groups"} <= scim_paths, scim_paths
     for method, url, body in calls:
         resp = gw.client.request(method, url, headers=owner.auth, json=body)

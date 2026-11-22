@@ -23,6 +23,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from aether_os.core.route_walk import iter_routes
+
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
 _ENV = {
@@ -186,7 +188,7 @@ _ANY_BODY = {
 
 
 def _run_routes(app):
-    for route in app.routes:
+    for route in iter_routes(app.routes):
         path = getattr(route, "path", "")
         if "{run_id}" not in path or any(path.startswith(p) or path == p for p in _NOT_JWT_SCOPED):
             continue
@@ -482,7 +484,7 @@ def test_ci_endpoints_require_valid_signature(env, monkeypatch):
 
 
 def test_metrics_internal_is_gone_and_metrics_needs_key(env):
-    assert "/_metrics_internal" not in {getattr(r, "path", "") for r in env.app.routes}
+    assert "/_metrics_internal" not in {getattr(r, "path", "") for r in iter_routes(env.app.routes)}
     resp = env.client.get("/_metrics_internal")
     assert resp.status_code in (401, 404), resp.status_code
     assert env.client.get("/metrics").status_code == 401

@@ -17,6 +17,7 @@ from typing import Any, Dict
 from fastapi import HTTPException, Request, status
 
 from aether_os.core.policy.rules import ROLE_RANK
+from aether_os.core.route_walk import route_template
 
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 
@@ -76,8 +77,7 @@ def check_role(request: Request, user: Dict[str, Any]) -> None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"API key lacks the '{need}' scope")
     if request.method in _SAFE:
         return
-    route = request.scope.get("route")
-    template = getattr(route, "path", None) or request.url.path
+    template = route_template(request.scope) or request.url.path
     role = user.get("role") or ""
     rank = ROLE_RANK.get(role)
     if rank is None:  # unknown role: deny by default
@@ -102,7 +102,7 @@ def check_admin_mfa(request: Request, user: Dict[str, Any], mfa_enabled: bool, o
         return
     if (getattr(org, "admin_mfa_grace_until", None) or 0) > (now or time.time()):
         return
-    template = getattr(request.scope.get("route"), "path", None) or request.url.path
+    template = route_template(request.scope) or request.url.path
     if _matches(template, MFA_ENROLMENT_OK):
         return
     raise HTTPException(status.HTTP_403_FORBIDDEN, {

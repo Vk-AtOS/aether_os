@@ -2,7 +2,8 @@
 # From audit section 10, consolidated from all three repos
 
 # ── Core Framework ────────────────────────────────────────────────────────────
-fastapi>=0.110.0
+fastapi>=0.165.0                 # 0.16x + starlette 1.x: included routers are not flattened into app.routes (core/route_walk.py)
+starlette>=1.10.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
 python-multipart>=0.0.31
@@ -102,7 +103,7 @@ growthbook>=1.0.0
 posthog>=3.0.0
 sentry-sdk[fastapi]>=1.40.0
 prometheus-client>=0.20.0
-prometheus-fastapi-instrumentator>=7.1.0,<8.0.0   # 8.x crashes on routing (see core/prometheus_patch.py)
+prometheus-fastapi-instrumentator>=8.1.0,<9.0.0   # 8.x needs starlette 1.x and resolves FastAPI 0.16x included routers
 structlog>=24.0.0
 langsmith>=0.8.18                # LangSmith tracing (explicit — also a transitive dep of langchain-core)
 
