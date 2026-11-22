@@ -60,7 +60,7 @@ class RoundMemory:
     def _targets_current_error(self, patch: dict, err: dict) -> bool:
         """Same guard as for storing, against the CURRENT source and error line (a stored patch from elsewhere is skipped)."""
         try:
-            return fix_memory.patch_targets_error(patch, err, (self.dir / err["file"]).read_text())
+            return fix_memory.patch_targets_error(patch, err, (self.dir / err["file"]).read_text(), self.dir)
         except Exception as exc:
             logger.debug("p05 fix memory: cannot read %s: %s", err["file"], exc)
             return False
@@ -78,7 +78,7 @@ class RoundMemory:
                 logger.debug("p05 fix memory: cannot read %s: %s", err["file"], exc)
                 continue
             for p in patches:
-                if isinstance(p, dict) and fix_memory.patch_targets_error(p, err, source):
+                if isinstance(p, dict) and fix_memory.patch_targets_error(p, err, source, self.dir):
                     self._candidates.append({**err, "patch": p})
 
     def remember_model_patches(self, applied: list[dict]) -> None:

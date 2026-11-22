@@ -13,7 +13,7 @@ from aether_os.core.models import GlobalPattern
 from aether_os.core.models_memory import FixMemory, RunPatternMemory
 from aether_os.phases.p05_frontend import build_loop
 
-PATCH = {"file": "src/pages/TaskPage.tsx", "find": "const n = totl", "replace": "const n = total"}
+PATCH = {"file": "src/pages/TaskPage.tsx", "find": "<div><p>hi</p>", "replace": "<div><p>hi</p></div>"}
 
 
 @pytest.fixture
@@ -91,19 +91,19 @@ def test_prompt_summary_is_bounded_org_scoped_and_has_no_other_org_content(facto
     run(body())
 
 
-ERR = "src/pages/TaskPage.tsx(1,11): error TS2304: Cannot find name 'totl'.\n"
+ERR = "src/pages/TaskPage.tsx(1,1): error TS17008: JSX element 'div' has no corresponding closing tag.\n"
 
 
 def _loop(monkeypatch, tmp_path, factory, org, llm_calls):
-    """The build fails while the file uses `totl`; renaming it to `total` fixes the build."""
+    """The build fails while the file has an unclosed <div>; appending the closing tag fixes the build."""
     monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setattr(fm, "get_session_factory", lambda: factory)
     page = tmp_path / "src/pages/TaskPage.tsx"
     page.parent.mkdir(parents=True, exist_ok=True)
-    page.write_text("const n = totl\n")
+    page.write_text("<div><p>hi</p>\n")
 
     async def fake_exec(argv, **kw):
-        broken = "totl" in page.read_text()
+        broken = "</div>" not in page.read_text()
         if argv[1] == "tsc":
             return subprocess.CompletedProcess([], 2 if broken else 0, stdout=ERR if broken else "", stderr="")
         if not broken:
@@ -130,7 +130,7 @@ def test_build_loop_records_model_fix_then_reuses_it_without_a_model_call(monkey
 
     out, page = _loop(monkeypatch, tmp_path / "two", factory, "org-1", calls)
     assert out["success"] and len(calls) == 1           # second run: memory hit, no model call
-    assert "total" in page.read_text()
+    assert "</div>" in page.read_text()
 
     out, _ = _loop(monkeypatch, tmp_path / "three", factory, "org-2", calls)
     assert out["success"] and len(calls) == 2           # another org does not see org-1's memory
@@ -138,7 +138,7 @@ def test_build_loop_records_model_fix_then_reuses_it_without_a_model_call(monkey
 
 # --- memory poisoning guard ---------------------------------------------------------------------------------------
 
-SRC = "\n".join(["// filler"] * 30 + ["const n = totl"] + ["// tail"] * 30)   # error line is 31
+SRC = "\n".join(["// filler"] * 30 + ["<div><p>hi</p>"] + ["// tail"] * 30)   # error line is 31
 ERR31 = {"file": "src/pages/TaskPage.tsx", "line": 31, "signature": "s", "file_kind": "tsx:pages"}
 
 
@@ -173,7 +173,7 @@ def test_replay_targets_the_current_errors_file_not_the_stored_path(factory):
 def test_hook_screen_rejects_patch_for_another_file(tmp_path):
     from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
     (tmp_path / "src/pages").mkdir(parents=True)
-    (tmp_path / "src/pages/TaskPage.tsx").write_text("const n = totl\n")
+    (tmp_path / "src/pages/TaskPage.tsx").write_text("<div><p>hi</p>\n")
     mem = RoundMemory("org", tmp_path, lambda d, p: True)
     mem.screen_model_patches(ERR, [_p(file="src/pages/Other.tsx"), _p(replace="fetch('http://x')")])
     assert mem._candidates == []
@@ -214,7 +214,7 @@ def _safe(find, replace):
     "setTimeout('alert(1)', 0)", "setInterval(\"x()\", 5)",                            # string timer
     "window['ev'+'al'](c)", "globalThis['x']", "document['cookie']", "self['fetch']",
     "document.write(x)",
-    "const n = 1 /* a */ ; ev/**/al(c)", "const n = totl // a comment",                 # round 3: comments split tokens
+    "const n = 1 /* a */ ; ev/**/al(c)", "<div><p>hi</p> // a comment",                 # round 3: comments split tokens
     "a.constructor", "Reflect.get(a, b)", "a?.[k]", "const p = a + '/' + '/'",         # ?.[ and concatenated '//'
     "const n = 1; x.__proto__ = y", "const n = `t`", "localStorage.x", "n = atob(s)",
     "const \\u0065val = 1", "ev\\u0061l(c)", "n = \"\\x41\"", "n = 1 + \\ 2",       # escapes
@@ -229,31 +229,58 @@ def test_every_known_bypass_is_refused(bad):
 
 
 def test_added_call_balanced_by_a_removed_one_is_refused():
-    assert not _safe("const a = f(b) + g(c)", "const a = f(b) + h")         # tokens differ in shape, not just counts
+    assert not _safe("const a = f(b) + g(c)", "const a = f(b) + h")
     assert not _safe("x(1); y", "x; y(1)")
     assert not _safe("f(a)", "f(a)(b)")
-    assert not _safe("const a = (b)", "const a = fetch")                    # rename to a denied identifier
 
 
-def test_shape_a_import_path_fix():
+def test_shape_a_case_only_import_path_fix():
     assert _safe("import Card from './components/ui/card'", "import Card from './components/ui/Card'")
-    assert _safe("export { A } from './a/b'", "export { A } from './a/c'")
-    assert _safe("import { A } from '../x'", "import { A } from '../y'")
-    assert not _safe("import Card from './card'", "import Card from 'left-pad'")        # not relative
-    assert not _safe("import Card from './card'", "import Card from \"./card\"")       # quote change
-    assert not _safe("import Card from 'react'", "import Card from './react'")           # old one is a package
-    assert not _safe("import Card from './card'", "import Cart from './Card'")           # two changes
-    assert not _safe("const a = './card'", "const a = './Card'")                          # not an import statement
+    assert _safe("export { A } from './a/b'", "export { A } from './a/B'")
+    assert not _safe("import { A } from '../x'", "import { A } from '../y'")                # not case-only
+    assert not _safe("import Card from './card'", "import Card from './cards'")             # different length
+    assert not _safe("import Card from './card'", "import Card from 'left-pad'")
+    assert not _safe("import Card from './card'", "import Card from \"./Card\"")            # quote change
+    assert not _safe("import Card from 'react'", "import Card from 'React'")                 # package, not relative
+    assert not _safe("import Card from './card'", "import Cart from './Card'")               # two changes
+    assert not _safe("const a = './card'", "const a = './Card'")                              # not an import statement
     assert not _safe("import a from './a'", "import a from './a:b'")
 
 
-def test_shape_b_identifier_rename():
-    assert _safe("const totl = items.length", "const total = items.length")
-    assert not _safe("const a = 1", "const a = 2")                                         # numbers never change
-    assert not _safe("const a = 'x'", "const a = 'y'")                                     # strings never change
-    assert not _safe("const a = b", "const a = fetch") and not _safe("a.b", "a.constructor")
-    assert not _safe("const a = b", "const a = b;")                                         # punctuation never changes
-    assert not _safe("x", "String")
+def _project(tmp_path):
+    (tmp_path / "src/pages").mkdir(parents=True)
+    (tmp_path / "src/components/ui").mkdir(parents=True)
+    (tmp_path / "src/components/ui/Card.tsx").write_text("export default 1\n")
+    (tmp_path / "src/pages/Page.tsx").write_text("import Card from '../components/ui/card'\n")
+    (tmp_path / "outside.ts").write_text("x")
+    return tmp_path
+
+
+def _fix(spec):
+    return {"file": "src/pages/Page.tsx", "find": "import Card from '../components/ui/card'",
+            "replace": f"import Card from '{spec}'"}
+
+
+def test_shape_a_replay_resolves_the_specifier_inside_src_with_exact_case(tmp_path):
+    root = _project(tmp_path)
+    assert fm.import_target_ok(root, "src/pages/Page.tsx", _fix("../components/ui/Card"))     # exists, exact case
+    assert not fm.import_target_ok(root, "src/pages/Page.tsx", _fix("../components/ui/CARD"))  # wrong case on disk
+    assert not fm.import_target_ok(root, "src/pages/Page.tsx", _fix("../components/ui/Missing"))
+    assert not fm.import_target_ok(root, "src/pages/Page.tsx", _fix("../../../outside"))      # ../../ traversal
+    assert not fm.import_target_ok(root, "src/pages/Page.tsx", _fix("../../outside"))         # leaves src/
+    err = {"file": "src/pages/Page.tsx", "line": 1}
+    src = (root / "src/pages/Page.tsx").read_text()
+    assert fm.patch_targets_error(_fix("../components/ui/Card"), err, src, root)
+    assert not fm.patch_targets_error(_fix("../components/ui/CARD"), err, src, root)
+
+
+def test_shape_b_identifier_rename_is_refused():
+    assert not _safe("const totl = items.length", "const total = items.length")
+    assert not _safe("const a = b", "const a = new")                      # keyword
+    assert not _safe("const a = typeof b", "const a = void b")          # keyword swap
+    assert not _safe("x.foo", "x.bar")                                   # member access
+    assert not _safe("<Btn disabled />", "<Btn onClick />")              # JSX attribute
+    assert not _safe("const a = b", "const a = fetch")
 
 
 def test_shape_c_missing_closing_tag():
@@ -263,17 +290,37 @@ def test_shape_c_missing_closing_tag():
     assert not _safe("<div>", "<div></div><script>")
     assert not _safe("<div>", "<div></div>alert(1)")
     assert not _safe("<script>", "<script></script>")                                    # denied identifier
+    assert not _safe("<div> a", "<div> b</div>")                                         # find is not a prefix
+    assert not _safe("<div>", "<div>")                                                   # no suffix
+
+
+def test_whitespace_differential_is_refused():
+    assert not _safe("a - -b", "a--b") and not _safe("a--b", "a - -b")
+    assert not _safe("a + +b", "a++b")
+    assert not _safe("x = a - -b <div>", "x = a--b <div></div>")      # prefix altered, tag appended
+    assert not _safe("import { A } from './ui'", "import {A, B} from './ui'")      # raw text outside content changed
+    assert not _safe("import { A } from './ui'", "import { A, B }from './ui'")
+
+
+def test_multi_char_operators_are_single_tokens():
+    kinds = [t for _, t in fm.tokenize("a--b ++c => d ... e ?. f ** g === h !== i")]
+    for op in ("--", "++", "=>", "...", "?.", "**", "===", "!=="):
+        assert op in kinds
 
 
 def test_shape_d_named_import_from_an_existing_relative_module():
     assert _safe("import { A } from './ui'", "import { A, B } from './ui'")
     assert _safe("import { A, B } from './ui';", "import { A, B, C } from './ui';")
+    assert _safe("import { A } from './ui'", "import { A,B } from './ui'")
     assert not _safe("import { A } from './ui'", "import { A, B } from './other'")        # specifier changed
     assert not _safe("import { A } from 'react'", "import { A, B } from 'react'")        # not relative
     assert not _safe("import { A } from './ui'", "import { A, fetch } from './ui'")
+    assert not _safe("import { A } from './ui'", "import { A, new } from './ui'")        # keyword
     assert not _safe("import { A } from './ui'", "import { A, b() } from './ui'")
     assert not _safe("import { A } from './ui'", "import { A as B } from './ui'")
-    assert not _safe("import { A, B } from './ui'", "import { A, B, C(1) } from './ui'")
+    assert not _safe("import { A } from './ui'", "import { A, A } from './ui'")          # already imported
+    assert not _safe("import { A } from './ui'", "import { A, B, B } from './ui'")
+    assert not _safe("import { A, B } from './ui'", "import { A, C, B } from './ui'")    # not appended
 
 
 def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line(tmp_path, factory, monkeypatch):
@@ -282,7 +329,7 @@ def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line
     monkeypatch.setattr(fm, "get_session_factory", lambda: factory)
     page = tmp_path / "src/pages/TaskPage.tsx"
     page.parent.mkdir(parents=True)
-    far = "const n = totl"
+    far = "<div><p>hi</p>"
     page.write_text("\n".join(["// filler"] * 40 + [far, "const m = 2"]))   # stored find sits at line 41
     sig = fm.parse_errors(ERR)[0]["signature"]                                      # current error is on line 1
     run(fm.record("org", sig, "tsx:pages", [_p()]))

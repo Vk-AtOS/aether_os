@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from sqlalchemy import delete, select
@@ -48,7 +50,8 @@ LINE_SLACK = 3
 _TOKEN = re.compile(
     r"""(?P<ws>\s+)|(?P<comment>//[^\n]*|/\*.*?(?:\*/|\Z))|(?P<tpl>`(?:\\.|[^`\\])*(?:`|\Z))"""
     r"""|(?P<str>'(?:\\.|[^'\\\n])*(?:'|(?=\n)|\Z)|"(?:\\.|[^"\\\n])*(?:"|(?=\n)|\Z))"""
-    r"""|(?P<num>\d+(?:\.\d+)?)|(?P<id>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<punct>.)""", re.S)
+    r"""|(?P<num>\d+(?:\.\d+)?)|(?P<id>[A-Za-z_$][A-Za-z0-9_$]*)"""
+    r"""|(?P<punct>\.\.\.|\?\.|\*\*|===|!==|=>|--|\+\+|.)""", re.S)
 _ESCAPE = re.compile(r"\\[ux]", re.I)
 _SPEC_PATH = re.compile(r"(?:\./|\.\./)[\w./@-]*")
 # Identifiers a patch may never introduce (also as a rename target or JSX tag).
@@ -58,6 +61,12 @@ _DENIED_IDENTIFIERS = frozenset(
     "postMessage importScripts require import export from setTimeout setInterval innerHTML outerHTML "
     "insertAdjacentHTML dangerouslySetInnerHTML srcdoc atob btoa open script iframe String fromCharCode "
     "decodeURIComponent unescape Image opener Worker SharedWorker Blob URL createObjectURL".split())
+_KEYWORDS = frozenset(
+    "break case catch class const continue debugger default delete do else enum export extends false finally for "
+    "function if import in instanceof new null return super switch this throw true try typeof var void while with "
+    "yield let static implements interface package private protected public await async of as type".split())
+_IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_SRC_EXTS = ("", ".ts", ".tsx", ".js", ".jsx")
 Token = tuple[str, str]
 
 
@@ -78,61 +87,77 @@ def _ok_id(tok: Token) -> bool:
 
 
 def _shape_import_path(tf: list[Token], tr: list[Token]) -> bool:
-    """A) exactly one string token changes: the specifier of an import/export statement, old and new both relative."""
+    """A) exactly one string token changes: the specifier of an import/export statement, and only its LETTER CASE
+    (same length, same quotes, relative path). Replay additionally resolves it (import_target_ok)."""
+    if len(tf) != len(tr):
+        return False
     diff = [i for i in range(len(tf)) if tf[i] != tr[i]]
     if len(diff) != 1:
         return False
     i = diff[0]
+    old, new = tf[i][1], tr[i][1]
     return (i > 0 and tf[i - 1] == ("id", "from") and _relative_spec(tf[i]) and _relative_spec(tr[i])
-            and tf[i][1][0] == tr[i][1][0])
+            and len(old) == len(new) and old.lower() == new.lower())
 
 
-def _shape_rename(tf: list[Token], tr: list[Token]) -> bool:
-    """B) same length; only identifier tokens change, each to another identifier outside the denylist."""
-    diff = [i for i in range(len(tf)) if tf[i] != tr[i]]
-    return bool(diff) and all(tf[i][0] == "id" and _ok_id(tr[i]) for i in diff)
-
-
-def _shape_closing_tags(tf: list[Token], tr: list[Token]) -> bool:
-    """C) replace = find + closing tags `</Name>` only, where Name is already a JSX opening tag name in find."""
-    extra = tr[len(tf):]
-    if tr[:len(tf)] != tf or not extra or len(extra) % 4:
+def _shape_closing_tags(find: str, rep: str, tf: list[Token]) -> bool:
+    """C) raw text: replace == find + suffix, and the suffix without whitespace is only `</Name>` closing tags for
+    names already opened in find."""
+    if not rep.startswith(find) or len(rep) == len(find):
+        return False
+    compact = re.sub(r"\s+", "", rep[len(find):])
+    if not re.fullmatch(r"(?:</[A-Za-z_$][A-Za-z0-9_$]*>)+", compact):
         return False
     opened = {tf[i][1] for i in range(1, len(tf)) if tf[i][0] == "id" and tf[i - 1] == ("punct", "<")}
-    return all(extra[i:i + 4][0] == ("punct", "<") and extra[i:i + 4][1] == ("punct", "/")
-               and _ok_id(extra[i:i + 4][2]) and extra[i:i + 4][2][1] in opened
-               and extra[i:i + 4][3] == ("punct", ">") for i in range(0, len(extra), 4))
+    names = re.findall(r"</([A-Za-z_$][A-Za-z0-9_$]*)>", compact)
+    return all(n in opened and n not in _DENIED_IDENTIFIERS for n in names)
 
 
-def _named_import(toks: list[Token]):
-    """`import { a, b } from './x'[;]` -> (names, specifier token, tail), else None."""
-    if toks[:2] != [("id", "import"), ("punct", "{")] or ("punct", "}") not in toks:
-        return None
-    end = toks.index(("punct", "}"))
-    inner = toks[2:end]
-    names = [t for t in inner[0::2]]
-    if not names or any(t[0] != "id" for t in names) or any(t != ("punct", ",") for t in inner[1::2][:len(names) - 1]) \
-            or len(inner) not in (2 * len(names) - 1, 2 * len(names)) \
-            or (len(inner) == 2 * len(names) and inner[-1] != ("punct", ",")):
-        return None
-    rest = toks[end + 1:]
-    if len(rest) < 2 or rest[0] != ("id", "from") or rest[1][0] != "str" or rest[2:] not in ([], [("punct", ";")]):
-        return None
-    return names, rest[1], rest[2:]
+_NAMED_IMPORT = re.compile(r"(import\s*\{)([^{}]*)(\}\s*from\s*(['\"])(\.{1,2}/[\w./@-]*)\4\s*;?\s*)", re.S)
 
 
-def _shape_named_import(tf: list[Token], tr: list[Token]) -> bool:
-    """D) the same named-import statement from the same relative module with extra identifiers inside the braces."""
-    old, new = _named_import(tf), _named_import(tr)
-    if not old or not new or old[1] != new[1] or old[2] != new[2] or not _relative_spec(old[1]):
+def _shape_named_import(find: str, rep: str) -> bool:
+    """D) raw text: the statement outside the braces is byte-identical; the brace content differs only by added
+    `, Identifier` items (identifiers, not keywords, not denied, not already imported)."""
+    mf, mr = _NAMED_IMPORT.fullmatch(find), _NAMED_IMPORT.fullmatch(rep)
+    if not mf or not mr or mf.group(1) != mr.group(1) or mf.group(3) != mr.group(3):
         return False
-    added = [t for t in new[0] if t not in old[0]]
-    return all(t in new[0] for t in old[0]) and len(new[0]) > len(old[0]) and all(_ok_id(t) for t in added)
+    bf, br = mf.group(2), mr.group(2)
+    core = bf.rstrip()
+    names = [x.strip() for x in core.split(",")]
+    if not core or not all(_IDENT.fullmatch(n) for n in names) or not br.startswith(core):
+        return False
+    tail = br[len(core):]
+    tail_core = tail.rstrip()
+    if tail[len(tail_core):] != bf[len(core):] or not re.fullmatch(r"(?:, ?[A-Za-z_$][A-Za-z0-9_$]*)+", tail_core):
+        return False
+    added = [x.strip().lstrip(",").strip() for x in re.findall(r",\s?[A-Za-z_$][A-Za-z0-9_$]*", tail_core)]
+    return all(a not in _KEYWORDS and a not in _DENIED_IDENTIFIERS and a not in names for a in added) \
+        and len(set(added)) == len(added)
+
+
+def import_target_ok(frontend_dir: Path, file: str, patch: dict) -> bool:
+    """Every `from '<relative>'` specifier of replace must resolve, from the patched file's directory, to an existing
+    file (or index file) INSIDE <frontend_dir>/src, with the exact letter case on disk."""
+    toks = tokenize(patch.get("replace", ""))
+    root = (frontend_dir / "src").resolve()
+    base = (frontend_dir / file).resolve().parent
+    for i, (kind, text) in enumerate(toks):
+        if kind != "str" or i == 0 or toks[i - 1] != ("id", "from"):
+            continue
+        target = (base / text[1:-1]).resolve()
+        if not target.is_relative_to(root):
+            return False
+        cands = [target.parent / (target.name + e) for e in _SRC_EXTS] + \
+                [target / ("index" + e) for e in _SRC_EXTS[1:]]
+        if not any(c.is_file() and c.name in os.listdir(c.parent) for c in cands if c.parent.is_dir()):
+            return False
+    return True
 
 
 def is_safe_patch(patch: dict) -> bool:
-    """Storable / replayable only if the edit is exactly one of four shapes: A import-path fix, B identifier rename,
-    C missing JSX closing tag, D extra names in an existing relative named import. Comments, template literals,
+    """Storable / replayable only if the edit is exactly one of three shapes: A case-only import-path fix, C missing
+    JSX closing tags, D extra names in an existing relative named import (identifier renames are NOT allowed). Comments, template literals,
     backslashes and escapes are refused outright; numbers, other strings and punctuation can never change.
     Also re-checked on replay (older rows)."""
     find, rep = patch.get("find"), patch.get("replace")
@@ -142,13 +167,12 @@ def is_safe_patch(patch: dict) -> bool:
     tf, tr = tokenize(find), tokenize(rep)
     if any(k in ("comment", "tpl") for k, _ in tf + tr) or tf == tr:
         return False
-    if len(tf) == len(tr):
-        return _shape_import_path(tf, tr) or _shape_rename(tf, tr)
-    return _shape_closing_tags(tf, tr) or _shape_named_import(tf, tr)
+    return (_shape_import_path(tf, tr) or _shape_closing_tags(find, rep, tf) or _shape_named_import(find, rep))
 
 
-def patch_targets_error(patch: dict, err: dict, source: str) -> bool:
-    """The patch edits the erroring file, within LINE_SLACK lines of the error line, and is safe."""
+def patch_targets_error(patch: dict, err: dict, source: str, frontend_dir: Optional[Path] = None) -> bool:
+    """The patch edits the erroring file, within LINE_SLACK lines of the error line, and is safe; with `frontend_dir`
+    its import specifiers must also resolve inside src/ (import_target_ok)."""
     if not is_safe_patch(patch) or not err.get("file") or not str(patch.get("file", "")).endswith(err["file"]):
         return False
     idx = source.find(patch["find"])
@@ -156,7 +180,9 @@ def patch_targets_error(patch: dict, err: dict, source: str) -> bool:
         return False
     first = source.count("\n", 0, idx) + 1
     last = first + patch["find"].count("\n")
-    return first - LINE_SLACK <= err["line"] <= last + LINE_SLACK
+    if not first - LINE_SLACK <= err["line"] <= last + LINE_SLACK:
+        return False
+    return frontend_dir is None or import_target_ok(frontend_dir, err["file"], patch)
 
 
 def normalise_error(message: str) -> str:
