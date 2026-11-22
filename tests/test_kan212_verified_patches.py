@@ -17,8 +17,8 @@ def _proj(tmp_path):
     return tmp_path
 
 
-def _apply(root, patches, ts_check=None):
-    return asyncio.run(pt.apply_verified(root, patches, "t", ts_check))
+def _apply(root, patches, ts_check=None, allowed=lambda _p: True):
+    return asyncio.run(pt.apply_verified(root, patches, allowed, "t", ts_check))
 
 
 def test_valid_patch_fixes_py_and_tsx(tmp_path):
@@ -132,3 +132,49 @@ def test_p07b_small_file_rewrite_still_guarded(tmp_path, monkeypatch):
         return PY.replace("a + c", "a + b")
     assert asyncio.run(pr.heal_file(m, root, root / "t.py", "boom", None, "", 1, good))
     assert "a + b" in m.read_text()
+
+
+def test_p07b_rejects_tests_conftest_and_outside_files(tmp_path):
+    root = _proj(tmp_path)
+    (root / "tests").mkdir()
+    (root / "tests" / "test_main.py").write_text("assert False\n")
+    (root / "conftest.py").write_text("x = 1\n")
+    (root / "src" / "test_x.py").write_text("assert False\n")
+    (root / "setup.py").write_text("y = 1\n")
+    pats = [{"file": f, "find": a, "replace": "pass"} for f, a in [
+        ("tests/test_main.py", "assert False"), ("conftest.py", "x = 1"), ("src/test_x.py", "assert False"),
+        ("setup.py", "y = 1")]]
+    rep = _apply(root, pats + [{"file": "src/m.py", "find": "a + c", "replace": "a + b"}],
+                 allowed=pr.may_heal(root))
+    assert (rep.applied, rep.rejected) == (1, 4)
+    assert (root / "tests/test_main.py").read_text() == "assert False\n" and (root / "conftest.py").read_text() == "x = 1\n"
+
+
+def test_p05_allows_only_frontend_src_and_package_json(tmp_path):
+    from aether_os.phases.p05_frontend.build_loop import _may_patch
+    root = _proj(tmp_path)
+    (root / "package.json").write_text("{}")
+    (root / "vite.config.ts").write_text("export default {}")
+    (root / "src" / "tests").mkdir()
+    (root / "src" / "tests" / "a.test.ts").write_text("x")
+    pats = [{"file": "vite.config.ts", "find": "{}", "replace": "1"}, {"file": "src/tests/a.test.ts", "find": "x", "replace": "y"},
+            {"file": "package.json", "find": "{}", "replace": '{"a":1}'},
+            {"file": "src/P.tsx", "find": "{count}", "replace": "{0}"}]
+    rep = _apply(root, pats, allowed=_may_patch(root))
+    assert (rep.applied, rep.rejected) == (2, 2)
+
+
+def test_p07a_repairs_only_crud_py(tmp_path, monkeypatch):
+    from aether_os.phases.p07a_unit_testing import crud_repair as cr
+    root = tmp_path
+    (root / "src" / "routers").mkdir(parents=True)
+    (root / "src" / "routers" / "crud.py").write_text("from ..models import Missing\nall_routers = []\n")
+    (root / "src" / "main.py").write_text("import crud\n")
+
+    async def fake(prompt, tag, timeout=60.0):
+        return [{"file": "src/main.py", "find": "import crud", "replace": "pass"},
+                {"file": "src/routers/crud.py", "find": "from ..models import Missing\n", "replace": ""}]
+    monkeypatch.setattr(cr, "request_patches", fake)
+    assert asyncio.run(cr.repair_crud(root / "src", "ImportError crud"))
+    assert (root / "src" / "main.py").read_text() == "import crud\n"
+    assert "Missing" not in (root / "src" / "routers" / "crud.py").read_text()
