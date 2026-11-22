@@ -301,7 +301,7 @@ def test_build_loop_reinstalls_when_a_patch_edits_package_json(fake, tmp_path, m
     (tmp_path / "package.json").write_text('{"dependencies": {"react": "18.3.1"}}')
     fake.code = 1                                            # every build fails, so the loop reaches round 2
 
-    async def patch_adds_dependency(_err):
+    async def patch_adds_dependency(*_err):
         (tmp_path / "package.json").write_text('{"dependencies": {"react": "18.3.1", "date-fns": "4.1.0"}}')
         return [{"file": "src/x.ts", "content": ""}]
     monkeypatch.setattr(bl, "_llm_fix", patch_adds_dependency)
