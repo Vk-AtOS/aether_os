@@ -75,10 +75,28 @@ def _may_patch(frontend_dir: Path):
     return allowed
 
 
-async def _tsc_not_worse(frontend_dir: Path, before: int) -> bool:
-    """True when `tsc --noEmit` (sandboxed, as in the loop) reports no more errors than before the patches."""
+_SYNTAX_TS = re.compile(r"error TS(?:1\d{3}|17\d{3}):")   # TS1xxx and TS17xxx (JSX): parse errors
+
+
+def _syntax_errors(lines: list[str]) -> int:
+    return sum(1 for ln in lines if _SYNTAX_TS.search(ln))
+
+
+async def _tsc_not_worse(frontend_dir: Path, before: list[str]) -> bool:
+    """True when the patches did not make `tsc --noEmit` (sandboxed, as in the loop) worse.
+
+    Syntax errors decide first: while a file does not parse, tsc reports only that and stops, so fixing it lets tsc
+    reach the type errors behind it and the total goes up. Counting the total rolled back the correct closing-tag
+    fix on production acceptance run 16 (22 Nov 2026) and s04 failed; type errors alone do not fail the build.
+    """
     res = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"], cwd=frontend_dir, timeout=60, text=True)
-    return len(_tsc_messages(res)) <= before if res.returncode != 0 else True
+    if res.returncode == 0:
+        return True
+    after = _tsc_messages(res)
+    syn_before, syn_after = _syntax_errors(before), _syntax_errors(after)
+    if syn_after != syn_before:
+        return syn_after < syn_before
+    return len(after) <= len(before)
 
 
 def _tsc_messages(tsc_result: subprocess.CompletedProcess) -> list[str]:
@@ -193,7 +211,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3, org_id: str | 
         patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
         memory.screen_model_patches(full_output, patches)  # before applying: needs the unpatched source
         report = await apply_verified(frontend_dir, patches, _may_patch(frontend_dir), "p05 build_loop",
-                                      lambda: _tsc_not_worse(frontend_dir, len(tsc_lines)))
+                                      lambda: _tsc_not_worse(frontend_dir, tsc_lines))
         report.log("p05 build_loop", round_num)
         memory.remember_model_patches(report.applied_patches)   # KAN-215: settle() keeps those that fixed the error
         if report.applied == 0:
