@@ -39,6 +39,8 @@ from typing import Any, Dict, List
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.core.projects import get_project_manager
+from aether_os.phases.targeted_retry import describe_failures
+from aether_os.stages.s04_frontend.repair import failed_files_from_metadata, repair_frontend_files
 
 logger = logging.getLogger(__name__)
 
@@ -273,9 +275,12 @@ class FrontendStageSupervisor(PhaseBase):
         Gate: passes if frontend_output_path exists and contains index.html or App.tsx.
         """
         if result.status == "failed" if hasattr(result, "status") else not result.success:
+            failed = failed_files_from_metadata(result.metadata or {})
+            detail = describe_failures(failed) or (result.metadata or {}).get("build_errors") or "no build output recorded"
             return GateOutcome(
                 passed=False,
-                issues=["s04_frontend: sub-step reported failure — check p05 logs"],
+                issues=[f"s04_frontend: p05 build failed: {detail}"],
+                failed_files=failed,
             )
 
         frontend_path = result.metadata.get("frontend_output_path", "") or result.output_path
@@ -318,6 +323,10 @@ class FrontendStageSupervisor(PhaseBase):
         warn = [f"s04_frontend: {tsc_errors} TypeScript error(s) remain (vite build succeeded): "
                 + " | ".join(result.metadata.get("tsc_messages", [])[:3])] if tsc_errors else []
         return GateOutcome(passed=True, confidence=result.confidence, issues=warn)
+
+    async def repair_failed_files(self, result: TaskResult, gate: GateOutcome, phase_input: Any) -> TaskResult:
+        """Patch the files the gate named (p05 build loop) instead of regenerating the frontend."""
+        return await repair_frontend_files(result, Path(result.metadata.get("frontend_output_path") or result.output_path))
 
     # ── Internal helpers ────────────────────────────────────────────────────
 
