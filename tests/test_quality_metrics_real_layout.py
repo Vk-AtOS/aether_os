@@ -50,3 +50,14 @@ def test_annotation_names_unwraps_optional_union_and_attributes():
     assert m._annotation_names(ann("A | None")) == {"A"}
     assert m._annotation_names(ann("schemas.A")) == {"A"}
     assert m._annotation_names(ann("Dict[str, Any]")) == {"Dict"}
+
+
+def test_readme_env_and_compliance_found_where_the_pipeline_writes_them(tmp_path):
+    src = _project(tmp_path)
+    (src.parent / "README.md").write_text("# app\n")
+    (src.parent / ".env.example").write_text("DATABASE_URL=\n")
+    comp = tmp_path / "p06_review_security" / "compliance"
+    comp.mkdir(parents=True)
+    (comp / "compliance_scan.json").write_text("{}")
+    q = m.score_project(tmp_path)
+    assert q.has_readme and q.has_env_example and q.has_compliance_report

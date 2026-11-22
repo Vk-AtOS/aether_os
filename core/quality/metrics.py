@@ -480,10 +480,15 @@ def score_project(project_dir: Path) -> QualityScore:
 
     # Boolean presence checks
     has_docker = _is_file(project_dir, project_dir / "Dockerfile") or _is_file(project_dir, project_dir / "docker-compose.yml")
-    has_env_example = _is_file(project_dir, project_dir / ".env.example")
-    has_readme = _is_file(project_dir, project_dir / "README.md")
+    # The pipeline writes these next to the backend (p04a) and under p06's output, not at the run root: looking
+    # only at the root cost 16 points on production acceptance run 15 (22 Nov 2026) although all three existed.
+    backend_dir = src_dir.parent
+    has_env_example = any(_is_file(project_dir, d / ".env.example") for d in (project_dir, backend_dir))
+    has_readme = any(_is_file(project_dir, d / "README.md") for d in (project_dir, backend_dir))
     has_frontend = _is_file(project_dir, project_dir / "frontend" / "package.json")
-    has_compliance_report = _is_file(project_dir, project_dir / "compliance_scan.json")
+    has_compliance_report = any(_is_file(project_dir, f) for f in (
+        project_dir / "compliance_scan.json",
+        project_dir / "p06_review_security" / "compliance" / "compliance_scan.json"))
 
     # Numeric scores
     test_cov = _check_test_coverage(project_dir)
