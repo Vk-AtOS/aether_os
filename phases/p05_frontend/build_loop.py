@@ -14,11 +14,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from aether_os.core.run_context import ACTIVE_ORG_ID
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.codegen.patching import (
     apply_patch_text, apply_verified, build_prompt, error_context, extract_json_array as _extract_json_array, request_patches, resolve_in_project,
 )
 from aether_os.core.sandbox.runner import SandboxUnavailable
+from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
@@ -126,7 +128,7 @@ def result_summary(loop: dict) -> tuple[dict, list[str]]:
     return meta, issues
 
 
-async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
+async def run_build_loop(frontend_dir: Path, max_rounds: int = 3, org_id: str | None = None) -> dict:
     """tsc --noEmit + vite build -> parse errors -> LLM fix per round -> max_rounds.
 
     Policy: the phase SUCCEEDS when `vite build` exits 0 and produced dist/index.html (the app bundles and can be
@@ -138,6 +140,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
     if os.environ.get("ENVIRONMENT") == "test":
         return {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "rounds": 0}
 
+    memory = RoundMemory(org_id or ACTIVE_ORG_ID.get(), frontend_dir, _apply_patch)  # KAN-215: org-scoped fix memory
     tsc_lines: list[str] = []
     built = False
     build_errors = ""
@@ -177,16 +180,21 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
             logger.warning("p05 build_loop: round %d build failed (exit %s, dist/index.html %s): %s", round_num,
                            build_result.returncode, (frontend_dir / "dist" / "index.html").is_file(),
                            _build_error_lines(_combine_output(build_result)))
+        full_output = _combine_output(tsc_result) + "\n" + _combine_output(build_result)
+        await memory.settle(full_output)  # store / confirm the fixes the last round applied
         if built and not tsc_lines:
             return _outcome(True, [], round_num)
         if round_num == max_rounds:
             break  # patches made now would never be rebuilt, so do not apply them
 
-        combined = (_combine_output(tsc_result) + "\n" + _combine_output(build_result))[-_MAX_ERR_CHARS:]
+        if await memory.try_known(full_output):
+            continue  # a stored fix was applied (no model call): rebuild to validate it
+        combined = full_output[-_MAX_ERR_CHARS:]
         patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
         report = await apply_verified(frontend_dir, patches, _may_patch(frontend_dir), "p05 build_loop",
                                       lambda: _tsc_not_worse(frontend_dir, len(tsc_lines)))
         report.log("p05 build_loop", round_num)
+        memory.remember_model_patches(full_output, report.applied_patches)   # KAN-215: settle() keeps those that fixed
         if report.applied == 0:
             break  # no progress possible: do not burn rounds
     logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])
