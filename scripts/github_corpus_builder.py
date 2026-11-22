@@ -202,8 +202,8 @@ def _extract_entities_from_source(source: str) -> list[dict]:
                                         try:
                                             field_info["foreign_key"] = ast.literal_eval(
                                                 kw.value.args[0])
-                                        except Exception:
-                                            pass
+                                        except Exception as e:
+                                            logger.warning("Could not parse ForeignKey target: %s", e)
                             elif kw.arg == "primary_key" and isinstance(kw.value, ast.Constant):
                                 if kw.value.value:
                                     field_info["primary_key"] = True

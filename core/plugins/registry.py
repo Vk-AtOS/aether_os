@@ -116,8 +116,8 @@ def _unpack_config(stored: Optional[str]) -> Dict[str, Any]:
     raw = stored or "{}"
     try:
         raw = decrypt(raw)
-    except ValueError:
-        pass  # legacy plaintext row; re-encrypted on its next write
+    except ValueError as e:
+        logger.debug("plugin config is legacy plaintext, re-encrypted on next write: %s", e)
     return json.loads(raw)
 
 

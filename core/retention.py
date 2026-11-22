@@ -33,6 +33,6 @@ def prune_artifact_files(root: Path, ttl_days: int, dry_run: bool = False, now: 
             if p.is_dir() and not p.is_symlink():
                 try:
                     p.rmdir()
-                except OSError:
-                    pass          # not empty: expected for every directory that still holds a newer file
+                except OSError as e:
+                    logger.debug("keeping non-empty directory %s: %s", p, e)
     return files, size
