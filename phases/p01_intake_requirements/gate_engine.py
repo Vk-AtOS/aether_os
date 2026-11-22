@@ -137,7 +137,7 @@ async def run_intent_verification(
                 f"Reply with 'YES: <reason>' or 'NO: <correct interpretation>'."
             )
             _verify_text = await _llm_iv.call(
-                _verify_prompt, task_type="analysis", max_tokens=100,
+                _verify_prompt, task_type="verify",   # light tier: a one-sentence semantic check, no tool can answer it
                 org_id=data.get("org_id") or None, plan=data.get("plan"),
                 run_id=getattr(phase_input, "run_id", None), phase="p01_intake_requirements",
             )

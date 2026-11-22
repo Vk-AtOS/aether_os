@@ -104,7 +104,7 @@ async def write_portal_home_llm(
     client = get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="code_generation", max_tokens=4000),
+            client.call(prompt, task_type="code_generation"),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -171,7 +171,7 @@ async def write_dashboard_llm(
     client = get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="code_generation", max_tokens=6000),
+            client.call(prompt, task_type="code_generation"),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -257,7 +257,7 @@ async def write_entity_page_llm(
     client = get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="code_generation", max_tokens=6000),
+            client.call(prompt, task_type="code_generation"),
             timeout=timeout,
         )
     except asyncio.TimeoutError:

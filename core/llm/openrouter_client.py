@@ -130,6 +130,7 @@ async def call_openrouter(
     max_tokens: int = 8192,
     model: Optional[str] = None,
     api_key: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> str:
     """Call OpenRouter via the OpenAI-compatible chat/completions endpoint.
 
@@ -137,7 +138,7 @@ async def call_openrouter(
     the org in the current context (falling back to the platform key).
     """
     import httpx
-    from aether_os.core.errors import LLMUnavailable
+    from aether_os.core.errors import LLMTruncated, LLMUnavailable
     from aether_os.core.llm import controls
     from aether_os.core.llm.data_policy import effective_level, permits
 
@@ -174,7 +175,7 @@ async def call_openrouter(
         "HTTP-Referer": "https://aetheros.dev",
         "X-Title": "AetherOS",
     }
-    timeout = float(os.environ.get("OPENROUTER_TIMEOUT", "25"))
+    timeout = float(timeout or os.environ.get("OPENROUTER_TIMEOUT", "25"))
 
     logger.info("LLM call: provider=openrouter model=%s task=%s", chosen_model, task_type)
 
@@ -191,9 +192,11 @@ async def call_openrouter(
             # A reply cut off at max_tokens is not an answer: returning it made the council report "could not parse"
             # and strict mode reject a request the model had approved. Say what happened instead.
             if choice.get("finish_reason") == "length":
-                raise RuntimeError(f"{chosen_model} reply truncated at max_tokens={max_tokens} "
-                                   f"(reasoning tokens count too; see OPENROUTER_EXTRA_BODY)")
+                raise LLMTruncated(f"{chosen_model} reply truncated at max_tokens={max_tokens} "
+                                   f"(reasoning tokens count too; see OPENROUTER_EXTRA_BODY, LLM_MAX_TOKENS_HEAVY)")
             return choice["message"]["content"]
+        except LLMTruncated:
+            raise   # the router retries once with a larger limit; wrapping it would hide the cause
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(
                 f"OpenRouter {chosen_model} HTTP {exc.response.status_code}: "

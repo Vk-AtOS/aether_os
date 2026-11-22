@@ -62,7 +62,7 @@ async def _write_python_file_validated(
                 f"- Return ONLY corrected, parseable Python. No explanation. No markdown fences."
             )
             try:
-                fixed = await llm.call(correction_prompt, task_type="code_generation", max_tokens=4096)
+                fixed = await llm.call(correction_prompt, task_type="code_generation")
                 fixed = fixed.strip()
                 # Strip markdown fences if present
                 if fixed.startswith("```"):

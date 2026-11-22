@@ -248,7 +248,7 @@ Generate a complete Python module `services/workflow_engine.py` with:
 
 Return ONLY valid Python code. No markdown fences, no explanation."""
 
-        result_a = await llm.call(prompt_a, task_type="code_generation", max_tokens=12000)
+        result_a = await llm.call(prompt_a, task_type="code_generation")
         if result_a and len(result_a.strip()) > 200:
             result_a = re.sub(r"^```(?:python)?\s*\n?", "", result_a.strip())
             result_a = re.sub(r"\n?```\s*$", "", result_a.strip())
@@ -300,7 +300,7 @@ Structure as a `BusinessRules` class with:
 
 Return ONLY valid Python code. No markdown fences, no explanation."""
 
-        result_b = await llm.call(prompt_b, task_type="code_generation", max_tokens=12000)
+        result_b = await llm.call(prompt_b, task_type="code_generation")
         if result_b and len(result_b.strip()) > 200:
             result_b = re.sub(r"^```(?:python)?\s*\n?", "", result_b.strip())
             result_b = re.sub(r"\n?```\s*$", "", result_b.strip())

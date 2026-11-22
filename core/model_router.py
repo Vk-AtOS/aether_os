@@ -23,6 +23,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from aether_os.core.llm.plans import PLATFORM_ORG
+from aether_os.core.llm.task_profiles import call_with_growth, profile_for, record_truncated, resolve_max_tokens, tiered_chain
 from aether_os.core.telemetry.events import LLM_REFUSED
 from aether_os.core.llm.data_policy import effective_level, filter_chain
 from aether_os.core.model_router_providers import (
@@ -131,7 +132,7 @@ class ModelRouter:
         prompt: str,
         task_type: str = "code_generation",
         system: Optional[str] = None,
-        max_tokens: int = 8192,
+        max_tokens: Optional[int] = None,
         trace_name: Optional[str] = None,
         enforce_local: bool = False,
         org_id: Optional[str] = None,
@@ -144,8 +145,12 @@ class ModelRouter:
         The model name is also stored in self._last_model for callers that need it.
         """
         global _active_model, _fallback_count_today, _fallback_date
-        from aether_os.core.errors import LLMUnavailable
+        from aether_os.core.errors import LLMTruncated, LLMUnavailable
         from aether_os.core.telemetry.langsmith_tracer import trace_call
+
+        # The task type decides tier, limit and timeout (core/llm/task_profiles.py); an explicit limit still wins.
+        max_tokens = resolve_max_tokens(task_type, max_tokens)
+        _call_timeout = profile_for(task_type).timeout_s
 
         # ── 0. Kill switches, org/plan/USD allowance, sensitivity (D6) — before anything is sent ──
         from aether_os.core.llm.guard import admit
@@ -203,7 +208,7 @@ class ModelRouter:
         errors: List[str] = []
         models_tried = 0
 
-        chain = get_fallback_chain()
+        chain = tiered_chain(get_fallback_chain(), task_type)
         if enforce_local:
             chain = [s for s in chain if s.provider == "ollama"]
 
@@ -310,11 +315,13 @@ class ModelRouter:
                             "attempt": attempt + 1,
                         },
                     ):
-                        result = await asyncio.wait_for(
-                            self._call_provider(spec, _active_prompt, task_type, system,
-                                                max_tokens, api_key=_api_key),
-                            timeout=spec.timeout_seconds,
-                        )
+                        _timeout = _call_timeout if spec.provider == "openrouter" else spec.timeout_seconds
+                        result = await call_with_growth(
+                            lambda n: self._call_provider(spec, _active_prompt, task_type, system, n,
+                                                          api_key=_api_key, timeout=_timeout),
+                            max_tokens, _timeout, f"{spec.provider}/{spec.model} task={task_type}",
+                            admit=lambda n: admit(org_id, plan, prompt, system, n, enforce_local),
+                            record=lambda n: record_truncated(org_id, spec.model, _active_prompt, n, enforce_local))
 
                     # ── Success ──────────────────────────────────────────────
                     _active_model = f"{spec.provider}/{spec.model}"
@@ -458,6 +465,11 @@ class ModelRouter:
                     # ─────────────────────────────────────────────────────────
                     return result, spec.provider
 
+                except LLMTruncated:
+                    # Not a provider fault (no breaker, no health penalty), and a lighter model would do worse.
+                    LLM_REFUSED.labels(reason="truncated").inc()
+                    raise
+
                 except asyncio.TimeoutError:
                     msg = f"{spec.provider}/{spec.model} timed out after {spec.timeout_seconds}s"
                     logger.warning("Router: %s", msg)
@@ -508,6 +520,7 @@ class ModelRouter:
         system: Optional[str],
         max_tokens: int,
         api_key: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """
         Delegate to the appropriate provider function in core.llm.client.
@@ -535,7 +548,7 @@ class ModelRouter:
             from aether_os.core.llm.openrouter_client import call_openrouter
             return await call_openrouter(
                 prompt, task_type, system=system, max_tokens=max_tokens,
-                model=spec.model, api_key=api_key,
+                model=spec.model, api_key=api_key, timeout=timeout,
             )
         if spec.provider == "ollama":
             return await _llm_mod._call_ollama_with_model(prompt, task_type, spec.model)

@@ -92,7 +92,7 @@ async def get_design_brief(
     prompt = _PROMPT.format(name=project_name, domain=domain, requirements=(requirements or "")[:1500] or "(not given)",
                             entities=names, radii=sorted(RADII), densities=sorted(DENSITIES))
     try:
-        answer = await llm.call(prompt, task_type="design", max_tokens=700)
+        answer = await llm.call(prompt, task_type="design")
     except Exception as exc:
         logger.warning("p05 design brief: model call failed, using the token system: %s", exc)
         return None
