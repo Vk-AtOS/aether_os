@@ -57,17 +57,18 @@ def test_repairs_only_the_failing_file_and_does_not_rerun_the_stage():
     assert st.repairs == [["src/pages/TaskPage.tsx"]]
 
 
-def test_identical_failure_after_repair_stops_and_names_file_and_error():
+def test_identical_failure_after_repair_regenerates_once_then_stops_and_names_file_and_error():
     st = FakeStage(fixed_after=99, repairable=False)
     res = _run(st)
-    assert res.escalated and st.generated == 1 and len(st.repairs) == 1
+    # repair made no progress -> the stage is regenerated (run 16); the same failure again -> stop
+    assert res.escalated and st.generated == 2 and len(st.repairs) == 2
     assert "src/pages/TaskPage.tsx" in st.escalated and "TS1005" in st.escalated
 
 
-def test_attempt_limit_counts_repairs_not_stage_reruns():
+def test_repairs_are_bounded_per_attempt_and_the_stage_is_regenerated_when_they_run_out():
     st = FakeStage(fixed_after=99)
     assert _run(st).escalated
-    assert st.generated == 1 and len(st.repairs) == st.max_retries
+    assert st.generated >= 2 and len(st.repairs) <= st.max_retries * st.generated
     assert "TaskPage.tsx" in st.escalated
 
 
@@ -115,3 +116,13 @@ def test_generic_gate_failures_keep_every_whole_stage_attempt():
 
     st = Generic(fixed_after=99)
     assert _run(st).success and st.generated == 3
+
+
+def test_regeneration_after_failed_repair_can_pass():
+    class FixedOnRegenerate(FakeStage):
+        async def validate_gate(self, result, phase_input):
+            if self.generated >= 2:
+                return GateOutcome(passed=True)
+            return GateOutcome(passed=False, issues=["failed"], failed_files=dict(BAD))
+    st = FixedOnRegenerate(fixed_after=99, repairable=False)
+    assert _run(st).success and st.generated == 2
