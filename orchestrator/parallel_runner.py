@@ -45,6 +45,20 @@ from aether_os.orchestrator.stage_gate import recorded_status
 logger = logging.getLogger(__name__)
 
 
+def wave_width() -> int:
+    """Max phases of one wave running at once (PIPELINE_WAVE_WIDTH).
+
+    0 or unset means every phase of the wave starts together (the behaviour
+    before the setting existed); a bad value falls back to that too.
+    """
+    raw = os.environ.get("PIPELINE_WAVE_WIDTH", "0")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning("[parallel_runner] PIPELINE_WAVE_WIDTH=%r is not an integer - no limit", raw)
+        return 0
+
+
 def _fast_snapshot(ctx: dict) -> dict:
     """Faster alternative to copy.deepcopy for accumulated_context.
     JSON-round-trips each value (fast for strings/dicts/lists);
@@ -85,12 +99,22 @@ async def _run_one_phase_in_wave(
     client_id: str,
     emit_fn: Callable,
     update_state_fn: Callable,
+    slots: Optional[asyncio.Semaphore] = None,
 ) -> tuple[str, Dict[str, Any]]:
     """Run a single phase inside a wave; return (phase_name, result_dict).
+
+    A phase waiting for a free slot (PIPELINE_WAVE_WIDTH) is not "running" yet and
+    its timeout starts only once it has one.
 
     Never raises — exceptions are caught, logged, and returned as a failed
     result dict so the rest of the wave can continue.
     """
+    if slots is not None:
+        async with slots:
+            return await _run_one_phase_in_wave(
+                phase_name, run_phase_fn, phase_input_cls, ctx_snapshot, run_id, org_id,
+                project_dir, domain, client_id, emit_fn, update_state_fn, None,
+            )
     timeout = _phase_timeout_for(phase_name)
 
     # Import here to avoid circular import at module load time.
@@ -214,7 +238,10 @@ async def run_phases_in_wave(
         run_id=run_id,
     )
 
-    # Launch all phases concurrently; each coroutine handles its own errors.
+    # Launch the phases concurrently (at most PIPELINE_WAVE_WIDTH at a time);
+    # each coroutine handles its own errors, so one failing never cancels another.
+    width = wave_width()
+    slots = asyncio.Semaphore(width) if 0 < width < len(wave) else None
     tasks = [
         _run_one_phase_in_wave(
             phase_name=phase_name,
@@ -228,6 +255,7 @@ async def run_phases_in_wave(
             client_id=client_id,
             emit_fn=emit_fn,
             update_state_fn=update_state_fn,
+            slots=slots,
         )
         for phase_name in wave
     ]
