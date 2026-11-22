@@ -57,12 +57,9 @@ def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
-    try:
-        value = int(raw)
-        if value > 0:
-            return value
-    except ValueError:
-        pass
+    value = int(raw) if raw.lstrip("+").isdigit() else 0
+    if value > 0:
+        return value
     logger.warning("%s=%r is not a positive integer, using %d", name, raw, default)
     return default
 
