@@ -217,9 +217,11 @@ class PhaseBase:
                 gate = await self.validate_gate(result, phase_input)
                 if not gate.passed and gate.failed_files:
                     result, gate, stop_reason = await self._repair_failed_files(result, gate, phase_input)
-                    if stop_reason:  # repairs failed or repeated: another whole-stage run would feed the same input
-                        last_error = stop_reason
-                        break
+                    if stop_reason:
+                        # Repair made no progress: regenerate the stage on the next attempt (a real model writes a
+                        # different file; run 16 escalated after one failed repair and never regenerated). The
+                        # identical-signature check below still stops a regeneration that fails the same way.
+                        self.logger.warning("[%s] %s; regenerating the stage", self.phase_name, stop_reason)
 
                 if gate.passed:
                     # Persist gate result to disk for Phase Detail view
