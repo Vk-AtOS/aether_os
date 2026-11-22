@@ -29,9 +29,15 @@ def route_template(scope: Mapping[str, Any]) -> Optional[str]:
     """Path template of the route that is handling this request, with every include prefix, or None."""
     route = scope.get("route")
     ctx = (scope.get("fastapi") or {}).get("effective_route_context")
-    if route is not None and ctx is not None and getattr(ctx, "original_route", None) is route:
+    if ctx is None:
+        # A route on the app itself: no include prefix, so its declared path is the full template.
+        return getattr(route, "path", None)
+    if getattr(ctx, "original_route", None) is route:
         effective = getattr(ctx, "starlette_route", None) or ctx
         path = getattr(effective, "path", None)
         if path:
             return path
-    return getattr(route, "path", None)
+    # An included route whose full template cannot be resolved: never fall back to its prefix-less declared path
+    # ("/{id}" under "/webhooks" would slip past the admin-only rule). None makes callers use the concrete URL,
+    # which always carries the prefix, so the role gate fails closed.
+    return None
