@@ -106,6 +106,23 @@ def _entity_from_label(label: str) -> dict:
     return {"name": name, "table": table}
 
 
+def _reject_crud_fix(fixed: str, original: str) -> str:
+    """Why a model's whole-file rewrite of crud.py must not be written, or "" when it may.
+
+    Acceptance run 13 wrote a reply cut off mid-call (`model_dump(exclude_u`): the file no longer parsed and every test
+    after it failed at collection.
+    """
+    try:
+        compile(fixed, "crud.py", "exec")
+    except SyntaxError as exc:
+        return f"syntax error line {exc.lineno}: {exc.msg}"
+    if "all_routers" in original and "all_routers" not in fixed:
+        return "drops all_routers"
+    if len(fixed) < 0.5 * len(original):
+        return f"lost most of the file ({len(fixed)} of {len(original)} chars)"
+    return ""
+
+
 def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: list) -> str:
     """Deterministic CRUD test generator — no LLM needed.
 
@@ -352,7 +369,7 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
             fix_prompt = (
                 f"The following FastAPI router file (src/routers/crud.py) causes this import error:\n\n"
                 f"ERROR:\n{error_text}\n\n"
-                f"FILE (crud.py):\n{crud_code[:3000]}\n\n"
+                f"FILE (crud.py):\n{crud_code[:12000]}\n\n"
                 "Fix the import error. Common fixes:\n"
                 "1. Remove imports of non-existent model classes\n"
                 "2. Fix relative imports (use ..models not models)\n"
@@ -366,6 +383,10 @@ async def _exec_validate_startup(src_dir: Path, output_dir: Path) -> dict:
             if fixed_code and len(fixed_code.strip()) > 200:
                 fixed_code = re.sub(r"^```(?:python)?\s*\n?", "", fixed_code.strip())
                 fixed_code = re.sub(r"\n?```\s*$", "", fixed_code.strip())
+            rejected = _reject_crud_fix(fixed_code or "", crud_code)
+            if rejected:
+                logger.warning("[p07a] LLM crud.py fix rejected (%s); keeping the original file", rejected)
+            elif fixed_code and len(fixed_code.strip()) > 200:
                 crud_path.write_text(fixed_code)
                 logger.info("[p07a] LLM fixed crud.py — re-validating")
 
