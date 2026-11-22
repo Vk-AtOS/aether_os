@@ -15,6 +15,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from aether_os.phases.p05_frontend.api_contract import enforce_list_contract
 from aether_os.phases.p05_frontend.page_concurrency import call_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,12 @@ def compute_template_debt(llm_count: int, template_count: int) -> float:
     """Fraction of pages that fell back to the static template (0.0 = all LLM)."""
     total = llm_count + template_count
     return template_count / total if total > 0 else 1.0
+
+
+def _camel(table: str) -> str:
+    """lib/api.ts helper prefix for a table: lead_contacts -> leadContacts (the *Api object is `<this>Api`)."""
+    head, *rest = table.split("_")
+    return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
 def _filter_routes(route_map: Dict[str, str], table: str) -> Dict[str, str]:
@@ -245,6 +252,11 @@ async def write_entity_page_llm(
         "- Call the API ONLY through the shared axios client: import { apiClient } from '@/lib/api' (its baseURL is already /api, "
         "it adds the Bearer token and handles 401). Use paths without /api, e.g. apiClient.get('/patients', { params: { page, page_size } }). "
         "Never use fetch(), never read localStorage, never hard-code '/api' or a token key. List params are page (>=1) and page_size (<=200)\n"
+        "- For this entity's CRUD calls, import the typed helper from '@/lib/api' (e.g. import { {camel}Api } from '@/lib/api'): "
+        "{camel}Api.list(page, pageSize) resolves to { items: T[], total, page, page_size, limit } (rows are `.items`, there is NO `.data` field), "
+        "plus get(id), create(data), update(id, data), remove(id). Do NOT declare your own list/response types for CRUD resources "
+        "(no ListResponse / PaginatedResponse interface) and never write `data.data` or `data?.data.map`. For related entities use "
+        "their helpers too (e.g. usersApi.list(1, 200)); import entity types from '@/types'\n"
         "- Full CRUD: list table, Create button opening modal, Edit row → modal, Delete with confirm\n"
         "- Use shadcn/ui components imported from '@/components/ui/*' (Button, Card, Input, Table, Modal)\n"
         "- No hardcoded data — all rows come from the API\n"
@@ -254,7 +266,7 @@ async def write_entity_page_llm(
         f"text={tokens.get('text_primary')}, gradient={tokens.get('gradient')}\n"
         "- Max 350 lines total\n"
         "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
-    ).replace("{name}", name)
+    ).replace("{name}", name).replace("{camel}", _camel(table))
 
     client = get_llm_client()
     try:
@@ -280,4 +292,4 @@ async def write_entity_page_llm(
         logger.warning("p05: LLM entity page for %s missing required tokens — falling back", name)
         return None
 
-    return cleaned
+    return enforce_list_contract(cleaned, f"{name}Page")
