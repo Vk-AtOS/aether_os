@@ -407,7 +407,9 @@ def generate_schemas_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fa
         fields_block_base = []
         fields_block_update = []
 
-        for f in client_fields(entity, multi_tenancy):
+        # id/created_at/updated_at are server-set (the Response adds them). Run 23's spec listed the timestamps as
+        # ordinary fields, so ProjectCreate required them and every create from the UI failed with 422.
+        for f in (f for f in client_fields(entity, multi_tenancy) if f.name.lower() not in _GENERATED_COLUMNS):
             ptype = _pydantic_type(f, domain=domain)
             if f.nullable:
                 default = " = None"
