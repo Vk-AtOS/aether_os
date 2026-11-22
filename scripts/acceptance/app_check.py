@@ -13,7 +13,7 @@ Needs: pip install playwright && playwright install chromium (run from an operat
 
 Signs in to the AetherOS dashboard ONCE (session saved to out_dir/dash_state.json, reused while valid), opens the
 preview through /dashboard/preview-open/<run>, signs in to the generated app, then checks:
-  C1 real UI (not the API-explorer fallback)       C2 sign-in reaches an authenticated page
+  C1 real UI (not the API-explorer fallback)       C2 sign-in reaches an authenticated page that did not crash
   C3 every sidebar page loads with no API call >=400  C4 at least one list shows rows the API returned
   C5 a record can be created through a "New ..." form (a POST answered 2xx)
 Prints one PASS/FAIL line per check and writes a screenshot per page.
@@ -30,6 +30,14 @@ from pathlib import Path
 
 def text(page, n=400):
     return re.sub(r"\s+", " ", page.locator("body").inner_text())[:n]
+
+
+_CRASH_RE = re.compile(r"Something went wrong|Failed to load", re.IGNORECASE)
+
+
+def crashed(body: str) -> bool:
+    """True when the page shows the app's error boundary or a load failure instead of content."""
+    return bool(_CRASH_RE.search(body))
 
 
 def main(pw_file: str, rid: str, out: str) -> int:
@@ -74,7 +82,12 @@ def main(pw_file: str, rid: str, out: str) -> int:
             page.locator('button[type="submit"]').first.click()
             page.wait_for_timeout(5000)
         page.screenshot(path=str(out_dir / "c2_after_login.png"))
-        results["C2 sign-in"] = "/login" not in page.url and page.locator('input[type="password"]').count() == 0
+        # Run 22: the landing page crashed into the error boundary right after sign-in and C2 still passed.
+        landing = text(page, 2000)
+        results["C2 sign-in"] = ("/login" not in page.url and page.locator('input[type="password"]').count() == 0
+                                 and not crashed(landing))
+        if crashed(landing):
+            print("  C2 landing page crashed:", landing[:200])
         # C3/C4 sidebar pages
         links = []
         for a in page.locator("nav a, aside a").all():
@@ -102,7 +115,7 @@ def main(pw_file: str, rid: str, out: str) -> int:
             page.screenshot(path=str(out_dir / f"c3_{slug}.png"))
             failed = [c for c in api if c[2] >= 400]
             body_now = text(page, 300)
-            if failed or crashes or "Something went wrong" in body_now or re.search(r"Failed to load", body_now):
+            if failed or crashes or crashed(body_now):
                 bad_pages.append((label, failed[:3] or crashes[:1] or body_now[:80]))
             if page.locator("table tbody tr").count() > 0 and any(m == "GET" and s < 300 for m, _, s in api):
                 rows_seen = True

@@ -19,6 +19,7 @@ INV-007  Transaction boundary — routes that perform multiple DB writes
 """
 from __future__ import annotations
 
+import ast
 import logging
 import re
 import time
@@ -41,6 +42,45 @@ _TENANT_FILTER_RE = re.compile(
     re.IGNORECASE,
 )
 
+def _is_tenant_target(node: ast.AST) -> bool:
+    """extra["org_id"], obj.org_id or a bare org_id as an assignment target."""
+    if isinstance(node, ast.Subscript):
+        key = node.slice
+        return isinstance(key, ast.Constant) and key.value in _TENANT_COLUMNS
+    if isinstance(node, ast.Attribute):
+        return node.attr in _TENANT_COLUMNS
+    return isinstance(node, ast.Name) and node.id in _TENANT_COLUMNS
+
+
+def _reads_tenant_column(source_text: str) -> bool:
+    """True when the route reads a tenant column. Writing one does not count: an assignment to it (with its value,
+    e.g. extra["org_id"] = admin.get("org_id")) or Model(org_id=...) stamps the caller's tenant on an INSERT,
+    which is not a tenant query (run 22: create_user). filter_by(org_id=...) is a read (a filter)."""
+    try:
+        tree = ast.parse(source_text)
+    except SyntaxError:
+        return any(col in source_text for col in _TENANT_COLUMNS)
+    skip: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(_is_tenant_target(t) for t in targets):
+                skip.update(id(n) for n in ast.walk(node))
+        elif isinstance(node, ast.Call) and not (isinstance(node.func, ast.Attribute) and node.func.attr == "filter_by"):
+            for kw in node.keywords:
+                if kw.arg in _TENANT_COLUMNS:
+                    skip.update(id(n) for n in ast.walk(kw))
+    for node in ast.walk(tree):
+        if id(node) in skip:
+            continue
+        if (isinstance(node, ast.Name) and node.id in _TENANT_COLUMNS) or (
+                isinstance(node, ast.Attribute) and node.attr in _TENANT_COLUMNS) or (
+                isinstance(node, ast.Constant) and node.value in _TENANT_COLUMNS) or (
+                isinstance(node, ast.keyword) and node.arg in _TENANT_COLUMNS):
+            return True
+    return False
+
+
 # Patterns indicating a DB select/query is present in the source
 _SELECT_RE = re.compile(
     r"(?:select|scalars|execute|fetchall|fetchone|scalar_one|scalar_one_or_none)\s*\(",
@@ -53,7 +93,8 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
     Verify that routes handling multi-tenant data filter by org_id/tenant_id.
 
     Detection strategy:
-    - Route is multi-tenant if its source text contains any tenant column name
+    - Route is multi-tenant if its source text reads a tenant column; writing one (an INSERT that
+      stamps org_id on the new row, run 22's create_user) does not count
     - A multi-tenant route that performs a SELECT without an org_id/tenant_id
       filter clause is VIOLATED
     - Routes without any DB query or tenant columns are N/A
@@ -66,7 +107,9 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
     # Fall back gracefully if source_text is unavailable
     source_text: str = getattr(route, "source_text", "")
 
-    has_tenant_col = any(col in source_text for col in _TENANT_COLUMNS)
+    normalised = re.sub(r"\.filter_by\s*\(", ".filter(", source_text)   # filter_by(org_id=...) filters too
+    has_tenant_filter = bool(_TENANT_FILTER_RE.search(normalised))
+    has_tenant_col = has_tenant_filter or _reads_tenant_column(source_text)
     has_db_query = bool(_SELECT_RE.search(source_text))
 
     if not has_tenant_col or not has_db_query:
@@ -79,8 +122,6 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
             proof_method="Route does not perform tenant-scoped DB queries — invariant not applicable",
             confidence=1.0,
         )
-
-    has_tenant_filter = bool(_TENANT_FILTER_RE.search(source_text))
 
     t0 = time.monotonic()
     flag = z3.Bool("has_tenant_filter")
