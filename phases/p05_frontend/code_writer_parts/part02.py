@@ -456,6 +456,10 @@ def _generate_api(entities: List[dict], route_map: Dict[str, str]) -> str:
     lines.append("  register: (email: string, password: string) =>")
     lines.append("    apiClient.post('/auth/register', { email, password }).then(r => r.data),")
     lines.append("}")
+    lines.append("")
+    lines.append("// GET /stats: per-entity total_<table>, overdue_<table>, stage_<value> counts. The dashboard shows these, never literals.")
+    lines.append("export type Stats = Record<string, number>")
+    lines.append("export const stats = () => apiClient.get<Stats>('/stats').then(r => r.data)")
 
     exported = {"authApi"}
     for ent in entities:

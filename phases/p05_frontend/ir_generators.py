@@ -13,6 +13,7 @@ LLM is still called for the DomainWidget (copy/UX wording).
 """
 from __future__ import annotations
 
+from aether_os.phases.p05_frontend.dashboard_stats import stats_dashboard_tsx
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, TS_TYPE_MAP, ZOD_TYPE_MAP
 
 
@@ -138,69 +139,8 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
         route_map = {e["table"]: f"/{e['table']}" for e in entities}
         return generate_storefront_home(entities, route_map)
 
-    # ── All other domains: rich KPI admin dashboard ─────────────────────────────
-    _colors6 = ["blue", "green", "purple", "orange", "red", "teal"]
-    _color_cls = {
-        "blue":   "bg-blue-50   text-blue-700   border-blue-100",
-        "green":  "bg-green-50  text-green-700  border-green-100",
-        "purple": "bg-purple-50 text-purple-700 border-purple-100",
-        "orange": "bg-orange-50 text-orange-700 border-orange-100",
-        "red":    "bg-red-50    text-red-700    border-red-100",
-        "teal":   "bg-teal-50   text-teal-700   border-teal-100",
-    }
-
-    count_cards_jsx = "\n".join([
-        f"        <div className='rounded-2xl border p-6 shadow-sm hover:shadow-md transition-shadow {_color_cls[_colors6[i % 6]]}'>\n"
-        f"          <div className='text-xs font-bold uppercase tracking-widest opacity-60 mb-2'>{e['table'].replace('_', ' ').title()}</div>\n"
-        f"          <div className='text-4xl font-extrabold'>{{stats?.total_{e['table']} ?? '…'}}</div>\n"
-        f"        </div>"
-        for i, e in enumerate(entities[:6])
-    ])
-
-    entity_links = "\n".join([
-        f"          <Link to='/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 hover:border-brand-300 hover:shadow-sm transition-all group'>"
-        f"\n            <div>"
-        f"\n              <div className='font-semibold text-gray-900 group-hover:text-brand-700'>{e['table'].replace('_', ' ').title()}</div>"
-        f"\n              <div className='text-xs text-gray-500 mt-0.5'>Manage {e['table'].replace('_', ' ')}</div>"
-        f"\n            </div>"
-        f"\n            <span className='text-brand-400 group-hover:translate-x-0.5 transition-transform text-lg'>→</span>"
-        f"\n          </Link>"
-        for e in entities
-    ])
-
-    return f"""import React from 'react';
-import {{ useQuery }} from '@tanstack/react-query';
-import {{ api }} from '../lib/api';
-import {{ Link }} from '@tanstack/react-router';
-
-export default function Dashboard() {{
-  const {{ data: stats }} = useQuery({{
-    queryKey: ['stats'],
-    queryFn: () => api.get('/stats').then(r => r.data).catch(() => ({{}})),
-    staleTime: 30_000,
-  }});
-
-  return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-extrabold text-gray-900">{project_name}</h1>
-        <p className="text-gray-500 mt-1 text-sm">Welcome back. Here's what's happening.</p>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-{count_cards_jsx}
-      </div>
-
-      <div>
-        <h2 className="text-base font-bold text-gray-700 uppercase tracking-wide mb-4">Quick Access</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-{entity_links}
-        </div>
-      </div>
-    </div>
-  );
-}}
-"""
+    # All other domains: stat cards read from /stats (dashboard_stats keeps every number off the page source)
+    return stats_dashboard_tsx(entities, project_name)
 
 
 # ---------------------------------------------------------------------------

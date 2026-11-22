@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.codegen.entities import templates_first_enabled
 from aether_os.core.llm import client as _llm_client
+from aether_os.phases.p05_frontend.dashboard_stats import fallback_widget, widget_reason
 from aether_os.phases.p05_frontend.design_brief import entity_widget_brief
 from aether_os.phases.p05_frontend.prompts import get_domain_color_hint
 from aether_os.phases.p05_frontend.ui_primitives import write_fixed_primitive_set
@@ -148,7 +149,9 @@ async def _generate_domain_component(
         "Hard requirements:\n"
         f"- Tailwind CSS only — use the domain colour scheme: {_color_hint}\n"
         "- Use lucide-react icons (import at top: import {{ ... }} from 'lucide-react')\n"
-        "- ALL data is static/mock — zero API calls, zero props, zero useState hooks for fetching\n"
+        "- Numbers come ONLY from the backend: import { stats } from '@/lib/api' and read it with useQuery({ queryKey: ['stats'], queryFn: stats }) "
+        "(keys total_<table>, overdue_<table>, stage_<value>). Never write a numeric literal, a mock array or an invented name as data; "
+        "show a skeleton while loading and an empty state when a key is missing. Zero props\n"
         "- Export: export default function DomainWidget() {{}}\n"
         "- Maximum 250 lines — use the space for rich, domain-appropriate visuals\n"
         "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing — make it look like a real product\n"
@@ -187,14 +190,18 @@ async def _generate_domain_component(
             # Strip accidental markdown fences
             result = re.sub(r"^```[a-z]*\n?", "", result.strip())
             result = re.sub(r"\n?```$", "", result.strip())
-            return result
+            reason = widget_reason(result)
+            if reason is None:
+                return result
+            logger.warning("p05: LLM DomainWidget refused (%s)", reason)
     except asyncio.TimeoutError:
         logger.warning("p05: LLM DomainWidget generation timed out after 90s")
     except Exception as exc:
         logger.warning("p05: LLM DomainWidget generation failed: %s", exc)
 
-    logger.info("p05: Using hardcoded DomainWidget fallback for %s", domain)
-    return "// Auto-generated fallback DomainWidget\nexport default function DomainWidget() { return null; }"
+    kind, code = fallback_widget(domain, entities)
+    logger.info("p05: Using %s DomainWidget fallback built from the %s entities", kind, domain)
+    return code
 
 
 # ── Admin Derivation ─────────────────────────────────────────────────────────
