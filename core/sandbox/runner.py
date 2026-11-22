@@ -48,6 +48,10 @@ class Limits:
     timeout_s: int = 300           # one-shot commands (install, build, tests, probes)
     output_bytes: int = 256_000    # per stream, kept from the end
     file_bytes: int = 1 << 30      # largest single file a sandboxed process may write
+    # Open files per process. 1024 broke real frontend builds: rollup bundling lucide-react's ~1500 icon modules failed
+    # with EMFILE, and npm installs left packages half-written (production acceptance run 8, 22 Nov 2026). Memory, CPU
+    # and pids are what bound abuse; descriptors are cheap within those.
+    nofile: int = 65536
 
 
 def is_production() -> bool:
