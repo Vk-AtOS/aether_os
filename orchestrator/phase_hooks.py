@@ -20,6 +20,13 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from aether_os.core.council.council_gate import (
+    CACHED,
+    SKIPPED_CHECKS,
+    UNAVAILABLE,
+    calls_for as council_calls_for,
+    gated_review,
+)
 from aether_os.orchestrator.spec_review_gate import apply_spec_review
 from aether_os.orchestrator.phase_hooks_helpers import (
     hook_persist_live_url,
@@ -357,7 +364,8 @@ async def _hook_p04_backend(
             # contain the actual business logic (crud, models, schemas, auth).
             # Reviewing only main.py misses SQL injection and auth bypass patterns.
             _bac_src_dir = _bac_main_py.parent
-            _bac_src = f"# === main.py ===\n{_bac_main_py.read_text()}"
+            _bac_files = {"main.py": _bac_main_py.read_text()}
+            _bac_src = f"# === main.py ===\n{_bac_files['main.py']}"
             _bac_extra_names = [
                 "crud.py", "models.py", "schemas.py", "auth.py", "routers/crud.py",
             ]
@@ -365,8 +373,9 @@ async def _hook_p04_backend(
             for _bac_fname in _bac_extra_names:
                 _bac_p = _bac_src_dir / _bac_fname
                 if _bac_p.exists():
+                    _bac_files[_bac_fname] = _bac_p.read_text()
                     _bac_extra_parts.append(
-                        f"# === {_bac_fname} ===\n{_bac_p.read_text()}"
+                        f"# === {_bac_fname} ===\n{_bac_files[_bac_fname]}"
                     )
             if _bac_extra_parts:
                 _bac_src += "\n\n" + "\n\n".join(_bac_extra_parts)
@@ -391,15 +400,29 @@ async def _hook_p04_backend(
                     _MAX_REVIEW_CHARS,
                 )
 
-            _bac_report = await asyncio.wait_for(
-                run_council(
-                    _bac_src, run_id,
-                    accumulated_context.get("project_name", "Project"),
-                    domain or "general",
-                    org_id=accumulated_context.get("org_id"),
+            # KAN-213: council only after cheap checks pass, verdict cached by file hash,
+            # and "no reviewer answered" (score 0.00) is not a verdict.
+            _bac_report, _bac_status = await gated_review(
+                run_id, _bac_files,
+                lambda: asyncio.wait_for(
+                    run_council(
+                        _bac_src, run_id,
+                        accumulated_context.get("project_name", "Project"),
+                        domain or "general",
+                        org_id=accumulated_context.get("org_id"),
+                    ),
+                    timeout=90.0,
                 ),
-                timeout=90.0,
             )
+            if _bac_status in (SKIPPED_CHECKS, UNAVAILABLE) or _bac_report is None:
+                logger.info(
+                    "[BackendAuditCouncil] run %s: %s — no re-run of s03_backend (council calls=%d)",
+                    run_id, _bac_status, council_calls_for(run_id),
+                )
+                break
+            if _bac_status == CACHED:
+                logger.info("[BackendAuditCouncil] run %s: unchanged files, stopping loop", run_id)
+                break
             _bac_report_dict = _bac_asdict(_bac_report)
             (project_dir / "council_review.json").write_text(
                 json.dumps(_bac_report_dict, indent=2)
