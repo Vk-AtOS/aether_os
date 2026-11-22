@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from aether_os.core.route_walk import iter_routes
+
 _BODY = {"approved": True, "feedback": "ok", "comment": "c", "phase": "p01"}
 
 
@@ -36,7 +38,7 @@ def portal(gw, tmp_path_factory):
 
 
 def _portal_calls(app, run_id):
-    for route in app.routes:
+    for route in iter_routes(app.routes):
         path = getattr(route, "path", "")
         if not path.startswith("/portal/"):
             continue

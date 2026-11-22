@@ -16,6 +16,7 @@ from sqlalchemy import JSON, Boolean, Float, Integer, String, Text, DateTime, in
 import aether_os.core.models  # noqa: F401  (registers the tables)
 import aether_os.core.guardian.models  # noqa: F401
 import aether_os.core.identity.portal_access  # noqa: F401
+from aether_os.core.route_walk import iter_routes
 from aether_os.core.db import Base, get_session_factory
 
 # Tables whose writes are guarded by triggers/listeners or that are platform data, not tenant data.
@@ -88,7 +89,7 @@ def _seed_all(org_b, marker):
 
 
 def _paramless_gets(app):
-    for r in app.routes:
+    for r in iter_routes(app.routes):
         path = getattr(r, "path", "")
         if "GET" in (getattr(r, "methods", None) or ()) and "{" not in path and not path.startswith(SKIP_GET_PREFIXES):
             yield path
@@ -124,7 +125,7 @@ def test_org_a_cannot_touch_org_b_rows_by_id_for_every_id_parameter(gw):
     ids = {p: seeded[t][c] for p, (t, c) in PARAM_TABLES.items() if isinstance(seeded.get(t), dict)}
     assert len(ids) >= 5, ids
     leaks, checked = [], 0
-    for r in gw.app.routes:
+    for r in iter_routes(gw.app.routes):
         path = getattr(r, "path", "")
         params = re.findall(r"{(\w+)(?::\w+)?}", path)
         if not any(p in ids for p in params) or path.startswith(("/dashboard", "/app-preview", "/portal")):
@@ -170,7 +171,7 @@ def test_guardian_prime_mcp_portal_agents_routes_do_not_leak_across_orgs(gw):
     # positive control: B's own admin sees its marked rows on these routes, so "clean" for A means isolation
     admin_b = gw.user_with_role("admin", b.org_id)
     visible = []
-    for r in gw.app.routes:
+    for r in iter_routes(gw.app.routes):
         if "GET" in (getattr(r, "methods", None) or ()) and getattr(r, "path", "").startswith(WALK_PREFIXES) \
                 and "{" not in r.path:
             try:   # a generic text marker in a typed (Decimal) column can crash a route: not a tenant question
@@ -180,7 +181,7 @@ def test_guardian_prime_mcp_portal_agents_routes_do_not_leak_across_orgs(gw):
                 continue
     assert visible, "no route of these groups shows org B its own marked rows: the walk proves nothing"
     leaks, checked = [], 0
-    for r in gw.app.routes:
+    for r in iter_routes(gw.app.routes):
         path = getattr(r, "path", "")
         if not path.startswith(WALK_PREFIXES):
             continue

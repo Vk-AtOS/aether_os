@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from typer.testing import CliRunner
 
+from aether_os.core.route_walk import iter_routes
 from aether_os.cli import aetheros
 
 CFG = {"url": "http://gw", "token": "t", "email": "a@b.c"}
@@ -34,7 +35,7 @@ def _invoke(args, get=None, post=None):
 
 def test_every_cli_path_is_a_gateway_route():
     from aether_os.gateway.api import app
-    served = {re.sub(r"\{[^}]+\}", "{}", r.path) for r in app.routes if hasattr(r, "path")}
+    served = {re.sub(r"\{[^}]+\}", "{}", r.path) for r in iter_routes(app.routes) if hasattr(r, "path")}
     src = Path(aetheros.__file__).read_text()
     called = {re.sub(r"\{[^}]+\}", "{}", p) for p in re.findall(r'f?"(?:\{url\})?(/[a-z][\w/{}\-]*)"', src)}
     assert "/factory/runs/{}/download" in called and len(called) >= 10, called

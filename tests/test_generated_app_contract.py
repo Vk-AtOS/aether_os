@@ -36,7 +36,8 @@ def frontend_calls(root: Path):
 def backend_routes(app):
     out = run_script(app, r'''
 import main
-out["routes"] = [[sorted(r.methods or []), r.path] for r in main.app.routes if hasattr(r, "methods")]
+from fastapi.routing import iter_route_contexts  # FastAPI 0.16x: included routers are not flattened into app.routes
+out["routes"] = [[sorted(r.methods or []), r.path] for r in iter_route_contexts(main.app.routes) if r.methods]
 ''')["routes"]
     return {(m, re.sub(r"\{[^}]*\}", "{id}", p).rstrip("/")) for methods, p in out for m in methods}
 
