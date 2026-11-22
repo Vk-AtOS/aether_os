@@ -18,7 +18,7 @@ import hashlib
 import logging
 import re
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
