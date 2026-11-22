@@ -26,6 +26,7 @@ except ImportError:  # optional dependency; the screenshot fallback is skipped w
     async_playwright = None
 
 logger = logging.getLogger(__name__)
+_PLAYWRIGHT_UNAVAILABLE = False
 
 async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
     """Capture a screenshot of a URL using Screenshotone API with Playwright fallback."""
@@ -56,7 +57,10 @@ async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
         except Exception as e:
             logger.warning(f"p00: Screenshotone error for {url}: {e}")
 
-    # 2. Fallback: Playwright (if installed and available)
+    # 2. Fallback: Playwright (if installed and a browser is present in this image)
+    global _PLAYWRIGHT_UNAVAILABLE
+    if _PLAYWRIGHT_UNAVAILABLE:
+        return None
     try:
         logger.info(f"p00: Capturing {url} via Playwright fallback")
         async with async_playwright() as p:
@@ -75,7 +79,13 @@ async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
     except ImportError:
         logger.debug("p00: Playwright not installed, skipping fallback")
     except Exception as e:
-        logger.warning(f"p00: Playwright fallback error: {e}")
+        if "Executable doesn't exist" in str(e):
+            # The API image ships no browser (it lives in the browser sandbox image): stop trying for this process
+            # instead of failing every URL of every run (KAN-219).
+            _PLAYWRIGHT_UNAVAILABLE = True
+            logger.info("p00: no Playwright browser in this image; screenshot fallback disabled")
+        else:
+            logger.warning(f"p00: Playwright fallback error: {e}")
 
     return None
 
