@@ -263,16 +263,29 @@ _FRONTEND_DIST = _spa_pathlib.Path(r"{_dist_str}")
 
 from fastapi.responses import FileResponse as _SpaFileResponse
 
+from fastapi.responses import JSONResponse as _SpaJSONResponse
+
+def _spa_index():
+    _index = _FRONTEND_DIST / "index.html"
+    if _index.is_file():
+        return _SpaFileResponse(str(_index))
+    return _SpaJSONResponse({{"detail": "frontend not built"}}, status_code=404)
+
 @app.get("/", include_in_schema=False)
 def _spa_root():
-    return _SpaFileResponse(str(_FRONTEND_DIST / "index.html"))
+    return _spa_index()
 
 @app.get("/{{path:path}}", include_in_schema=False)
 def _spa_catchall(path: str = ""):
-    _f = _FRONTEND_DIST / path
-    if _f.is_file():
+    # API paths are never the SPA: an unknown or slash-mismatched /api route must be a JSON 404, not index.html
+    # with 200 (acceptance run 14 tests got the SPA, or a crash where no build existed, for /api/projects).
+    if path == "api" or path.startswith("api/"):
+        return _SpaJSONResponse({{"detail": "Not Found"}}, status_code=404)
+    _root = _FRONTEND_DIST.resolve()
+    _f = (_FRONTEND_DIST / path).resolve()
+    if _f.is_file() and _f.is_relative_to(_root):   # no ../ out of the build directory
         return _SpaFileResponse(str(_f))
-    return _SpaFileResponse(str(_FRONTEND_DIST / "index.html"))
+    return _spa_index()
 """
         else:
             if not re.search(r'@app\.get\(["\']\/["\']', content):
