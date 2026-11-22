@@ -13,6 +13,8 @@ from aether_os.phases.base import TaskResult
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
+from aether_os.phases.p07a_unit_testing.openapi_payload import PAYLOAD_HELPER
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,7 +184,7 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
         "\n"
         f"{src_path_line}\n"
         "from main import app\n"
-        "\n"
+        f"{PAYLOAD_HELPER}\n"
         "\n"
         "@pytest_asyncio.fixture\n"
         "async def client():\n"
@@ -227,19 +229,21 @@ def _generate_crud_tests(src_dir: Optional[Path], project_name: str, entities: l
         "\n"
         "@pytest.mark.asyncio\n"
         f"async def test_create(auth_client):\n"
-        f"    response = await auth_client.post('/api/{table}', json={payload})\n"
+        f"    body = await _payload(auth_client, '/api/{table}', {payload})\n"
+        f"    response = await auth_client.post('/api/{table}', json=body)\n"
         "    assert response.status_code in (200, 201), f'Create failed: {response.status_code} {response.text[:200]}'\n"
         "\n"
         "\n"
         "@pytest.mark.asyncio\n"
         f"async def test_create_get_update_delete_roundtrip(auth_client):\n"
-        f"    created = await auth_client.post('/api/{table}', json={payload})\n"
+        f"    body = await _payload(auth_client, '/api/{table}', {payload})\n"
+        f"    created = await auth_client.post('/api/{table}', json=body)\n"
         "    assert created.status_code in (200, 201), created.text[:200]\n"
         "    new_id = created.json().get('id')\n"
         "    assert new_id is not None\n"
         f"    got = await auth_client.get(f'/api/{table}/{{new_id}}')\n"
         "    assert got.status_code == 200\n"
-        f"    updated = await auth_client.put(f'/api/{table}/{{new_id}}', json={payload})\n"
+        f"    updated = await auth_client.put(f'/api/{table}/{{new_id}}', json=body)\n"
         "    assert updated.status_code == 200, updated.text[:200]\n"
         f"    deleted = await auth_client.delete(f'/api/{table}/{{new_id}}')\n"
         "    assert deleted.status_code in (200, 204), deleted.text[:200]\n"
