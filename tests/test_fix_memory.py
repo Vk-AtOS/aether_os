@@ -205,3 +205,43 @@ def test_provenance_is_recorded_and_rows_can_be_purged_by_run(factory):
             assert await fm.purge_run("o", "run-1", session=s) == 1
             assert await fm.lookup("o", "a", session=s) == [] and await fm.lookup("o", "b", session=s)
     run(body())
+
+
+# --- allowlist bypasses (each must be refused) --------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", [
+    "import {\n  a,\n  b\n} from 'left-pad'",                      # multi-line import
+    "export * from 'left-pad'", "export { a } from \"evil\"",      # export ... from
+    "const u = '//evil.example/x.js'", "fetch(`//evil.example`)",  # protocol-relative URL
+    "el.innerHTML = h", "el.outerHTML = h", "el.insertAdjacentHTML('a', h)",
+    "setTimeout('alert(1)', 0)", "setInterval(\"x()\", 5)",
+    "window['ev'+'al'](c)", "globalThis['x']", "document['cookie']", "self['fetch']",
+    "const f = new Function('a')", "document.write(x)",
+])
+def test_allowlist_refuses_bypass(bad):
+    assert not fm.is_safe_patch(_p(replace=bad))
+
+
+def test_allowlist_accepts_relative_specifiers_and_specifiers_already_in_find():
+    assert fm.is_safe_patch(_p(replace="import {\n a\n} from '../ui/Card'"))
+    assert fm.is_safe_patch(_p(find="import a from 'react'", replace="import b from 'react'"))
+    assert not fm.is_safe_patch(_p(find="x", replace="import a from 'react'"))   # new package import
+    assert fm.is_safe_patch(_p(replace="const n = 1 // fine, a comment"))
+
+
+def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line(tmp_path, factory, monkeypatch):
+    import asyncio as _a
+    from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
+    monkeypatch.setattr(fm, "get_session_factory", lambda: factory)
+    page = tmp_path / "src/pages/TaskPage.tsx"
+    page.parent.mkdir(parents=True)
+    far = "const n: number = 'x'"
+    page.write_text("\n".join(["// filler"] * 40 + [far, "const m: number = 'y'"]))   # stored find sits at line 41
+    sig = fm.parse_errors(ERR)[0]["signature"]                                      # current error is on line 1
+    run(fm.record("org", sig, "tsx:pages", [_p()]))
+    applied = []
+    mem = RoundMemory("org", tmp_path, lambda d, p: applied.append(p) or True)
+    assert _a.run(mem.try_known(ERR)) == 0 and applied == []                         # not near line 1: skipped
+    page.write_text(far + "\n")
+    mem2 = RoundMemory("org", tmp_path, lambda d, p: applied.append(p) or True)
+    assert _a.run(mem2.try_known(ERR)) == 1 and applied[0]["file"] == "src/pages/TaskPage.tsx"
