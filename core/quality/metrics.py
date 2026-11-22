@@ -66,7 +66,76 @@ class RouteInfo:
     has_input_validation: bool
 
 
-def _extract_routes(code: str) -> List[RouteInfo]:
+def _base_name(base: ast.expr) -> str:
+    if isinstance(base, ast.Name):
+        return base.id
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    if isinstance(base, ast.Subscript):          # Generic[T]-style bases
+        return _base_name(base.value)
+    return ""
+
+
+_INJECTORS = {"Depends", "Security", "Query", "Path", "Header", "Cookie", "Form", "File"}
+
+
+def _is_injected(default: Optional[ast.expr]) -> bool:
+    """A parameter FastAPI fills from a dependency or from the URL/headers, not from the JSON body."""
+    if not isinstance(default, ast.Call):
+        return False
+    f = default.func
+    return (f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else "") in _INJECTORS
+
+
+_RAW_BODY_TYPES = {"dict", "Dict", "Any", "list", "List", "Request", "object", "Mapping"}
+
+
+def _annotation_names(ann: Optional[ast.expr]) -> set:
+    """Type names in an annotation, unwrapping Optional[X], Union[X, Y], X | None and module.X."""
+    if ann is None:
+        return set()
+    if isinstance(ann, ast.Name):
+        return {ann.id}
+    if isinstance(ann, ast.Attribute):
+        return {ann.attr}
+    if isinstance(ann, ast.Constant) and isinstance(ann.value, str):   # "ProjectCreate" forward reference
+        return {ann.value}
+    if isinstance(ann, ast.BinOp):                                      # X | None
+        return _annotation_names(ann.left) | _annotation_names(ann.right)
+    if isinstance(ann, ast.Subscript):
+        outer = _annotation_names(ann.value)
+        inner = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+        if outer & {"Optional", "Union", "Annotated"}:
+            return set().union(*(_annotation_names(e) for e in inner[:1 if "Annotated" in outer else None]))
+        return outer                                                    # Dict[str, Any] -> Dict
+    return set()
+
+
+def _pydantic_classes(trees: List[ast.AST]) -> set:
+    """Names of Pydantic models across the given modules, following inheritance.
+
+    Only direct `BaseModel` subclasses in the same module used to count, so the generated apps' schemas
+    (`class ProjectCreate(ProjectBase)` in schemas.py, imported by routers/crud.py) were never seen and input
+    validation scored 15% on production acceptance run 15 (22 Nov 2026) although every write route takes a model.
+    """
+    bases: Dict[str, set] = {}
+    for tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                bases.setdefault(node.name, set()).update(_base_name(b) for b in node.bases)
+    models = {"BaseModel"}
+    changed = True
+    while changed:
+        changed = False
+        for name, parents in bases.items():
+            if name not in models and parents & models:
+                models.add(name)
+                changed = True
+    models.discard("BaseModel")
+    return models
+
+
+def _extract_routes(code: str, known_models: Optional[set] = None) -> List[RouteInfo]:
     """Parse FastAPI route decorators from Python source code string.
 
     Detects @app.get/post/... and @router.get/post/... style decorators.
@@ -79,18 +148,8 @@ def _extract_routes(code: str) -> List[RouteInfo]:
     except SyntaxError:
         return []
 
-    # Collect all Pydantic model names (classes inheriting BaseModel)
-    pydantic_classes: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            for base in node.bases:
-                base_name = ""
-                if isinstance(base, ast.Name):
-                    base_name = base.id
-                elif isinstance(base, ast.Attribute):
-                    base_name = base.attr
-                if base_name == "BaseModel":
-                    pydantic_classes.add(node.name)
+    # Pydantic models defined here (with inheritance) plus those the caller found elsewhere in the project
+    pydantic_classes: set[str] = _pydantic_classes([tree]) | set(known_models or ())
 
     routes: List[RouteInfo] = []
 
@@ -123,15 +182,19 @@ def _extract_routes(code: str) -> List[RouteInfo]:
                         has_auth = True
                         break
 
-            # Detect input validation: any param annotated with a known Pydantic model
-            has_input_validation = False
-            for param in node.args.args:
-                if param.arg in ("self", "cls"):
-                    continue
-                ann = param.annotation
-                if ann is not None and isinstance(ann, ast.Name) and ann.id in pydantic_classes:
-                    has_input_validation = True
-                    break
+            # Input validation: a param typed with a Pydantic model (also Optional[...] / X | None / schemas.X).
+            # A route that reads a raw body (dict, Any, list, Request) is unvalidated; one with no body at all
+            # (logout, follow/{id}) has nothing to validate and counts as validated.
+            params = [a for a in node.args.args if a.arg not in ("self", "cls")]
+            defaults = [None] * (len(node.args.args) - len(node.args.defaults)) + list(node.args.defaults)
+            injected = {a.arg for a, d in zip(node.args.args, defaults) if _is_injected(d)}
+            names = [_annotation_names(a.annotation) for a in params if a.arg not in injected]
+            if any(n & pydantic_classes for n in names):
+                has_input_validation = True
+            elif method in ("post", "put", "patch"):
+                has_input_validation = not any(n & _RAW_BODY_TYPES for n in names)
+            else:
+                has_input_validation = False   # reads carry no body; only write routes are scored
 
             routes.append(RouteInfo(
                 path=path,
@@ -171,13 +234,23 @@ class QualityScore:
 def _collect_all_routes(src_dir: Path, root: Path) -> List[RouteInfo]:
     """Read all .py files in src_dir and collect routes. root: the run directory."""
     root = require_project_root(root)
-    routes: List[RouteInfo] = []
+    sources: List[str] = []
     for py_file in _files(root, "*.py", under=src_dir):
         code = _read(root, py_file)
         if code is None:
             logger.debug("_collect_all_routes: could not read %s", py_file)
             continue
-        routes.extend(_extract_routes(code))
+        sources.append(code)
+    trees = []
+    for code in sources:
+        try:
+            trees.append(ast.parse(code))
+        except SyntaxError as exc:
+            logger.debug("_collect_all_routes: syntax error, skipped for model names: %s", exc)
+    models = _pydantic_classes(trees)      # schemas live in schemas.py, routes in routers/: look project-wide
+    routes: List[RouteInfo] = []
+    for code in sources:
+        routes.extend(_extract_routes(code, models))
     return routes
 
 
@@ -407,10 +480,15 @@ def score_project(project_dir: Path) -> QualityScore:
 
     # Boolean presence checks
     has_docker = _is_file(project_dir, project_dir / "Dockerfile") or _is_file(project_dir, project_dir / "docker-compose.yml")
-    has_env_example = _is_file(project_dir, project_dir / ".env.example")
-    has_readme = _is_file(project_dir, project_dir / "README.md")
+    # The pipeline writes these next to the backend (p04a) and under p06's output, not at the run root: looking
+    # only at the root cost 16 points on production acceptance run 15 (22 Nov 2026) although all three existed.
+    backend_dir = src_dir.parent
+    has_env_example = any(_is_file(project_dir, d / ".env.example") for d in (project_dir, backend_dir))
+    has_readme = any(_is_file(project_dir, d / "README.md") for d in (project_dir, backend_dir))
     has_frontend = _is_file(project_dir, project_dir / "frontend" / "package.json")
-    has_compliance_report = _is_file(project_dir, project_dir / "compliance_scan.json")
+    has_compliance_report = any(_is_file(project_dir, f) for f in (
+        project_dir / "compliance_scan.json",
+        project_dir / "p06_review_security" / "compliance" / "compliance_scan.json"))
 
     # Numeric scores
     test_cov = _check_test_coverage(project_dir)
