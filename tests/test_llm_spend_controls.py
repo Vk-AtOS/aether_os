@@ -92,8 +92,11 @@ async def test_org_and_global_kill_switches(env, monkeypatch):
 async def test_missing_org_unknown_plan_and_calls_without_org(env):
     with pytest.raises(LLMUnavailable, match="plan"):
         await guard.admit("ghost", None, "hi", None, 100)
+    async with db.get_session_factory()() as s:    # the ORG's plan decides (KAN-211): an unknown plan on the org row is refused
+        s.add(Organisation(id="o2", name="O2", slug="o2", plan="platinum"))
+        await s.commit()
     with pytest.raises(LLMUnavailable, match="Unknown plan"):
-        await guard.admit("o1", "platinum", "hi", None, 100)
+        await guard.admit("o2", "starter", "hi", None, 100)
     assert (await guard.admit(None, None, "hi", None, 100)).plan == "platform"
 
 
