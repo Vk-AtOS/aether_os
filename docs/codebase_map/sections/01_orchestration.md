@@ -83,7 +83,7 @@ This slice is the **control plane of the code factory**. A run enters through `F
   - `gateway/mcp_router.py:108` (MCP start)
 
 ### 3.2 `FactoryPipeline` (factory_pipeline.py)
-- `run()` (:112) reads `PIPELINE_TIMEOUT_MINUTES` (default 30). It acquires the `_get_pipeline_semaphore()` slot (`PIPELINE_MAX_CONCURRENT`, default 2; run_state.py:43) and calls `asyncio.wait_for(_execute_pipeline(...))`. On timeout it sets status `timeout` and publishes `pipeline_complete`.
+- `run()` (:112) reads `PIPELINE_TIMEOUT_MINUTES` (default 120, `core/run_limits.py`). It acquires the `_get_pipeline_semaphore()` slot (`PIPELINE_MAX_CONCURRENT`, default 2; run_state.py:43) and calls `asyncio.wait_for(_execute_pipeline(...))`. On timeout it sets status `timeout` and publishes `pipeline_complete`.
 - `_execute_pipeline()` (:173):
   1. `init_org_llm_context` (:214). **NameError, swallowed.**
   2. `~/.aether_os/projects/<run_id>/` plus `project_memory` init (:219–229).
@@ -218,7 +218,7 @@ The sequence and supervisors do **not** register p00_intake, p00a_intake, p01_re
 ```
 HTTP POST /factory/start (factory_start_router) | SQS consumer | MCP | rerun/branch/restart | CLI demo(broken)
   └─ get_factory().run(client_id, raw_input, org_id, …~30 kwargs)
-       ├─ semaphore(PIPELINE_MAX_CONCURRENT=2) + wait_for(PIPELINE_TIMEOUT_MINUTES=30)
+       ├─ semaphore(PIPELINE_MAX_CONCURRENT=2) + wait_for(PIPELINE_TIMEOUT_MINUTES=120)
        └─ _execute_pipeline
             ├─ project_dir ~/.aether_os/projects/<run_id>; project_memory.json
             ├─ Run row (create_run → NameError → ledger.async_save_run)

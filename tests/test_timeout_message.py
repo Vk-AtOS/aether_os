@@ -23,7 +23,7 @@ def _row(gw, run_id):
 
 def test_reasons_are_never_empty_and_redacted():
     assert "s03_backend" in timeout_reason(120, "s03_backend") and "120 seconds" in timeout_reason(120, "s03_backend")
-    assert "30 minutes" in timeout_reason(1800)
+    assert "30 minutes" in timeout_reason(1800) and "PIPELINE_TIMEOUT_MINUTES" in timeout_reason(1800)
     leaked = timeout_reason(60, "s03_backend sk-ant-api03-" + "a" * 40)
     assert "sk-ant-api03-" + "a" * 40 not in leaked
 
