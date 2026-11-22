@@ -216,6 +216,7 @@ ALLOWED = {
     "core/guardian/auto_recovery.py": "platform self-recovery",
     "core/guardian/snapshot_manager.py": "platform snapshots (git)",
     "core/quality/metrics.py": "bandit: static analysis",
+    "core/codegen/static_check.py": "ruff F821 on model-written code passed via stdin: static analysis, never runs it",
     "core/run_app/preview_state.py": "ps: process start time / command line lookup",
     "core/security/code_scanner.py": "pip-audit: reads requirements.txt",
     "gateway/routers/admin_platform_router.py": "platform admin operations",
