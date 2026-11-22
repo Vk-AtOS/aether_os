@@ -8,9 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from aether_os.core.state_paths import state_file
+
 logger = logging.getLogger(__name__)
 
-_FEEDBACK_LOG = Path(__file__).parent / "knowledge_graph" / "stage_feedback.jsonl"
+_SHIPPED_LOG = Path(__file__).parent / "knowledge_graph" / "stage_feedback.jsonl"
+
+
+def _log_path() -> Path:
+    """The live log under AETHER_STATE_DIR (the package directory is read-only in the image)."""
+    return state_file("knowledge_graph/stage_feedback.jsonl", seed=_SHIPPED_LOG)
 
 
 def record_stage_output(
@@ -70,8 +77,8 @@ def get_top_issues(stage_id: str, last_n: int = 50) -> list[dict[str, Any]]:
 
 def _append(record: dict) -> None:
     try:
-        _FEEDBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(_FEEDBACK_LOG, "a") as f:
+        _log_path().parent.mkdir(parents=True, exist_ok=True)
+        with open(_log_path(), "a") as f:
             f.write(json.dumps(record, default=str) + "\n")
     except Exception as e:
         logger.warning("stage_feedback: write failed: %s", e)
@@ -79,9 +86,9 @@ def _append(record: dict) -> None:
 
 def _load_recent(stage_id: str, last_n: int) -> list[dict]:
     try:
-        if not _FEEDBACK_LOG.exists():
+        if not _log_path().exists():
             return []
-        lines = _FEEDBACK_LOG.read_text().strip().split("\n")
+        lines = _log_path().read_text().strip().split("\n")
         records = []
         for line in lines:
             if not line:
