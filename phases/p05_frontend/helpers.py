@@ -19,9 +19,11 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.codegen.entities import templates_first_enabled
 from aether_os.core.llm import client as _llm_client
 from aether_os.phases.p05_frontend.design_brief import entity_widget_brief
 from aether_os.phases.p05_frontend.prompts import get_domain_color_hint
+from aether_os.phases.p05_frontend.ui_primitives import write_fixed_primitive_set
 from aether_os.phases.p05_frontend.sse_hook import _generate_sse_hook  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
@@ -512,6 +514,9 @@ def write_ui_components(src_dir: "Path") -> None:  # type: ignore[name-defined]
     _write_with_guard(_ui_dir / "Tooltip.tsx", generate_ui_tooltip())
     _write_with_guard(_ui_dir / "Table.tsx",   generate_ui_table())
     logger.info("p05: wrote 10 shadcn/ui-compatible components to %s", _ui_dir)
+    if templates_first_enabled():
+        # Dialog, Label, Textarea, Separator, Tabs and lib/utils: the rest of the fixed set, so missing_modules adds nothing.
+        logger.info("p05: wrote fixed primitives %s", write_fixed_primitive_set(_Path(src_dir)))
 
 
 # ── SSE / Realtime Hook Generation ───────────────────────────────────────────
