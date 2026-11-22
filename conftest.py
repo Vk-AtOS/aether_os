@@ -51,6 +51,8 @@ os.environ.setdefault("AETHER_DISABLE_MONITORS", "1")
 # Guardian snapshot dumps default to ./snapshots/guardian inside the source tree and were committed
 # (KAN-192/194); tests must never write into the repo.
 os.environ.setdefault("GUARDIAN_SNAPSHOT_DIR", tempfile.mkdtemp(prefix="aether-snapshots-"))
+# Runtime state (error registry, stage feedback) goes to a temp dir, never into the checkout (KAN-217).
+os.environ.setdefault("AETHER_STATE_DIR", tempfile.mkdtemp(prefix="aether-state-"))
 
 
 @pytest.fixture(autouse=True)

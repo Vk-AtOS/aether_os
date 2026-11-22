@@ -4,7 +4,7 @@ SnapshotManager — takes and restores DB snapshots.
 PostgreSQL: pg_dump / psql via subprocess
 SQLite:     Python sqlite3 backup API
 
-Snapshots are stored in GUARDIAN_SNAPSHOT_DIR (default: ./snapshots/guardian/).
+Snapshots are stored in GUARDIAN_SNAPSHOT_DIR (default: <AETHER_STATE_DIR>/snapshots/guardian/).
 Up to GUARDIAN_MAX_SNAPSHOTS are kept (default: 10); older ones are pruned.
 Each snapshot file is SHA-256 hashed and recorded in guardian_snapshots table.
 """
@@ -23,9 +23,13 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
+from aether_os.core.state_paths import state_dir
+
 logger = logging.getLogger(__name__)
 
-_SNAPSHOT_DIR = Path(os.environ.get("GUARDIAN_SNAPSHOT_DIR", "./snapshots/guardian")).resolve()
+# Default under the writable state directory: "./snapshots" resolved against the working directory (/srv on the
+# production host), which the non-root API user cannot write (KAN-216).
+_SNAPSHOT_DIR = Path(os.environ.get("GUARDIAN_SNAPSHOT_DIR") or (state_dir() / "snapshots" / "guardian")).resolve()
 _MAX_SNAPSHOTS = int(os.environ.get("GUARDIAN_MAX_SNAPSHOTS", "10"))
 
 
