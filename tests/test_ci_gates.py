@@ -13,14 +13,13 @@ def test_security_gates_are_blocking_and_scripted():
 def test_audit_reads_the_lock_file_and_every_ignore_is_justified():
     s = (ROOT / "scripts" / "ci" / "audit_deps.sh").read_text()
     assert "-r requirements.lock" in s and "set -euo pipefail" in s
-    # Only reviewed ids may be ignored, and a new ignore must be added here on purpose: the four chromadb server-mode ids,
-    # plus the five starlette 1.x-only advisories (22 Nov 2026, each with its deployment reason in the script).
-    reviewed = {"PYSEC-2026-311", "PYSEC-2026-3813", "PYSEC-2026-3814", "PYSEC-2026-3815",
-                "PYSEC-2026-161", "PYSEC-2026-248", "PYSEC-2026-249", "PYSEC-2026-2280", "PYSEC-2026-2281"}
+    # Only reviewed ids may be ignored, and a new ignore must be added here on purpose: the four chromadb server-mode ids.
+    # The five starlette advisories ignored until KAN-241 are fixed by starlette 1.x and must not come back.
+    reviewed = {"PYSEC-2026-311", "PYSEC-2026-3813", "PYSEC-2026-3814", "PYSEC-2026-3815"}
     import re
     assert set(re.findall(r"--ignore-vuln (\S+)", s)) == reviewed and s.count("--ignore-vuln") == len(reviewed)
     assert "PersistentClient" in s
-    for vid in reviewed - {"PYSEC-2026-311", "PYSEC-2026-3813", "PYSEC-2026-3814", "PYSEC-2026-3815"}:
+    for vid in reviewed:
         assert re.search(rf"^# {re.escape(vid)} .+", s, re.M), f"{vid} is ignored without a written reason"
 
 
