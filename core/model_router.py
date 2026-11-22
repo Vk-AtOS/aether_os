@@ -23,7 +23,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from aether_os.core.llm.plans import PLATFORM_ORG
-from aether_os.core.llm.task_profiles import call_with_growth, profile_for, resolve_max_tokens, tiered_chain
+from aether_os.core.llm.task_profiles import call_with_growth, profile_for, record_truncated, resolve_max_tokens, tiered_chain
 from aether_os.core.telemetry.events import LLM_REFUSED
 from aether_os.core.llm.data_policy import effective_level, filter_chain
 from aether_os.core.model_router_providers import (
@@ -319,7 +319,9 @@ class ModelRouter:
                         result = await call_with_growth(
                             lambda n: self._call_provider(spec, _active_prompt, task_type, system, n,
                                                           api_key=_api_key, timeout=_timeout),
-                            max_tokens, _timeout, f"{spec.provider}/{spec.model} task={task_type}")
+                            max_tokens, _timeout, f"{spec.provider}/{spec.model} task={task_type}",
+                            admit=lambda n: admit(org_id, plan, prompt, system, n, enforce_local),
+                            record=lambda n: record_truncated(org_id, spec.model, _active_prompt, n, enforce_local))
 
                     # ── Success ──────────────────────────────────────────────
                     _active_model = f"{spec.provider}/{spec.model}"

@@ -137,3 +137,75 @@ def test_no_phase_hard_codes_max_tokens_on_a_model_call():
 def test_documentation_is_light_but_gets_room_for_long_output():
     prof = tp.profile_for("documentation")
     assert prof.tier == "light" and prof.max_tokens == 12288
+
+
+def test_grown_retry_is_refused_when_it_would_exceed_the_cap_and_both_attempts_are_not_resent():
+    from aether_os.core.errors import LLMUnavailable
+    calls, admitted, recorded = [], [], []
+
+    async def call(n):
+        calls.append(n)
+        raise LLMTruncated("cut")
+
+    async def admit(n):
+        admitted.append(n)
+        raise LLMUnavailable("Monthly AI allowance exhausted")
+
+    async def record(n):
+        recorded.append(n)
+    with pytest.raises(LLMTruncated, match="refused by the budget check"):
+        asyncio.run(tp.call_with_growth(call, 1000, 5, "x", admit=admit, record=record))
+    assert calls == [1000] and admitted == [2000] and recorded == [1000]   # no second request; first attempt booked
+
+
+def test_truncated_replies_are_recorded_on_both_attempts():
+    calls, recorded = [], []
+
+    async def call(n):
+        calls.append(n)
+        raise LLMTruncated("cut")
+
+    async def admit(n):
+        return None
+
+    async def record(n):
+        recorded.append(n)
+    with pytest.raises(LLMTruncated):
+        asyncio.run(tp.call_with_growth(call, 1000, 5, "x", admit=admit, record=record))
+    assert recorded == [1000, 2000]
+
+
+def test_record_truncated_books_output_tokens_against_the_org(monkeypatch):
+    booked = AsyncMock()
+    monkeypatch.setattr(tp, "get_budget_manager", lambda: type("M", (), {"record_usage": booked})())
+    asyncio.run(tp.record_truncated("org_1", "m", "x" * 400, 6144, False))
+    booked.assert_awaited_once_with(org_id="org_1", input_tokens=100, output_tokens=6144, model="m", cache_hit=False)
+    asyncio.run(tp.record_truncated(None, "m", "x", 10, True))     # local-only, no org: nothing to book
+    assert booked.await_count == 1
+
+
+def test_router_admits_the_grown_limit_and_books_the_truncated_attempts(monkeypatch):
+    from aether_os.core import model_router as mr
+    from aether_os.core.errors import LLMUnavailable
+    router = mr.ModelRouter()
+    admitted, recorded = [], []
+
+    async def fake(self, spec, prompt, task_type, system, max_tokens, api_key=None, timeout=None):
+        raise LLMTruncated("cut")
+
+    async def admit(org_id, plan, prompt, system, max_tokens, enforce_local=False):
+        admitted.append(max_tokens)
+        if len(admitted) > 1:
+            raise LLMUnavailable("Monthly AI allowance exhausted")
+        return guard.Admission("pro", "sonnet", [])
+
+    async def record(org_id, model, prompt, n, enforce_local):
+        recorded.append(n)
+    monkeypatch.setattr(mr, "record_truncated", record)
+    with patch.object(mr.ModelRouter, "_call_provider", fake), patch("aether_os.core.llm.guard.admit", admit), \
+         patch("aether_os.core.llm.cache.get_llm_cache") as cache:
+        cache.return_value.get = AsyncMock(return_value=None)
+        with pytest.raises(LLMTruncated, match="refused by the budget check"):
+            asyncio.run(router.call("p", task_type="code_fix", org_id="o", enforce_local=True))
+    limit = tp.profile_for("code_fix").max_tokens
+    assert admitted == [limit, limit * 2] and recorded == [limit]
