@@ -26,6 +26,20 @@ _NO_CACHE_TASKS = {
 }
 
 
+_stats = {"hits": 0, "misses": 0}
+_LOG_EVERY = 10
+
+
+def _record(hit: bool) -> None:
+    """Count lookups and log the hit rate every _LOG_EVERY lookups (KAN-213)."""
+    _stats["hits" if hit else "misses"] += 1
+    total = _stats["hits"] + _stats["misses"]
+    if total % _LOG_EVERY == 0:
+        logger.info(
+            "LLM cache hit rate: %d/%d = %.0f%%", _stats["hits"], total, 100.0 * _stats["hits"] / total
+        )
+
+
 def _make_key(prompt: str, task_type: str, system: Optional[str], org_id: Optional[str] = None) -> str:
     # B8: org_id scopes the cache — prevents cross-tenant response leak
     payload = f"{org_id or 'global'}:{task_type}||{system or ''}||{prompt}"
@@ -62,7 +76,9 @@ class LLMCache:
                     )
                     await session.commit()
                     logger.debug("Cache HIT: task=%s key=%s…", task_type, key[:12])
+                    _record(True)
                     return entry.response
+                _record(False)
         except Exception as exc:
             logger.debug("Cache get failed: %s", exc)
         return None
