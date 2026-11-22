@@ -122,13 +122,14 @@ def build_prompt(role: str, errors: str, source: str, example: str = "src/x.py",
                                extra=("\n" + extra) if extra else "")
 
 
-async def request_patches(prompt: str, tag: str, timeout: float = 60.0) -> list[dict[str, Any]]:
+async def request_patches(prompt: str, tag: str, timeout: float = 90.0) -> list[dict[str, Any]]:
     """Ask the model for a patch list. Never raises: a failed call is an empty list."""
     from aether_os.core.llm.client import get_llm_client   # lazy: the client pulls in the provider stack
     try:
         raw = await asyncio.wait_for(
-            # Reasoning models spend part of max_tokens thinking; 2000 truncated replies on production runs.
-            get_llm_client().call(prompt, task_type="code_generation"), timeout=timeout)
+            # Patches are small, targeted output: the light tier (KAN-211, task type code_fix, 90 s) with its own
+            # reasoning headroom; a hard-coded max_tokens here bypassed the task profiles.
+            get_llm_client().call(prompt, task_type="code_fix"), timeout=timeout)
     except asyncio.TimeoutError:
         logger.warning("%s: LLM fix call timed out", tag)
         return []
