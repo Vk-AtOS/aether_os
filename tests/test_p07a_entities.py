@@ -3,7 +3,7 @@ from aether_os.phases.p07a_unit_testing.task_agent import _generate_crud_tests, 
 
 
 def test_string_entities_become_dicts():
-    assert _normalise_entities(["Task", {"name": "Project"}, "", 3]) == [{"name": "Task"}, {"name": "Project"}]
+    assert _normalise_entities(["Task", {"name": "Project"}, "", 3]) == [{"name": "Task", "table": "tasks"}, {"name": "Project"}]
     assert _normalise_entities("Task") == [] and _normalise_entities(None) == []
 
 
