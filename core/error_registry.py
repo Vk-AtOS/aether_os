@@ -31,10 +31,12 @@ from typing import Dict, List, Optional
 # caller needs it they can run it in an executor.
 _registry_lock = threading.Lock()
 
+from aether_os.core.state_paths import state_file
+
 logger = logging.getLogger(__name__)
 
-# Default path — lives alongside this module in the core/ package
-_DEFAULT_JSON_PATH = Path(__file__).parent / "error_registry.json"
+# Shipped baseline next to this module; the live registry is a copy under the state directory (core/state_paths.py)
+_SHIPPED_JSON_PATH = Path(__file__).parent / "error_registry.json"
 
 
 class ErrorCategory(Enum):
@@ -52,12 +54,12 @@ class ErrorRegistry:
     Parameters
     ----------
     json_path:
-        Path to the JSON backing file.  Defaults to ``core/error_registry.json``.
+        Path to the JSON backing file.  Defaults to ``error_registry.json`` under AETHER_STATE_DIR.
         The file is created with ``[]`` if it does not exist.
     """
 
     def __init__(self, json_path: Optional[Path] = None) -> None:
-        self._path = json_path or _DEFAULT_JSON_PATH
+        self._path = json_path or state_file("error_registry.json", seed=_SHIPPED_JSON_PATH)
         self._ensure_file()
 
     # ── Public API ────────────────────────────────────────────────────────────
