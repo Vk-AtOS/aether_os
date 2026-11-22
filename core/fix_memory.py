@@ -41,19 +41,33 @@ _PATH = re.compile(r"(?:[\w@.-]*/)+[\w@.-]+")
 _NUM = re.compile(r"\b\d+\b")
 
 # Memory poisoning guard (KAN-215): a stored patch is replayed into later builds with no model call, so only small,
-# local, boring edits are stored. The replace text may not add a package import, a URL or dynamic code execution.
+# local, boring edits are stored. An ALLOWLIST decides (see is_safe_patch); the pattern list below is the second layer.
 MAX_PATCH_CHARS = 400
 LINE_SLACK = 3
+# Any module specifier: `import x from 'p'`, `import {\n a \n} from "p"`, `export * from 'p'`, `import 'p'`.
+_SPECIFIER = re.compile(r"""\bfrom\s*['"`]([^'"`]*)['"`]|\bimport\s*['"`]([^'"`]*)['"`]""")
 _FORBIDDEN_REPLACE = re.compile(
-    r"""https?://|\beval\b|\bFunction\s*\(|dangerouslySetInnerHTML|<\s*script|\brequire\s*\(|\bimport\s*\("""
-    r"""|\bimport\b[^;\n]*?\bfrom\s*['"][^./'"][^'"]*['"]|\bimport\s*['"][^./'"]""", re.I)
+    r"""https?://|//[\w-]+(?:\.[\w-]+|:\d+)"""                                # URL, incl. protocol-relative //host.tld
+    r"""|\beval\b|\bFunction\b|\brequire\s*\(|\bimport\s*\(|<\s*script|dangerouslySetInnerHTML"""
+    r"""|\b(?:inner|outer)HTML\b|insertAdjacentHTML|document\s*\.\s*write"""
+    r"""|\b(?:setTimeout|setInterval)\s*\(\s*['"`]"""                           # string argument runs as code
+    r"""|\b(?:window|globalThis|document|self|top|parent|frames)\s*\[""",        # bracket access to globals
+    re.I)
 
 
 def is_safe_patch(patch: dict) -> bool:
-    """Small find/replace whose replace text passes the denylist (also re-checked on replay, for older rows)."""
+    """Allowlist: small find/replace; every import/export specifier in `replace` is relative ('./', '../') or already
+    in `find`; no URL, HTML sinks, string timers, global bracket access, eval/Function/require/dynamic import.
+    Also re-checked on replay (older rows)."""
     find, rep = patch.get("find"), patch.get("replace")
-    return (isinstance(find, str) and isinstance(rep, str) and bool(find) and len(find) <= MAX_PATCH_CHARS
-            and len(rep) <= MAX_PATCH_CHARS and not _FORBIDDEN_REPLACE.search(rep))
+    if not (isinstance(find, str) and isinstance(rep, str) and find and len(find) <= MAX_PATCH_CHARS
+            and len(rep) <= MAX_PATCH_CHARS) or _FORBIDDEN_REPLACE.search(rep):
+        return False
+    for m in _SPECIFIER.finditer(rep):
+        spec = m.group(1) if m.group(1) is not None else m.group(2)
+        if not (spec.startswith(("./", "../")) or spec in find):
+            return False
+    return True
 
 
 def patch_targets_error(patch: dict, err: dict, source: str) -> bool:
@@ -179,12 +193,14 @@ async def mark_failure(org_id: str, signature: str, session: Optional[AsyncSessi
 
 
 async def apply_stored(org_id: str, signature: str, validate: Callable[[dict], bool],
-                       target_file: Optional[str] = None, session: Optional[AsyncSession] = None) -> list[dict]:
+                       target_file: Optional[str] = None, guard: Optional[Callable[[dict], bool]] = None,
+                       session: Optional[AsyncSession] = None) -> list[dict]:
     """Try the stored patches; `validate(patch)` applies it and says whether it applies cleanly. Returns the applied.
-    With `target_file` the stored path is ignored and the patch only ever touches the file of the current error."""
+    With `target_file` the stored path is ignored and the patch only ever touches the file of the current error.
+    `guard(patch)` runs before validate (the caller checks the patch against the CURRENT error line and source)."""
     stored = await lookup(org_id, signature, session)
     return [p for p in ({**q, "file": target_file} if target_file else q for q in stored)
-            if is_safe_patch(p) and validate(p)]
+            if is_safe_patch(p) and (guard is None or guard(p)) and validate(p)]
 
 
 async def record_run(org_id: str, run_id: str, domain: str, entities: Iterable[str], patterns: Iterable[str],

@@ -45,7 +45,8 @@ class RoundMemory:
                     continue   # already tried in this build: never loop on the same stored fix
                 self._tried.add(sig)
                 applied = await fix_memory.apply_stored(
-                    self.org_id, sig, lambda p: self._apply(self.dir, p), target_file=err["file"])
+                    self.org_id, sig, lambda p: self._apply(self.dir, p), target_file=err["file"],
+                    guard=lambda p, e=err: self._targets_current_error(p, e))
                 if applied:
                     self.hits += 1
                     total += len(applied)
@@ -55,6 +56,14 @@ class RoundMemory:
         except Exception as exc:
             self._disable("lookup", exc)
         return total
+
+    def _targets_current_error(self, patch: dict, err: dict) -> bool:
+        """Same guard as for storing, against the CURRENT source and error line (a stored patch from elsewhere is skipped)."""
+        try:
+            return fix_memory.patch_targets_error(patch, err, (self.dir / err["file"]).read_text())
+        except Exception as exc:
+            logger.debug("p05 fix memory: cannot read %s: %s", err["file"], exc)
+            return False
 
     def screen_model_patches(self, output: str, patches: list) -> None:
         """BEFORE the patches are applied: keep only those that may be stored (memory poisoning guard, see
