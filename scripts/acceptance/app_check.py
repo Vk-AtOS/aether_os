@@ -35,6 +35,12 @@ def text(page, n=400):
 _CRASH_RE = re.compile(r"Something went wrong|Failed to load", re.IGNORECASE)
 
 
+def base_origin(url: str) -> str:
+    """scheme://host of a URL (sidebar hrefs are root-relative)."""
+    m = re.match(r"https?://[^/]+", url)
+    return m.group(0) if m else ""
+
+
 def crashed(body: str) -> bool:
     """True when the page shows the app's error boundary or a load failure instead of content."""
     return bool(_CRASH_RE.search(body))
@@ -125,11 +131,18 @@ def main(pw_file: str, rid: str, out: str) -> int:
         results["C3 pages load"] = bool(links) and not bad_pages
         results["C4 data from API"] = rows_seen
         # C5 create through a form
-        api.clear()
-        page.goto(home)
-        page.wait_for_timeout(3000)
-        new = page.locator('a:has-text("New"), button:has-text("New"), button:has-text("Add"), a:has-text("Add")').first
+        # The landing page may be a stats dashboard with no create button (run 23): try each sidebar page in turn.
         created = False
+        new_sel = 'a:has-text("New"), button:has-text("New"), button:has-text("Add"), a:has-text("Add")'
+        new = page.locator(new_sel).first
+        for _label, href in [("home", home)] + links[:8]:
+            page.goto(href if href.startswith("http") else base_origin(page.url) + href)
+            page.wait_for_timeout(3000)
+            new = page.locator(new_sel).first
+            if new.count():
+                print(f"  C5 create button on {_label!r}")
+                break
+        api.clear()
         if new.count():
             new.click()
             page.wait_for_timeout(2500)
