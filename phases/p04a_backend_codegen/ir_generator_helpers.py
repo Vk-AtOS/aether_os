@@ -9,8 +9,7 @@ Contains generators for:
 """
 from __future__ import annotations
 
-import re
-
+from aether_os.core.codegen.stats_fields import DONE_STATUSES, overdue_fields, stage_slug
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity
 from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields, is_user_entity  # noqa: F401
 from aether_os.phases.p04a_backend_codegen.ir_seed_generator import (  # noqa: F401  (re-exported for callers)
@@ -296,10 +295,11 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
         "from __future__ import annotations",
         "from fastapi import APIRouter, Depends",
         "from sqlalchemy.ext.asyncio import AsyncSession",
-        "from sqlalchemy import select, func",
+        "from sqlalchemy import select, func, or_",
         "from database import get_db",
         "from auth import get_current_user",
         "import models",
+        *(["from datetime import date, datetime, timezone"] if any(overdue_fields((f.name, f.type) for f in e.fields) for e in domain_entities) else []),
         "",
         "router = APIRouter(prefix='/stats', tags=['Stats'])",
         "",
@@ -320,6 +320,23 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
         lines += [
             f"    _r = await db.execute(select(func.count()).select_from(models.{entity.name}){_w(entity)})",
             f"    stats['total_{entity.table}'] = _r.scalar_one()",
+        ]
+
+    # Overdue per entity: a date-like due field plus a status field (KAN-225). Rows whose status is final or empty-due
+    # are not overdue; the dashboard reads overdue_<table> and never computes it itself.
+    for entity in domain_entities:
+        pair = overdue_fields((f.name, f.type) for f in entity.fields)
+        if not pair:
+            continue
+        due, kind, status = pair
+        now = "date.today()" if kind == "date" else "datetime.now(timezone.utc)"
+        lines += [
+            "    _od_r = await db.execute(",
+            f"        select(func.count()).select_from(models.{entity.name})",
+            f"        .where(models.{entity.name}.{due} < {now}, or_(models.{entity.name}.{status}.is_(None), "
+            f"func.lower(models.{entity.name}.{status}).not_in({list(DONE_STATUSES)!r})){_m(entity)})",
+            "    )",
+            f"    stats['overdue_{entity.table}'] = _od_r.scalar_one()",
         ]
 
     lines.append("")
@@ -343,7 +360,7 @@ def generate_stats_router(ir: DomainIR, multi_tenancy: bool = False) -> str:
             # its index (unique, never starts with a digit) and the value is a Python literal via repr(). Pasting the raw
             # value produced `_stage_to do_r = ...`, a SyntaxError that failed Stage 3 on production (22 Nov 2026).
             for idx, val in enumerate(status_field.enum_values):
-                slug = re.sub(r"\W+", "_", str(val).lower()).strip("_") or "value"
+                slug = stage_slug(val)
                 var = f"_stage_{idx}_{slug}_r"
                 lines += [
                     f"    {var} = await db.execute(",
