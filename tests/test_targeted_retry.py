@@ -102,3 +102,16 @@ def test_s04_gate_names_failing_file():
     gate = asyncio.run(s04.FrontendStageSupervisor().validate_gate(res, None))
     assert not gate.passed and set(gate.failed_files) == {"src/pages/TaskPage.tsx"}
     assert "TaskPage.tsx" in gate.issues[0] and "check p05 logs" not in gate.issues[0]
+
+
+def test_generic_gate_failures_keep_every_whole_stage_attempt():
+    """Generic issue text ("sub-step reported failure") is not proof of identical input: a real model can pass on a
+    later whole-stage attempt, so phases without file-level failures keep all max_retries attempts."""
+    class Generic(FakeStage):
+        async def validate_gate(self, result, phase_input):
+            if self.generated >= 3:
+                return GateOutcome(passed=True)
+            return GateOutcome(passed=False, issues=["s04_frontend: sub-step reported failure"])
+
+    st = Generic(fixed_after=99)
+    assert _run(st).success and st.generated == 3

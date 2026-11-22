@@ -258,11 +258,15 @@ class PhaseBase:
                         "[%s] Gate fail attempt %d/%d: %s",
                         self.phase_name, attempt, self.max_retries, last_error,
                     )
-                    sig = failure_signature(gate.failed_files, gate.issues)
-                    if sig == last_sig:
-                        last_error = f"identical gate failure repeated, not retrying again: {last_error}"
-                        break
-                    last_sig = sig
+                    # Stop early only when the gate names the exact files and errors: generic issue text such as
+                    # "sub-step reported failure" looks identical for different model outputs, and a whole-stage
+                    # rerun on a real model can pass (s04 passed on its third attempt on runs 9 and 10).
+                    if gate.failed_files:
+                        sig = failure_signature(gate.failed_files, gate.issues)
+                        if sig == last_sig:
+                            last_error = f"identical gate failure repeated, not retrying again: {last_error}"
+                            break
+                        last_sig = sig
                     memory_ctx = [{"failure": last_error}] + memory_ctx
 
             except Exception as e:
