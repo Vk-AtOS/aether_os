@@ -23,17 +23,12 @@ export const previewErrorMessage = (err) => {
 // Resolves to the single-use enter URL on the run's own preview origin.
 export const requestPreviewUrl = async (runId) => (await api.createPreviewSession(runId)).data.url;
 
-// Open the preview in a new tab. The tab is opened first (inside the click) so popup blockers
-// allow it, then pointed at the one-time link. Resolves to an error message or null.
+// Open the preview in a new tab: the tab loads the dashboard's own /preview-open/<run> page (same origin, signed in),
+// which requests the one-time link and redirects itself. Opening it inside the click keeps popup blockers happy, and
+// nothing has to steer a blank cross-window tab afterwards. Resolves to an error message or null.
+export const previewOpenPath = (runId) => `${import.meta.env.BASE_URL || '/dashboard/'}preview-open/${encodeURIComponent(runId)}`;
+
 export const openPreviewInTab = async (runId) => {
-  const tab = window.open('about:blank', '_blank');
-  if (tab) tab.opener = null;
-  try {
-    const url = await requestPreviewUrl(runId);
-    if (tab) tab.location.href = url; else window.location.assign(url);
-    return null;
-  } catch (err) {
-    if (tab) tab.close();
-    return previewErrorMessage(err);
-  }
+  window.open(previewOpenPath(runId), '_blank', 'noopener');   // returns null with noopener even when it opened
+  return null;
 };
