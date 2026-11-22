@@ -258,14 +258,17 @@ async def generate_domain_widget(
             if dashboard_file.exists():
                 content = dashboard_file.read_text()
                 if "DomainWidget" not in content:
+                    # A widget is model-written: if it throws while rendering, drop it, keep the dashboard.
+                    # (The boundary's own card is full-screen, so the fallback is an empty fragment, not null.)
                     content = content.replace(
                         "import { useQuery }",
-                        "import DomainWidget from '../components/DomainWidget'\nimport { useQuery }",
+                        "import DomainWidget from '../components/DomainWidget'\n"
+                        "import { ErrorBoundary } from '../components/ErrorBoundary'\nimport { useQuery }",
                         1,
                     )
                     content = content.replace(
                         "{/* DOMAIN_WIDGET_SLOT */}",
-                        '<div className="mt-8"><DomainWidget /></div>',
+                        '<div className="mt-8"><ErrorBoundary fallback={<></>}><DomainWidget /></ErrorBoundary></div>',
                         1,
                     )
                     dashboard_file.write_text(content)

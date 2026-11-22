@@ -164,10 +164,35 @@ def ensure_real_stats(code: str, entities: List[Dict[str, Any]], project_name: s
 _MOCK_DATA = re.compile(r"\bconst\s+(?:mock|sample|dummy|fake)\w*\s*=", re.I)
 
 
+# A JSX component tag: "<Name" not directly after an identifier (that would be a generic such as useQuery<Stats>).
+_JSX_COMPONENT = re.compile(r"(?<![\w.$])<([A-Z]\w*)")
+_COMMENTS = re.compile(r"/\*.*?\*/|(?<![:\\])//[^\n]*", re.S)
+
+
+def undeclared_components(code: str) -> List[str]:
+    """JSX components the code renders but never imports or declares: each one throws a ReferenceError at render.
+
+    Conservative: a name counts as declared when it appears anywhere outside a tag (import, const, parameter,
+    destructuring alias), so only a name that exists solely as <Name ...> / </Name> is reported."""
+    code = _COMMENTS.sub("", code)
+    missing = set()
+    for name in set(_JSX_COMPONENT.findall(code)):
+        if not re.search(rf"(?<![<\w/.$]){name}\b", code):
+            missing.add(name)
+    return sorted(missing)
+
+
 def widget_reason(code: str) -> Optional[str]:
-    """Why a model-written DomainWidget may not ship (it invents its data), None when it is fine."""
+    """Why a model-written DomainWidget may not ship, None when it is fine.
+
+    Refused: invented data, or a component used without an import. Run 22 shipped a widget that rendered
+    <ClipboardList> without importing it; vite does not type-check, so the build passed and the admin landing
+    page crashed into the error boundary right after sign-in."""
     m = _MOCK_DATA.search(code)
-    return f"invented data ({m.group(0).strip()})" if m else None
+    if m:
+        return f"invented data ({m.group(0).strip()})"
+    missing = undeclared_components(code)
+    return f"renders undeclared components ({', '.join(missing[:5])})" if missing else None
 
 
 def _widget_head(imports: str) -> str:
