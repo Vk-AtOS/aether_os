@@ -15,6 +15,7 @@ from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_stripe_service,
     generate_s3_service,
 )
+from aether_os.phases.p04b_business_logic.static_check import undefined_names
 from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, normalise_event_names, write_inside
 from aether_os.phases.p04b_business_logic.helpers import (
     _FALLBACK_WORKFLOW_ENGINE,
@@ -36,6 +37,7 @@ def _validate_python_output(code: str, filename: str) -> list[str]:
     # Check for relative imports
     if "from ." in code:
         errors.append(f"{filename}: contains relative imports — must use absolute imports")
+    errors.extend(undefined_names(code, filename))
     return errors
 
 
@@ -263,7 +265,12 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
     except Exception as exc:
         logger.warning("p04b: LLM Call A (workflow engine) failed: %s — using fallback", exc)
 
+    _wf_fallback = _FALLBACK_WORKFLOW_ENGINE.format(domain=domain, project_name=project_name)
     _wf_errs = _validate_python_output(workflow_engine_code, "workflow_engine.py")
+    if _wf_errs and workflow_engine_code != _wf_fallback:
+        logger.warning("p04b: model workflow engine refused (%s); using the deterministic fallback", _wf_errs[:2])
+        workflow_engine_code = _wf_fallback
+        _wf_errs = _validate_python_output(workflow_engine_code, "workflow_engine.py")
     if _wf_errs:
         for _e in _wf_errs:
             logger.warning("p04b: workflow_engine.py validation error: %s", _e)
@@ -315,7 +322,14 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
     except Exception as exc:
         logger.warning("p04b: LLM Call B (business rules) failed: %s — using fallback", exc)
 
+    _br_fallback = _FALLBACK_BUSINESS_RULES.format(
+        domain=domain, project_name=project_name
+    )
     _br_errs = _validate_python_output(business_rules_code, "business_rules.py")
+    if _br_errs and business_rules_code != _br_fallback:
+        logger.warning("p04b: model business rules refused (%s); using the deterministic fallback", _br_errs[:2])
+        business_rules_code = _br_fallback
+        _br_errs = _validate_python_output(business_rules_code, "business_rules.py")
     if _br_errs:
         for _e in _br_errs:
             logger.warning("p04b: business_rules.py validation error: %s", _e)
