@@ -23,7 +23,7 @@ paths = [
 ]
 
 [[allowlists]]
-description = "Generated-app templates: literal 'replace...' / sk_test_placeholder stubs, not credentials"
+description = "Generated-app templates: literal 'replace...' stubs and Stripe test-mode placeholder strings, not credentials"
 targetRules = ["generic-api-key", "stripe-access-token"]
 paths = [
   '''phases/p11_deployment/(writers|task_agent)\.py''',
