@@ -191,10 +191,11 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3, org_id: str | 
             continue  # a stored fix was applied (no model call): rebuild to validate it
         combined = full_output[-_MAX_ERR_CHARS:]
         patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
+        memory.screen_model_patches(full_output, patches)  # before applying: needs the unpatched source
         report = await apply_verified(frontend_dir, patches, _may_patch(frontend_dir), "p05 build_loop",
                                       lambda: _tsc_not_worse(frontend_dir, len(tsc_lines)))
         report.log("p05 build_loop", round_num)
-        memory.remember_model_patches(full_output, report.applied_patches)   # KAN-215: settle() keeps those that fixed
+        memory.remember_model_patches(report.applied_patches)   # KAN-215: settle() keeps those that fixed the error
         if report.applied == 0:
             break  # no progress possible: do not burn rounds
     logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])

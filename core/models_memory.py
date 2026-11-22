@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import DateTime, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -29,6 +30,9 @@ class FixMemory(Base):
     file_kind: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     patches: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     hits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Provenance, so a bad row can be audited and deleted (core/fix_memory.purge_run).
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, default="system")
     failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_used_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

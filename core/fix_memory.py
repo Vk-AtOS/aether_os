@@ -35,10 +35,37 @@ _CHARS_PER_TOKEN = 4
 
 # tsc: "src/pages/X.tsx(254,306): error TS2304: ..."; vite/esbuild: "/abs/src/pages/X.tsx:291:42: ERROR: ..."
 _ERR_LINE = re.compile(
-    r"^\s*(?P<file>\S+?\.(?:tsx|ts|jsx|js|css))(?:\(\d+,\d+\)|:\d+:\d+):?\s*(?:error|ERROR)\b:?\s*(?P<msg>.+?)\s*$")
+    r"^\s*(?P<file>\S+?\.(?:tsx|ts|jsx|js|css))(?:\((?P<l1>\d+),\d+\)|:(?P<l2>\d+):\d+):?\s*(?:error|ERROR)\b:?\s*(?P<msg>.+?)\s*$")
 _QUOTED = re.compile(r"""'[^']*'|"[^"]*"|`[^`]*`""")
 _PATH = re.compile(r"(?:[\w@.-]*/)+[\w@.-]+")
 _NUM = re.compile(r"\b\d+\b")
+
+# Memory poisoning guard (KAN-215): a stored patch is replayed into later builds with no model call, so only small,
+# local, boring edits are stored. The replace text may not add a package import, a URL or dynamic code execution.
+MAX_PATCH_CHARS = 400
+LINE_SLACK = 3
+_FORBIDDEN_REPLACE = re.compile(
+    r"""https?://|\beval\b|\bFunction\s*\(|dangerouslySetInnerHTML|<\s*script|\brequire\s*\(|\bimport\s*\("""
+    r"""|\bimport\b[^;\n]*?\bfrom\s*['"][^./'"][^'"]*['"]|\bimport\s*['"][^./'"]""", re.I)
+
+
+def is_safe_patch(patch: dict) -> bool:
+    """Small find/replace whose replace text passes the denylist (also re-checked on replay, for older rows)."""
+    find, rep = patch.get("find"), patch.get("replace")
+    return (isinstance(find, str) and isinstance(rep, str) and bool(find) and len(find) <= MAX_PATCH_CHARS
+            and len(rep) <= MAX_PATCH_CHARS and not _FORBIDDEN_REPLACE.search(rep))
+
+
+def patch_targets_error(patch: dict, err: dict, source: str) -> bool:
+    """The patch edits the erroring file, within LINE_SLACK lines of the error line, and is safe."""
+    if not is_safe_patch(patch) or not err.get("file") or not str(patch.get("file", "")).endswith(err["file"]):
+        return False
+    idx = source.find(patch["find"])
+    if idx < 0 or not err.get("line"):
+        return False
+    first = source.count("\n", 0, idx) + 1
+    last = first + patch["find"].count("\n")
+    return first - LINE_SLACK <= err["line"] <= last + LINE_SLACK
 
 
 def normalise_error(message: str) -> str:
@@ -61,7 +88,7 @@ def file_kind_of(path: str) -> str:
 
 
 def parse_errors(output: str, limit: int = 10) -> list[dict[str, str]]:
-    """[{signature, file, file_kind}] for the located errors of a tsc / vite output (first `limit`, one per signature+file)."""
+    """[{signature, file, file_kind, line}] for the located errors of a tsc / vite output (first `limit`, one per signature+file)."""
     seen: set[tuple[str, str]] = set()
     found: list[dict[str, str]] = []
     for line in (output or "").splitlines():
@@ -73,7 +100,8 @@ def parse_errors(output: str, limit: int = 10) -> list[dict[str, str]]:
         if (sig, rel) in seen:
             continue
         seen.add((sig, rel))
-        found.append({"signature": sig, "file": rel, "file_kind": file_kind_of(rel)})
+        found.append({"signature": sig, "file": rel, "file_kind": file_kind_of(rel),
+                      "line": int(m["l1"] or m["l2"] or 0)})
         if len(found) >= limit:
             break
     return found
@@ -105,18 +133,29 @@ async def lookup(org_id: str, signature: str, session: Optional[AsyncSession] = 
         return list(row.patches) if row else []
 
 
-async def record(org_id: str, signature: str, file_kind: str, patches: list[dict],
-                 session: Optional[AsyncSession] = None) -> None:
-    """Store (or refresh) a fix that worked. A refreshed fix starts with a clean failure count."""
-    clean = [{k: p[k] for k in ("file", "find", "replace") if k in p} for p in patches if isinstance(p, dict)]
+async def record(org_id: str, signature: str, file_kind: str, patches: list[dict], run_id: Optional[str] = None,
+                 user_id: str = "system", session: Optional[AsyncSession] = None) -> None:
+    """Store (or refresh) a fix that worked, with its provenance (run_id, user_id). A refreshed fix starts with a
+    clean failure count. Unsafe patches are never stored."""
+    clean = [{k: p[k] for k in ("file", "find", "replace") if k in p}
+             for p in patches if isinstance(p, dict) and is_safe_patch(p)]
     if not org_id or not clean:
         return
     async with _scope(session) as s:
         row = await _row(s, org_id, signature)
         if row:
             row.patches, row.file_kind, row.failures = clean, file_kind, 0
+            row.run_id, row.user_id = run_id, user_id
         else:
-            s.add(FixMemory(org_id=org_id, signature=signature, file_kind=file_kind, patches=clean))
+            s.add(FixMemory(org_id=org_id, signature=signature, file_kind=file_kind, patches=clean,
+                            run_id=run_id, user_id=user_id))
+
+
+async def purge_run(org_id: str, run_id: str, session: Optional[AsyncSession] = None) -> int:
+    """Delete every fix this org stored from `run_id` (audit / incident response). Returns the rows deleted."""
+    async with _scope(session) as s:
+        res = await s.execute(delete(FixMemory).where(FixMemory.org_id == org_id, FixMemory.run_id == run_id))
+        return res.rowcount or 0
 
 
 async def mark_hit(org_id: str, signature: str, session: Optional[AsyncSession] = None) -> None:
@@ -140,9 +179,12 @@ async def mark_failure(org_id: str, signature: str, session: Optional[AsyncSessi
 
 
 async def apply_stored(org_id: str, signature: str, validate: Callable[[dict], bool],
-                       session: Optional[AsyncSession] = None) -> list[dict]:
-    """Try the stored patches; `validate(patch)` applies it and says whether it applies cleanly. Returns the applied."""
-    return [p for p in await lookup(org_id, signature, session) if validate(p)]
+                       target_file: Optional[str] = None, session: Optional[AsyncSession] = None) -> list[dict]:
+    """Try the stored patches; `validate(patch)` applies it and says whether it applies cleanly. Returns the applied.
+    With `target_file` the stored path is ignored and the patch only ever touches the file of the current error."""
+    stored = await lookup(org_id, signature, session)
+    return [p for p in ({**q, "file": target_file} if target_file else q for q in stored)
+            if is_safe_patch(p) and validate(p)]
 
 
 async def record_run(org_id: str, run_id: str, domain: str, entities: Iterable[str], patterns: Iterable[str],
