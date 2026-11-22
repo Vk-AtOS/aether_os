@@ -223,7 +223,7 @@ async def regenerate_file(
 
     fixed_content: Optional[str] = None
     try:
-        fixed_content = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
+        fixed_content = await llm.call(prompt, task_type="code_generation")
     except Exception as e:
         logger.warning("[s05] regenerate_file: LLM call failed for %s: %s", file_path.name, e)
         return False

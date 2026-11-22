@@ -160,7 +160,7 @@ async def parse_audio_transcript(audio_base64: str, audio_format: str = "mp3") -
             "should do, its key features, and any technical constraints mentioned. "
             "Start with a one-sentence summary of the application."
         )
-        structured = await llm.call(structure_prompt, task_type="analysis", max_tokens=1024)
+        structured = await llm.call(structure_prompt, task_type="analysis")
         return structured.strip() if structured else transcript
     except Exception as exc:
         logger.warning("multimodal_intake: transcript structuring LLM call failed: %s", exc)

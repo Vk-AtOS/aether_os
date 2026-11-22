@@ -172,7 +172,7 @@ async def _generate_domain_component(
     client = _llm_client.get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="ui_component", max_tokens=2000),
+            client.call(prompt, task_type="ui_component"),
             timeout=90.0
         )
         if (

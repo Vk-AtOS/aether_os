@@ -315,7 +315,7 @@ async def run(
             f"API endpoints:\n{ep_summary}\n"
             "Return only the markdown content, at least 500 words."
         )
-        readme_content = await llm.call(prompt, task_type="documentation", max_tokens=4000)
+        readme_content = await llm.call(prompt, task_type="documentation")
     except Exception as exc:
         logger.warning("p09_documentation: LLM failed (%s), using fallback template", exc)
 

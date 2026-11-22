@@ -257,7 +257,7 @@ Requirements:
 Return ONLY valid Python code. No markdown fences, no explanation.
 File: services/{slug}_client.py"""
 
-                result = await llm.call(prompt, task_type="code_generation", max_tokens=2500)
+                result = await llm.call(prompt, task_type="code_generation")
                 if result and len(result.strip()) > 200:
                     result = re.sub(r"^```(?:python)?\s*\n?", "", result.strip())
                     result = re.sub(r"\n?```\s*$", "", result.strip())

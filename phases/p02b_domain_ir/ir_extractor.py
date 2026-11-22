@@ -458,7 +458,7 @@ async def run_4pass_extraction(
         seed_entities=seed,
     ) + rag_section
     try:
-        resp1 = await llm.call(_p1_prompt, task_type="analysis", max_tokens=4096)
+        resp1 = await llm.call(_p1_prompt, task_type="analysis")
         p1 = _extract_json(resp1)
         if not p1.get("entities"):
             logger.warning("p02b pass1 returned no entities")
@@ -477,7 +477,7 @@ async def run_4pass_extraction(
             entities_json=json.dumps(p1.get("entities", []), indent=2),
         )
         try:
-            resp2 = await llm.call(_p2_prompt, task_type="analysis", max_tokens=2048)
+            resp2 = await llm.call(_p2_prompt, task_type="analysis")
             p2 = _extract_json(resp2)
             if not p2.get("relationships"):
                 logger.warning("p02b pass2 returned no relationships")
@@ -496,7 +496,7 @@ async def run_4pass_extraction(
             entities_json=json.dumps(p1.get("entities", []), indent=2),
         )
         try:
-            resp3 = await llm.call(_p3_prompt, task_type="analysis", max_tokens=3000)
+            resp3 = await llm.call(_p3_prompt, task_type="analysis")
             p3 = _extract_json(resp3)
         except Exception as exc:
             logger.error("p02b pass3 LLM error: %s", exc)
@@ -527,7 +527,7 @@ async def run_4pass_extraction(
             ir_json=json.dumps(_interim_ir, indent=2)[:5000],
         )
         try:
-            resp4 = await llm.call(_p4_prompt, task_type="analysis", max_tokens=4096)
+            resp4 = await llm.call(_p4_prompt, task_type="analysis")
             p4 = _extract_json(resp4)
             if not p4.get("entities"):
                 # If pass4 fails to return a complete IR, fall back to the merged interim

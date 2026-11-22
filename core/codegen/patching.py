@@ -128,7 +128,7 @@ async def request_patches(prompt: str, tag: str, timeout: float = 60.0) -> list[
     try:
         raw = await asyncio.wait_for(
             # Reasoning models spend part of max_tokens thinking; 2000 truncated replies on production runs.
-            get_llm_client().call(prompt, task_type="code_generation", max_tokens=4000), timeout=timeout)
+            get_llm_client().call(prompt, task_type="code_generation"), timeout=timeout)
     except asyncio.TimeoutError:
         logger.warning("%s: LLM fix call timed out", tag)
         return []

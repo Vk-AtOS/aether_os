@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 HEAVY, LIGHT, NONE = "heavy", "light", "none"
 
-_DEFAULTS = {HEAVY: (16384, 240), LIGHT: (4096, 90)}   # (max_tokens, timeout seconds)
+_DEFAULTS = {HEAVY: (16384, 240), LIGHT: (6144, 90)}   # (max_tokens, timeout seconds)
+
+_LIMIT_OVERRIDE = {"documentation": 12288}   # light model, but a README / handbook is long output
 
 _TIER_OF = {
     # heavy
@@ -70,6 +72,7 @@ def profile_for(task_type: str) -> TaskProfile:
         return TaskProfile(NONE, 0, 0)
     tokens, timeout = _DEFAULTS[tier]
     suffix = tier.upper()
+    tokens = _LIMIT_OVERRIDE.get(task_type, tokens)
     return TaskProfile(tier, _env_int(f"LLM_MAX_TOKENS_{suffix}", tokens), _env_int(f"LLM_TIMEOUT_{suffix}", timeout))
 
 

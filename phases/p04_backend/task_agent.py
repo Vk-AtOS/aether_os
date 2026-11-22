@@ -68,7 +68,7 @@ async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noq
         "Do not change working API endpoints or business logic."
     )
     try:
-        fixed = await client.call(prompt, task_type="code_fix", max_tokens=4000)
+        fixed = await client.call(prompt, task_type="code_fix")
         if fixed and len(fixed.strip()) > 100:
             try:
                 ast.parse(fixed)

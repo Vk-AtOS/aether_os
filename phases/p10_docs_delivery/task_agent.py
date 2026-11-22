@@ -121,7 +121,7 @@ Return ONLY the JSON object, no markdown fences."""
 
     files: Dict[str, str] = {}
     try:
-        raw = await llm.call(prompt, task_type="documentation", max_tokens=8000)
+        raw = await llm.call(prompt, task_type="documentation")
         # First complete object: fences, leading prose and trailing explanation are ignored.
         files = extract_first_json(raw, expect=dict)
     except Exception as exc:

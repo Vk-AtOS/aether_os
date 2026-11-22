@@ -212,7 +212,7 @@ async def generate_llm_seed(
     client = get_llm_client()
     try:
         result = await asyncio.wait_for(
-            client.call(prompt, task_type="code_generation", max_tokens=4096),
+            client.call(prompt, task_type="code_generation"),
             timeout=90.0,
         )
     except Exception as exc:

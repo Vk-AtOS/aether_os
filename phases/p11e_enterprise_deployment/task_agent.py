@@ -116,7 +116,7 @@ output "elasticache_endpoint" {
         from aether_os.core.llm.client import get_llm_client
         llm = get_llm_client()
         prompt = build_aws_terraform_prompt(project_name, domain, tech_stack, raw_input)
-        result = await llm.call(prompt, task_type="code_generation", max_tokens=4000)
+        result = await llm.call(prompt, task_type="code_generation")
         if result and len(result.strip()) > 500:
             result = re.sub(r"^```(?:hcl|terraform)?\s*\n?", "", result.strip())
             result = re.sub(r"\n?```\s*$", "", result.strip())

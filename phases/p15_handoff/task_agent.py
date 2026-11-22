@@ -141,7 +141,7 @@ FILE 2 — docs/ARCHITECTURE.md:
 
 Return JSON: {{"readme": "<markdown>", "architecture": "<markdown>"}}
 Return ONLY JSON, no markdown fences around the JSON itself."""
-            result_a = await llm.call(prompt_a, task_type="analysis", max_tokens=3000)
+            result_a = await llm.call(prompt_a, task_type="analysis")
             result_a = _strip_md_fences(result_a)
             parsed_a = json.loads(result_a)
             readme_content = _text(parsed_a, "readme", readme_content)
@@ -182,7 +182,7 @@ FILE 2 — docs/API.md:
 
 Return JSON: {{"database": "<markdown>", "api": "<markdown>"}}
 Return ONLY JSON, no markdown fences around the JSON itself."""
-            result_b = await llm.call(prompt_b, task_type="analysis", max_tokens=4000)
+            result_b = await llm.call(prompt_b, task_type="analysis")
             result_b = _strip_md_fences(result_b)
             parsed_b = json.loads(result_b)
             db_content = _text(parsed_b, "database", db_content)
@@ -232,7 +232,7 @@ FILE 3 — docs/DEVELOPMENT.md:
 
 Return JSON: {{"runbook": "<markdown>", "permissions": "<markdown>", "development": "<markdown>"}}
 Return ONLY JSON, no markdown fences around the JSON itself."""
-            result_c = await llm.call(prompt_c, task_type="analysis", max_tokens=4000)
+            result_c = await llm.call(prompt_c, task_type="analysis")
             result_c = _strip_md_fences(result_c)
             parsed_c = json.loads(result_c)
             runbook_content = _text(parsed_c, "runbook", runbook_content)
@@ -299,7 +299,7 @@ For each endpoint:
 
 Return ONLY valid Postman Collection v2.1 JSON (the complete collection object).
 No explanation, no markdown fences."""
-            result_d = await llm.call(prompt_d, task_type="code_generation", max_tokens=4000)
+            result_d = await llm.call(prompt_d, task_type="code_generation")
             result_d = _strip_md_fences(result_d)
             parsed_d = json.loads(result_d)
             if isinstance(parsed_d, dict) and ("item" in parsed_d or "info" in parsed_d):
