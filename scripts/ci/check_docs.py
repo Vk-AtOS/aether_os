@@ -62,11 +62,13 @@ def source_text():
 def check_routes(out):
     from fastapi.routing import APIRoute
 
+    from aether_os.core.route_walk import iter_routes
     from aether_os.gateway.api import app
 
     live = {}
-    for r in app.routes:
-        if isinstance(r, APIRoute):
+    # FastAPI 0.16x keeps included routers as one opaque entry in app.routes: walk the flattened routes.
+    for r in iter_routes(app.routes):
+        if isinstance(r.original_route, APIRoute):
             for m in r.methods - {"HEAD", "OPTIONS"}:
                 live[(m, r.path)] = r
     row = re.compile(r"^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \| (.*) \|$")
