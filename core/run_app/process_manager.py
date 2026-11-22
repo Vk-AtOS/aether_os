@@ -222,11 +222,15 @@ class RunAppManager:
                         _src = _src.replace("BrowserRouter />", "BrowserRouter basename='/app-preview' />")
                         safe_write_text(root_dir, _src_path, _src)
 
+            # Reuse a previous build only if it was built for the preview path: a dist made for "/" (s04's own
+            # output, or a run-app build before the VITE_BASE_PATH fix) renders a blank page under /app-preview/.
             _dist_already_built = (
                 not _env_changed
                 and frontend_dist
                 and frontend_dist.is_dir()
                 and any(frontend_dist.iterdir())
+                and not assets_outside_base(frontend_dist / "index.html",
+                                            os.environ.get("AETHER_PREVIEW_BASE_PATH", "/app-preview/"))
             )
             if not _dist_already_built:
                 with open(plat_log, "a") as _lf:
