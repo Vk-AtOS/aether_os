@@ -4,6 +4,7 @@ import re
 
 import pytest
 
+from aether_os.core.route_walk import iter_routes
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.role_gate import ADMIN_ONLY, POLICY_GATED, VIEWER_EXACT, VIEWER_MAY, _matches
 
@@ -15,7 +16,7 @@ def _uses_auth(dep):
 
 
 def _auth_routes(app):
-    for r in app.routes:
+    for r in iter_routes(app.routes):
         dep = getattr(r, "dependant", None)
         if dep is not None and _uses_auth(dep):
             for m in sorted(set(r.methods or ()) & set(MUTATING)):
@@ -70,7 +71,7 @@ def _deps(dep):
 
 def test_every_policy_gated_entry_really_enforces_policy(gw):
     """An entry here removes the viewer floor, so its handler must itself ask the policy engine."""
-    routes = {r.path: r for r in gw.app.routes if getattr(r, "dependant", None) is not None}
+    routes = {r.path: r for r in iter_routes(gw.app.routes) if getattr(r, "dependant", None) is not None}
     for path in POLICY_GATED:
         r = routes.get(path)
         assert r is not None, f"{path} is not a route (stale entry)"
@@ -126,3 +127,13 @@ def test_a_viewer_cannot_use_new_account_routes_only_its_own_two(gw):
     r = gw.client.post("/account/import-codebase", headers=viewer.auth, json={"repo_url": "https://github.com/a/b"})
     assert r.status_code == 403
     assert gw.client.put("/account/preferences", headers=viewer.auth, json={}).status_code != 403
+
+
+def test_gate_sees_the_full_path_of_routes_included_with_a_prefix(gw):
+    """KAN-241: on FastAPI 0.16x scope["route"].path lacks include_router(prefix=...); the plugins router is included
+    at /v2, so the gate must match /v2/plugins/install (POLICY_GATED), not /plugins/install (viewer floor)."""
+    owner = gw.register("gate5")
+    viewer = gw.user_with_role("viewer", owner.org_id)
+    assert "/v2/plugins/install" in POLICY_GATED
+    resp = gw.client.post("/v2/plugins/install", headers=viewer.auth, json={})
+    assert "Viewers have read-only access" not in resp.text, resp.text
