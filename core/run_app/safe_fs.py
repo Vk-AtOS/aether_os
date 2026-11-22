@@ -63,8 +63,8 @@ def safe_makedirs(root: PathLike, path: PathLike) -> None:
         for part in parts:
             try:
                 os.mkdir(part, 0o755, dir_fd=fd)
-            except FileExistsError:
-                pass
+            except FileExistsError as e:
+                logger.debug("directory already exists, reusing %s: %s", part, e)
             nxt = os.open(part, _DIR_FLAGS, dir_fd=fd)
             os.close(fd)
             fd = nxt

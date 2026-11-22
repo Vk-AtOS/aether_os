@@ -60,8 +60,8 @@ def parse_eslint(raw_json: str, root: Path) -> Dict[str, List[dict]]:
         rel = Path(entry["filePath"]).as_posix()
         try:
             rel = Path(entry["filePath"]).resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:
-            pass
+        except ValueError as e:
+            logger.debug("eslint path %s is outside the project root, keeping it as is: %s", rel, e)
         msgs = [{"rule": m.get("ruleId") or "", "severity": m.get("severity", 1), "message": m.get("message", ""),
                  "line": m.get("line", 0)} for m in entry.get("messages", [])]
         if msgs:
