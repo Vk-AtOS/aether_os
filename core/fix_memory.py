@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from collections import Counter
 from contextlib import asynccontextmanager
 from typing import Callable, Iterable, Optional
 
@@ -41,95 +40,111 @@ _QUOTED = re.compile(r"""'[^']*'|"[^"]*"|`[^`]*`""")
 _PATH = re.compile(r"(?:[\w@.-]*/)+[\w@.-]+")
 _NUM = re.compile(r"\b\d+\b")
 
-# Memory poisoning guard (KAN-215). A stored patch is replayed into later builds with no model call, so only small,
-# local edits that add nothing but identifiers, numbers and punctuation are stored. Regexes cannot filter code
-# (comments split tokens, strings concatenate into URLs, ...), so the rule works on TOKENS: see is_safe_patch.
+# Memory poisoning guard (KAN-215). A stored patch is replayed into later builds with no model call, so only four
+# narrow EDIT SHAPES are storable (see is_safe_patch); everything else is refused. Code cannot be filtered with
+# regexes or denylists alone (comments split tokens, strings concatenate into URLs, number grammar swallows names).
 MAX_PATCH_CHARS = 400
 LINE_SLACK = 3
 _TOKEN = re.compile(
     r"""(?P<ws>\s+)|(?P<comment>//[^\n]*|/\*.*?(?:\*/|\Z))|(?P<tpl>`(?:\\.|[^`\\])*(?:`|\Z))"""
     r"""|(?P<str>'(?:\\.|[^'\\\n])*(?:'|(?=\n)|\Z)|"(?:\\.|[^"\\\n])*(?:"|(?=\n)|\Z))"""
-    r"""|(?P<num>\d[\w.]*)|(?P<id>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<punct>.)""", re.S)
-# ASCII punctuation only: no quotes, backtick or backslash (those start strings / escapes), nothing non-ASCII.
-_PUNCT_OK = frozenset("{}()[]<>;:,.=+-*/%!?&|^~@#")
+    r"""|(?P<num>\d+(?:\.\d+)?)|(?P<id>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<punct>.)""", re.S)
+_ESCAPE = re.compile(r"\\[ux]", re.I)
+_SPEC_PATH = re.compile(r"(?:\./|\.\./)[\w./@-]*")
+# Identifiers a patch may never introduce (also as a rename target or JSX tag).
 _DENIED_IDENTIFIERS = frozenset(
     "eval Function constructor prototype __proto__ Reflect Proxy window globalThis self top parent frames document "
     "location cookie localStorage sessionStorage indexedDB fetch XMLHttpRequest WebSocket EventSource navigator "
-    "postMessage importScripts require import setTimeout setInterval innerHTML outerHTML insertAdjacentHTML "
-    "dangerouslySetInnerHTML srcdoc atob btoa open script iframe".split())
+    "postMessage importScripts require import export from setTimeout setInterval innerHTML outerHTML "
+    "insertAdjacentHTML dangerouslySetInnerHTML srcdoc atob btoa open script iframe String fromCharCode "
+    "decodeURIComponent unescape Image opener Worker SharedWorker Blob URL createObjectURL".split())
+Token = tuple[str, str]
 
 
-def tokenize(src: str) -> list[tuple[str, str]]:
+def tokenize(src: str) -> list[Token]:
     """Tiny JS/TS tokenizer: (kind, text) with kind in id, num, str, tpl, comment, punct. Whitespace is dropped."""
     return [(m.lastgroup, m.group()) for m in _TOKEN.finditer(src) if m.lastgroup != "ws"]
 
 
-def _import_strings(tokens: list[tuple[str, str]]) -> list[int]:
-    """Indexes of string tokens that are import/export specifiers (`from '...'` or side-effect `import '...'`)."""
-    return [i for i, (k, _) in enumerate(tokens)
-            if k == "str" and i and tokens[i - 1][0] == "id" and tokens[i - 1][1] in ("from", "import")]
+def _relative_spec(tok: Token) -> bool:
+    """A terminated string token holding a relative path ('./x', '../x'): no ':', no '//', plain path characters."""
+    text = tok[1]
+    return (tok[0] == "str" and len(text) > 1 and text[0] == text[-1] and bool(_SPEC_PATH.fullmatch(text[1:-1]))
+            and "//" not in text[1:-1])
 
 
-def _relative_specifier(spec: str) -> bool:
-    return spec.startswith(("./", "../")) and "//" not in spec and ":" not in spec
+def _ok_id(tok: Token) -> bool:
+    return tok[0] == "id" and tok[1] not in _DENIED_IDENTIFIERS
 
 
-_ESCAPE = re.compile(r"\\[ux]", re.I)
-
-
-def _imports_parse(tokens: list[tuple[str, str]]) -> bool:
-    """Fail closed: every `from` is followed by a string and every `import` by a string or has a `from` statement."""
-    words = [t for k, t in tokens if k == "id"]
-    froms = [i for i, (k, t) in enumerate(tokens) if k == "id" and t == "from"]
-    if any(i + 1 >= len(tokens) or tokens[i + 1][0] != "str" for i in froms):
+def _shape_import_path(tf: list[Token], tr: list[Token]) -> bool:
+    """A) exactly one string token changes: the specifier of an import/export statement, old and new both relative."""
+    diff = [i for i in range(len(tf)) if tf[i] != tr[i]]
+    if len(diff) != 1:
         return False
-    imports = [i for i, (k, t) in enumerate(tokens) if k == "id" and t == "import"]
-    bare = sum(1 for i in imports if i + 1 < len(tokens) and tokens[i + 1][0] == "str")
-    return not ("import" in words) or len(froms) + bare >= len(imports)
+    i = diff[0]
+    return (i > 0 and tf[i - 1] == ("id", "from") and _relative_spec(tf[i]) and _relative_spec(tr[i])
+            and tf[i][1][0] == tr[i][1][0])
+
+
+def _shape_rename(tf: list[Token], tr: list[Token]) -> bool:
+    """B) same length; only identifier tokens change, each to another identifier outside the denylist."""
+    diff = [i for i in range(len(tf)) if tf[i] != tr[i]]
+    return bool(diff) and all(tf[i][0] == "id" and _ok_id(tr[i]) for i in diff)
+
+
+def _shape_closing_tags(tf: list[Token], tr: list[Token]) -> bool:
+    """C) replace = find + closing tags `</Name>` only, where Name is already a JSX opening tag name in find."""
+    extra = tr[len(tf):]
+    if tr[:len(tf)] != tf or not extra or len(extra) % 4:
+        return False
+    opened = {tf[i][1] for i in range(1, len(tf)) if tf[i][0] == "id" and tf[i - 1] == ("punct", "<")}
+    return all(extra[i:i + 4][0] == ("punct", "<") and extra[i:i + 4][1] == ("punct", "/")
+               and _ok_id(extra[i:i + 4][2]) and extra[i:i + 4][2][1] in opened
+               and extra[i:i + 4][3] == ("punct", ">") for i in range(0, len(extra), 4))
+
+
+def _named_import(toks: list[Token]):
+    """`import { a, b } from './x'[;]` -> (names, specifier token, tail), else None."""
+    if toks[:2] != [("id", "import"), ("punct", "{")] or ("punct", "}") not in toks:
+        return None
+    end = toks.index(("punct", "}"))
+    inner = toks[2:end]
+    names = [t for t in inner[0::2]]
+    if not names or any(t[0] != "id" for t in names) or any(t != ("punct", ",") for t in inner[1::2][:len(names) - 1]) \
+            or len(inner) not in (2 * len(names) - 1, 2 * len(names)) \
+            or (len(inner) == 2 * len(names) and inner[-1] != ("punct", ",")):
+        return None
+    rest = toks[end + 1:]
+    if len(rest) < 2 or rest[0] != ("id", "from") or rest[1][0] != "str" or rest[2:] not in ([], [("punct", ";")]):
+        return None
+    return names, rest[1], rest[2:]
+
+
+def _shape_named_import(tf: list[Token], tr: list[Token]) -> bool:
+    """D) the same named-import statement from the same relative module with extra identifiers inside the braces."""
+    old, new = _named_import(tf), _named_import(tr)
+    if not old or not new or old[1] != new[1] or old[2] != new[2] or not _relative_spec(old[1]):
+        return False
+    added = [t for t in new[0] if t not in old[0]]
+    return all(t in new[0] for t in old[0]) and len(new[0]) > len(old[0]) and all(_ok_id(t) for t in added)
 
 
 def is_safe_patch(patch: dict) -> bool:
-    """Token-delta rule. Small find/replace; `replace` has no comment or template literal; every token ADDED by the
-    patch (multiset replace minus find) is a number, punctuation, an identifier outside the denylist, or a relative
-    import/export specifier. A non-relative specifier is accepted only if `find` already imports that exact one.
+    """Storable / replayable only if the edit is exactly one of four shapes: A import-path fix, B identifier rename,
+    C missing JSX closing tag, D extra names in an existing relative named import. Comments, template literals,
+    backslashes and escapes are refused outright; numbers, other strings and punctuation can never change.
     Also re-checked on replay (older rows)."""
     find, rep = patch.get("find"), patch.get("replace")
     if not (isinstance(find, str) and isinstance(rep, str) and find and len(find) <= MAX_PATCH_CHARS
-            and len(rep) <= MAX_PATCH_CHARS):
+            and len(rep) <= MAX_PATCH_CHARS) or _ESCAPE.search(find + rep) or "\\" in find + rep:
         return False
     tf, tr = tokenize(find), tokenize(rep)
-    if any(k in ("comment", "tpl") for k, _ in tr) or _ESCAPE.search(rep) or ("punct", "\\") in tr:
-        return False   # no comment/template, no \u / \x escapes (unicode-escaped names), no backslash outside strings
-    if tr.count(("punct", "(")) > tf.count(("punct", "(")) or tr.count(("punct", "[")) > tf.count(("punct", "[")):
-        return False   # an added `(` is an added call, an added `[` a computed access: refuse both
-    if not _imports_parse(tr):
+    if any(k in ("comment", "tpl") for k, _ in tf + tr) or tf == tr:
         return False
-    find_specs = {tf[i][1][1:-1] for i in _import_strings(tf)}
-    spec_at = set(_import_strings(tr))
-    in_context = {t for i, (k, t) in enumerate(tr) if i in spec_at}
-    outside = {t for i, (k, t) in enumerate(tr) if k == "str" and i not in spec_at}
-    for i in spec_at:   # every specifier in replace, added or not: never `javascript:`, `data:` or `//host`
-        spec = tr[i][1][1:-1]
-        if ":" in spec or spec.startswith("//") or not (_relative_specifier(spec) or spec in find_specs):
-            return False
-    for (kind, text), _n in (Counter(tr) - Counter(tf)).items():
-        if kind == "id":
-            if text in _DENIED_IDENTIFIERS:
-                return False
-        elif kind == "punct":
-            if text not in _PUNCT_OK:
-                return False
-        elif kind == "str":
-            spec = text[1:-1]
-            ok = (text in in_context and text not in outside and text[-1] == text[0] and len(text) > 1
-                  and (_relative_specifier(spec) or (spec in find_specs and ":" not in spec and not spec.startswith("//"))))
-            if not ok:
-                return False
-        elif kind != "num":
-            return False
-    # `?.[` (optional bracket access) reaches properties by computed key: refuse when the patch adds one.
-    opt = lambda ts: sum(1 for i in range(len(ts) - 2) if [t for _, t in ts[i:i + 3]] == ["?", ".", "["])
-    return opt(tr) <= opt(tf)
+    if len(tf) == len(tr):
+        return _shape_import_path(tf, tr) or _shape_rename(tf, tr)
+    return _shape_closing_tags(tf, tr) or _shape_named_import(tf, tr)
 
 
 def patch_targets_error(patch: dict, err: dict, source: str) -> bool:
