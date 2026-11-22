@@ -64,6 +64,10 @@ class LLMUnavailable(AetherError):
     """Neither primary (Anthropic) nor fallback (Ollama) LLM is reachable."""
 
 
+class LLMTruncated(AetherError):
+    """The model's reply was cut off at max_tokens (reasoning tokens count too). The text is never returned."""
+
+
 class SnapshotError(AetherError):
     """Snapshot creation, restore, or integrity check failed."""
 

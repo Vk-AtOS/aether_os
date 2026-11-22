@@ -127,7 +127,7 @@ class LLMClient:
         task_type: str = "code_generation",
         context: Optional[Dict[str, Any]] = None,
         system: Optional[str] = None,
-        max_tokens: int = 8192,
+        max_tokens: Optional[int] = None,
         org_id: Optional[str] = None,
         plan: Optional[str] = None,
         run_id: Optional[str] = None,
