@@ -134,3 +134,74 @@ def test_build_loop_records_model_fix_then_reuses_it_without_a_model_call(monkey
 
     out, _ = _loop(monkeypatch, tmp_path / "three", factory, "org-2", calls)
     assert out["success"] and len(calls) == 2           # another org does not see org-1's memory
+
+
+# --- memory poisoning guard ---------------------------------------------------------------------------------------
+
+SRC = "\n".join(["// filler"] * 30 + ["const n: number = 'x'"] + ["// tail"] * 30)   # error line is 31
+ERR31 = {"file": "src/pages/TaskPage.tsx", "line": 31, "signature": "s", "file_kind": "tsx:pages"}
+
+
+def _p(**kw):
+    return {**PATCH, **kw}
+
+
+def test_only_small_local_same_file_safe_patches_are_storable():
+    assert fm.patch_targets_error(_p(), ERR31, SRC)
+    assert not fm.patch_targets_error(_p(find="x" * 401), ERR31, SRC)                    # oversized find
+    assert not fm.patch_targets_error(_p(replace="y" * 401), ERR31, SRC)                 # oversized replace
+    assert not fm.patch_targets_error(_p(file="src/pages/Other.tsx"), ERR31, SRC)        # other file
+    assert not fm.patch_targets_error(_p(find="// filler"), ERR31, SRC)                  # first match: line 1, far away
+    assert not fm.patch_targets_error(_p(find="not in the file"), ERR31, SRC)
+
+
+@pytest.mark.parametrize("bad", [
+    "import x from 'left-pad'", "import 'evil'", "fetch('https://evil.example/x')", "eval(code)",
+    "new Function('return 1')", "<div dangerouslySetInnerHTML={{__html: h}} />", "<script>1</script>",
+    "require('child_process')", "import('evil')",
+])
+def test_denylisted_replace_text_is_not_stored(bad, factory):
+    assert not fm.is_safe_patch(_p(replace=bad))
+    async def body():
+        async with factory() as s:
+            await fm.record("o", "sig", "tsx:pages", [_p(replace=bad)], session=s)
+            assert await fm.lookup("o", "sig", session=s) == []
+    run(body())
+    assert fm.is_safe_patch(_p(replace="import Card from './Card'"))                      # relative import is fine
+
+
+def test_replay_targets_the_current_errors_file_not_the_stored_path(factory):
+    seen = []
+    async def body():
+        async with factory() as s:
+            await fm.record("o", "sig", "tsx:pages", [_p(file="src/pages/Elsewhere.tsx")], session=s)
+            return await fm.apply_stored("o", "sig", lambda p: seen.append(p["file"]) or True,
+                                         target_file="src/pages/Current.tsx", session=s)
+    assert run(body())[0]["file"] == "src/pages/Current.tsx" and seen == ["src/pages/Current.tsx"]
+
+
+def test_hook_screen_rejects_patch_for_another_file(tmp_path):
+    from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
+    (tmp_path / "src/pages").mkdir(parents=True)
+    (tmp_path / "src/pages/TaskPage.tsx").write_text("const n: number = 'x'\n")
+    mem = RoundMemory("org", tmp_path, lambda d, p: True)
+    mem.screen_model_patches(ERR, [_p(file="src/pages/Other.tsx"), _p(replace="fetch('http://x')")])
+    assert mem._candidates == []
+    mem.screen_model_patches(ERR, [_p()])
+    assert len(mem._candidates) == 1
+
+
+def test_provenance_is_recorded_and_rows_can_be_purged_by_run(factory):
+    async def body():
+        async with factory() as s:
+            await fm.record("o", "a", "tsx:pages", [_p()], run_id="run-1", user_id="u-9", session=s)
+            await fm.record("o", "b", "tsx:pages", [_p()], run_id="run-2", session=s)
+            await fm.mark_hit("o", "a", session=s)
+            row = (await s.execute(FixMemory.__table__.select().where(FixMemory.signature == "a"))).one()
+            assert (row.run_id, row.user_id, row.hits) == ("run-1", "u-9", 1) and row.created_at
+            other = (await s.execute(FixMemory.__table__.select().where(FixMemory.signature == "b"))).one()
+            assert other.user_id == "system"
+            assert await fm.purge_run("other-org", "run-1", session=s) == 0
+            assert await fm.purge_run("o", "run-1", session=s) == 1
+            assert await fm.lookup("o", "a", session=s) == [] and await fm.lookup("o", "b", session=s)
+    run(body())

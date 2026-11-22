@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from aether_os.core import fix_memory
+from aether_os.core.run_context import ACTIVE_RUN_ID
 
 logger = logging.getLogger(__name__)
 _ALL_ERRORS = 200
@@ -19,6 +20,8 @@ class RoundMemory:
     def __init__(self, org_id: Optional[str], frontend_dir: Path, apply_patch: Callable[[Path, dict], bool]):
         self.org_id, self.dir, self._apply = org_id or "", frontend_dir, apply_patch
         self.hits = 0
+        self._run_id = ACTIVE_RUN_ID.get()   # provenance of every stored row
+        self._candidates: list[dict] = []     # screened model patches (safe, same file, near the error line)
         self._tried: set[str] = set()
         self._pending: list[dict] = []   # applied last round, not yet judged by a rebuild: {signature, kind, patches, reused}
 
@@ -41,7 +44,8 @@ class RoundMemory:
                 if sig in self._tried:
                     continue   # already tried in this build: never loop on the same stored fix
                 self._tried.add(sig)
-                applied = await fix_memory.apply_stored(self.org_id, sig, lambda p: self._apply(self.dir, p))
+                applied = await fix_memory.apply_stored(
+                    self.org_id, sig, lambda p: self._apply(self.dir, p), target_file=err["file"])
                 if applied:
                     self.hits += 1
                     total += len(applied)
@@ -52,15 +56,29 @@ class RoundMemory:
             self._disable("lookup", exc)
         return total
 
-    def remember_model_patches(self, output: str, applied: list[dict]) -> None:
-        """Attribute applied model patches to the errors in the same file; they are stored once a rebuild confirms them."""
+    def screen_model_patches(self, output: str, patches: list) -> None:
+        """BEFORE the patches are applied: keep only those that may be stored (memory poisoning guard, see
+        fix_memory.patch_targets_error). Needs the pre-patch source to locate the `find` span."""
+        self._candidates = []
         if not self.active:
             return
         for err in fix_memory.parse_errors(output):
-            mine = [p for p in applied if err["file"] and p.get("file", "").endswith(err["file"])]
-            if mine:
-                self._pending.append({"signature": err["signature"], "kind": err["file_kind"], "patches": mine,
+            try:
+                source = (self.dir / err["file"]).read_text()
+            except Exception as exc:
+                logger.debug("p05 fix memory: cannot read %s: %s", err["file"], exc)
+                continue
+            for p in patches:
+                if isinstance(p, dict) and fix_memory.patch_targets_error(p, err, source):
+                    self._candidates.append({**err, "patch": p})
+
+    def remember_model_patches(self, applied: list[dict]) -> None:
+        """AFTER applying: screened patches that were applied are stored once a rebuild confirms them."""
+        for c in self._candidates:
+            if c["patch"] in applied:
+                self._pending.append({"signature": c["signature"], "kind": c["file_kind"], "patches": [c["patch"]],
                                       "reused": False})
+        self._candidates = []
 
     async def settle(self, output: str) -> None:
         """After a rebuild: fixes whose error is gone are stored / confirmed; a reused fix whose error remains fails."""
@@ -75,7 +93,7 @@ class RoundMemory:
                     if item["reused"]:
                         await fix_memory.mark_hit(self.org_id, sig)
                     else:
-                        await fix_memory.record(self.org_id, sig, item["kind"], item["patches"])
+                        await fix_memory.record(self.org_id, sig, item["kind"], item["patches"], run_id=self._run_id)
                 elif item["reused"] and await fix_memory.mark_failure(self.org_id, sig):
                     logger.info("p05 fix memory: sig=%s dropped after repeated failure", sig[:8])
         except Exception as exc:

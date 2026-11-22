@@ -27,12 +27,15 @@ def upgrade() -> None:
         sa.Column('file_kind', sa.String(64), nullable=False, server_default=''),
         sa.Column('patches', sa.JSON(), nullable=False),
         sa.Column('hits', sa.Integer(), nullable=False, server_default='0'),
+        sa.Column('run_id', sa.String(36), nullable=True),
+        sa.Column('user_id', sa.String(36), nullable=False, server_default='system'),
         sa.Column('failures', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('last_used_at', sa.DateTime(), nullable=False),
         sa.UniqueConstraint('org_id', 'signature', name='uq_fix_memory_org_signature'),
     )
     op.create_index('ix_fix_memory_org_id', 'fix_memory', ['org_id'])
+    op.create_index('ix_fix_memory_run_id', 'fix_memory', ['run_id'])
     op.create_table(
         'run_pattern_memory',
         sa.Column('id', sa.String(36), primary_key=True),
