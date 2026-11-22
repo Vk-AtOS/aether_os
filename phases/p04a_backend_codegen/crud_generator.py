@@ -110,7 +110,7 @@ SCHEMAS.PY requirements (file: src/schemas.py):
 Return VALID JSON only (no markdown):
 {{"models_py": "<complete models.py content>", "schemas_py": "<complete schemas.py content>"}}"""
 
-    result = await llm.call(prompt, task_type="code_generation", max_tokens=6000)
+    result = await llm.call(prompt, task_type="code_generation")
     if not result:
         raise ValueError("Empty LLM response for models/schemas")
 

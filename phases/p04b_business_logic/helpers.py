@@ -245,7 +245,7 @@ async def recover_domain_ir(phase_input: Any, output_dir: Path) -> dict:
 
         async def _call_llm(prompt: str) -> dict:
             try:
-                resp = await llm.call(prompt, task_type="analysis", max_tokens=4096)
+                resp = await llm.call(prompt, task_type="analysis")
                 return _extract_json(resp)
             except Exception as exc:
                 logger.warning("p04b inline recovery LLM error: %s", exc)

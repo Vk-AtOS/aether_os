@@ -107,7 +107,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "Use @playwright/test with async/await. No external imports.\n\n"
             "Return ONLY the TypeScript test file. No markdown."
         )
-        result = await llm.call(prompt, task_type="code_generation", max_tokens=2000)
+        result = await llm.call(prompt, task_type="code_generation")
         if result and len(result.strip()) > 100:
             m = re.search(r"```(?:typescript|ts)?\s*\n(.*?)```", result, re.DOTALL)
             test_code = m.group(1).strip() if m else result.strip()

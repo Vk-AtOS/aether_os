@@ -107,7 +107,7 @@ async def generate_business_model(
     model: Optional[Dict[str, Any]] = None
     try:
         client = get_llm_client()
-        raw = await client.call(prompt, task_type="analysis", max_tokens=2000)
+        raw = await client.call(prompt, task_type="analysis")
         if raw:
             # First complete object: fences, leading prose and trailing explanation are ignored.
             model = extract_first_json(raw, expect=dict)

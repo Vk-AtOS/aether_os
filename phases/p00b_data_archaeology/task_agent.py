@@ -278,7 +278,7 @@ Return JSON:
 {{"analysis_md": "<markdown>", "field_mapping": {{...}}}}
 Return ONLY JSON, no markdown fences around the outer JSON."""
 
-        result_a = await llm.call(prompt_a, task_type="analysis", max_tokens=4000)
+        result_a = await llm.call(prompt_a, task_type="analysis")
         if result_a:
             result_a = re.sub(r"^```(?:json)?\s*\n?", "", result_a.strip())
             result_a = re.sub(r"\n?```\s*$", "", result_a.strip())
@@ -328,7 +328,7 @@ Both environments must support psycopg2 (sync engine — NOT asyncpg).
 
 Return ONLY the complete Python script. No markdown, no explanation."""
 
-        result_b = await llm.call(prompt_b, task_type="code_generation", max_tokens=4000)
+        result_b = await llm.call(prompt_b, task_type="code_generation")
         if result_b and len(result_b.strip()) > 300:
             result_b = re.sub(r"^```(?:python)?\s*\n?", "", result_b.strip())
             result_b = re.sub(r"\n?```\s*$", "", result_b.strip())
