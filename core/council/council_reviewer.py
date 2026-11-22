@@ -350,6 +350,29 @@ async def _call_ollama(code: str, domain: str) -> Optional[CouncilReview]:
 
 # ── Consensus ─────────────────────────────────────────────────────────────────
 
+async def _call_via_router(code: str, domain: str, role_key: str,
+                           org_id: Optional[str] = None) -> Optional[CouncilReview]:
+    """Review through the platform's own model router (task type code_review, light tier).
+
+    The dedicated reviewers need an Anthropic or Google key, Ollama or Bedrock. A single-host install configured only
+    with an OpenAI-compatible endpoint had none of them, so no review ever ran and the empty report re-ran s03 on
+    every production acceptance run (KAN-220). The router uses whatever provider the install is configured with.
+    """
+    spec = _PROMPTS[role_key]
+    try:
+        from aether_os.core.llm.client import get_llm_client   # lazy: the client pulls in the provider stack
+        raw = await get_llm_client().call(
+            spec["prompt_tmpl"].format(domain=domain, domain_rules=_domain_rules(domain),
+                                       code=code[:_MAX_CODE_CHARS]),
+            task_type="code_review", system=spec["system"], org_id=org_id)
+    except Exception as exc:
+        logger.warning("CouncilReviewer: router review (%s) failed: %s", role_key, exc)
+        return None
+    if not raw or not raw.strip():
+        return None
+    return _parse_review_response(raw, f"router ({spec['focus'].split(' &')[0].lower()})", spec["focus"])
+
+
 def _find_consensus(reviews: List[CouncilReview], min_models: int = 2) -> List[str]:
     """
     Find issues mentioned by at least min_models models.
@@ -498,9 +521,16 @@ async def run_council(
             logger.warning("CouncilReviewer: reviewer raised exception — %s", result)
 
     if not reviews:
+        # No dedicated reviewer is configured: review with the install's own model (security + architecture focus).
+        routed = await asyncio.gather(_call_via_router(source_code, domain, "claude", org_id),
+                                      _call_via_router(source_code, domain, "gemini", org_id))
+        reviews = [r for r in routed if isinstance(r, CouncilReview)]
+        if reviews:
+            logger.info("CouncilReviewer: %d review(s) through the model router for run_id=%s", len(reviews), run_id)
+    if not reviews:
         logger.warning(
             "CouncilReviewer: no models completed a review for run_id=%s. "
-            "Check ANTHROPIC_API_KEY / GOOGLE_API_KEY / Ollama availability.",
+            "Check the model router, ANTHROPIC_API_KEY / GOOGLE_API_KEY or Ollama availability.",
             run_id,
         )
 
