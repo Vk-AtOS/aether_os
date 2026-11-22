@@ -128,7 +128,7 @@ def _build_error_lines(output: str, limit: int = 1500) -> str:
 def _outcome(built: bool, tsc_lines: list[str], rounds: int, build_errors: str = "") -> dict:
     # build_errors: why the bundle failed, so the stage gate can name the files (KAN-210)
     out = {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
-           "rounds": rounds}
+           "tsc_all": tsc_lines, "rounds": rounds}   # tsc_all: the crash gate needs every error, not the first few
     return {**out, "build_errors": build_errors} if build_errors else out
 
 
