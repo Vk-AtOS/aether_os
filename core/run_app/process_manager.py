@@ -186,7 +186,11 @@ class RunAppManager:
                     break
 
             _env_prod = frontend_dir / ".env.production"
-            _correct_env = "VITE_API_URL=/app-preview/api\n"
+            # VITE_API_URL is the server prefix WITHOUT /api: the generated clients add /api themselves
+            # (src/lib/api.ts: baseURL = VITE_API_URL + "/api"; every p05 template treats it as the server origin).
+            # "/app-preview/api" made the run 20 sign-in post to /app-preview/api/api/auth/login and fail with 405.
+            # Clients that hard-code baseURL '/api' are rewritten to '/app-preview/api' below.
+            _correct_env = "VITE_API_URL=/app-preview\n"
             _env_changed = not _env_prod.exists() or safe_read_text(root_dir, _env_prod) != _correct_env
             safe_write_text(root_dir, _env_prod, _correct_env)
 
