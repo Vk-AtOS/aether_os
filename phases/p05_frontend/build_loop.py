@@ -31,8 +31,13 @@ _PROMPT_TEMPLATE = (
     "during `tsc --noEmit` and/or `vite build`. List the exact file:line "
     "fixes needed as a JSON array of "
     '{{"file": "src/pages/X.tsx", "find": "old text", "replace": "new text"}} '
-    "objects. Return ONLY the JSON array, no prose. Errors:\n{errors}"
+    "objects. `find` must be copied exactly from the source below (without the line-number prefix) and should be "
+    "short and unique. Return ONLY the JSON array, no prose. Errors:\n{errors}\n\nSource around the errors:\n{source}"
 )
+# tsc: "src/pages/X.tsx(254,306): error"; vite/esbuild: "/abs/.../src/pages/X.tsx:291:42: ERROR"
+_LOC_RE = re.compile(r"((?:[\w@.-]+/)*[\w@.-]+\.(?:tsx|ts|jsx|js|css))(?:\((\d+),\d+\)|:(\d+):\d+)")
+_CONTEXT_RADIUS = 12
+_MAX_SOURCE_CHARS = 6000
 
 
 def _count_tsc_errors(text: str) -> int:
@@ -81,12 +86,43 @@ def _apply_patch(frontend_dir: Path, patch: dict) -> bool:
     return True
 
 
-async def _llm_fix(error_output: str) -> list[dict[str, Any]]:
+def _error_context(frontend_dir: Path, error_output: str) -> str:
+    """Numbered source lines around the first error of each file (at most 3 files).
+
+    Without them the model had to guess the exact text to replace: production acceptance run 12 (22 Nov 2026) failed
+    s04 three times with "applied 0 patches" on a broken JSX line it had never been shown.
+    """
+    root = frontend_dir.resolve()
+    seen: dict[Path, int] = {}
+    for m in _LOC_RE.finditer(error_output or ""):
+        rel = m.group(1)
+        rel = rel[rel.index("src/"):] if "src/" in rel else rel
+        target = (frontend_dir / rel).resolve()
+        if target in seen or not target.is_relative_to(root) or not target.is_file():
+            continue
+        seen[target] = int(m.group(2) or m.group(3))
+        if len(seen) == 3:
+            break
+    parts = []
+    for target, line in seen.items():
+        try:
+            lines = target.read_text().splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("p05 build_loop: cannot read %s for error context: %s", target, exc)
+            continue
+        lo, hi = max(1, line - _CONTEXT_RADIUS), min(len(lines), line + _CONTEXT_RADIUS)
+        body = "\n".join(f"{n}| {lines[n - 1][:400]}" for n in range(lo, hi + 1))
+        parts.append(f"--- {target.relative_to(root)} (lines {lo}-{hi})\n{body}")
+    return "\n".join(parts)[:_MAX_SOURCE_CHARS] or "(no source located)"
+
+
+async def _llm_fix(error_output: str, source: str = "") -> list[dict[str, Any]]:
     from aether_os.core.llm.client import get_llm_client
-    prompt = _PROMPT_TEMPLATE.format(errors=error_output)
+    prompt = _PROMPT_TEMPLATE.format(errors=error_output, source=source or "(no source located)")
     try:
         raw = await asyncio.wait_for(
-            get_llm_client().call(prompt, task_type="code_generation", max_tokens=2000),
+            # Reasoning models spend part of max_tokens thinking; 2000 truncated replies on production runs.
+            get_llm_client().call(prompt, task_type="code_generation", max_tokens=4000),
             timeout=60.0,
         )
     except asyncio.TimeoutError:
@@ -197,9 +233,9 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
             break  # patches made now would never be rebuilt, so do not apply them
 
         combined = (_combine_output(tsc_result) + "\n" + _combine_output(build_result))[-_MAX_ERR_CHARS:]
-        patches = await _llm_fix(combined)
+        patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
         applied = sum(1 for p in patches if isinstance(p, dict) and _apply_patch(frontend_dir, p))
-        logger.info("p05 build_loop: round %d - applied %d patches", round_num, applied)
+        logger.info("p05 build_loop: round %d - applied %d of %d proposed patches", round_num, applied, len(patches))
         if applied == 0:
             break  # no progress possible: do not burn rounds
     logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])
