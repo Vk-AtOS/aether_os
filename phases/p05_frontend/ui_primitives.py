@@ -6,6 +6,8 @@ UI_PRIMITIVES maps module name -> (TSX source, default export). Exported names a
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 _H = "import * as React from 'react'\n\n"
 _CN = "const cx = (...a: Array<string | undefined | false>) => a.filter(Boolean).join(' ')\n\n"
 
@@ -237,3 +239,21 @@ UI_PRIMITIVES: dict[str, tuple[str, str | None]] = {
 }
 # Non-ui helper modules shadcn code imports (`@/lib/utils` -> cn).
 UTIL_MODULES: dict[str, str] = {"lib/utils": _UTILS, "utils/cn": _UTILS}
+
+
+def write_fixed_primitive_set(src_dir: Path) -> list[str]:
+    """Write every primitive in UI_PRIMITIVES (plus the `cn` helper modules) that is not on disk yet, with the
+    PascalCase file names pages import (`@/components/ui/Dialog`). KAN-209: the set is fixed and tested, so it is
+    written up front and missing_modules has nothing to add for these names. Existing files are never touched.
+    Returns the paths written, relative to src_dir."""
+    written: list[str] = []
+    targets = {f"components/ui/{main}.tsx": text for text, main in UI_PRIMITIVES.values() if main}
+    targets.update({f"{rel}.ts": text for rel, text in UTIL_MODULES.items()})
+    for rel, text in targets.items():
+        path = Path(src_dir) / rel
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        written.append(rel)
+    return written

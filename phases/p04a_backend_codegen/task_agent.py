@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.codegen.entities import normalise_entities, templates_first_enabled
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.phases.base import TaskResult
 from aether_os.core.errors import PipelineBlockedError
@@ -114,6 +115,11 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 api_endpoints = arch_doc.get("api_endpoints", [])
         except Exception as exc:
             logger.warning("[p04a] could not load arch doc: %s", exc)
+
+    # KAN-209: the entity list is normalised once, here, and is the single source for models, schemas, CRUD and seed.
+    # Bare labels ("users", "Task") used to crash the generators with "'str' object has no attribute 'get'".
+    if templates_first_enabled():
+        entities = normalise_entities(entities, drop_auth_user=True)
 
     # ── Pre-generation architecture checks (before ANY file is written) ────────
     # Catches circular FK refs, implicit unique fields, and reserved names early
