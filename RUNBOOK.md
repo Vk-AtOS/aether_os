@@ -20,7 +20,7 @@ This file was checked against the code at commit `e5c23fd`. Commands that depend
 
 ## 0. Database Migrations
 
-The Alembic history has a single head: `prime_corrections_in_eval` (`python3.11 -m alembic heads` prints `prime_corrections_in_eval (head)`). It follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
+The Alembic history has a single head: `fix_memory_tables` (`python3.11 -m alembic heads` prints `fix_memory_tables (head)`). It follows `prime_corrections_in_eval`, which follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
 
 Use the one migration command the project uses everywhere (`scripts/db_migrate.py`, called by `deploy/deploy.sh:52`, compose service `migrate`):
 

@@ -44,6 +44,7 @@ class PatchReport:
     rejected: int = 0   # patches that name a file the caller does not allow to be repaired
     reasons: list[str] = field(default_factory=list)
     touched: list[Path] = field(default_factory=list)   # files that still carry an applied patch
+    applied_patches: list[dict] = field(default_factory=list)   # the patches still applied (for fix memory)
 
     def log(self, tag: str, round_num: int) -> None:
         """One line per repair round: proposed, applied, rolled back (and why when nothing applied)."""
@@ -181,6 +182,7 @@ async def apply_verified(
     originals: dict[Path, str] = {}
     current: dict[Path, str] = {}
     counts: dict[Path, int] = {}
+    by_target: dict = {}
     for p in patches:
         if not _valid_patch(p):
             rep.reasons.append("malformed patch")
@@ -207,6 +209,7 @@ async def apply_verified(
         originals.setdefault(target, text)
         current[target] = new
         counts[target] = counts.get(target, 0) + 1
+        by_target.setdefault(target, []).append(p)
 
     ts_files = []
     for target, new in current.items():
@@ -235,6 +238,7 @@ async def apply_verified(
                     rep.applied -= counts[target]
                     rep.rolled_back += counts[target]
             rep.reasons.append("tsc reported more errors after the patches: rolled back")
+    rep.applied_patches = [q for target in rep.touched for q in by_target.get(target, [])]
     return rep
 
 
