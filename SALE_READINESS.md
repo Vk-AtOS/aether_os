@@ -17,11 +17,11 @@ AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`)
 The table is generated: no figure in it is typed by hand, and `python scripts/ci/repo_stats.py --check` (part of the CI step "Docs match code") fails when it drifts from the repository.
 
 <!-- repo_stats:begin (written by `python scripts/ci/repo_stats.py --write`; do not edit by hand) -->
-Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `5eb1251` (2026-11-22). Counts are over git-tracked files.
+Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `f4b7860` (2026-11-22). Counts are over git-tracked files.
 
 | Metric | Value | How it is counted |
 |---|---|---|
-| Git commits | 1733 | `git rev-list --count HEAD` |
+| Git commits | 1734 | `git rev-list --count HEAD` |
 | Tracked Python files | 1345 | `git ls-files '*.py'` |
 | Python lines (tracked files) | 196087 | lines of those files |
 | Alembic migration files | 90 | `alembic/versions/*.py` |
