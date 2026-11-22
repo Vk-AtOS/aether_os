@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aether_os.phases.p05_frontend.api_contract import enforce_list_contract
+from aether_os.phases.p05_frontend.api_contract import enforce_list_contract, unwrap_raw_query_calls
 from aether_os.phases.p05_frontend.code_writer_parts.part02 import _generate_api
 
 FIX = Path(__file__).parent / "fixtures" / "run20"
@@ -49,3 +49,29 @@ def test_generated_api_list_type_matches_backend_paginated_response():
         assert "Paginated<" in block and "get: (id" in block
         for fn in ("list:", "create:", "update:", "remove:"):
             assert fn in block
+
+
+# Production run 21 (22 Nov 2026): ProjectPage fetched users with a raw apiClient.get as its queryFn and read
+# data.items from the axios response; TaskPage read tasksData?.items.length while the body was undefined.
+
+
+def test_raw_apiclient_query_returns_the_body():
+    src = "useQuery({ queryKey: ['u'], queryFn: () => apiClient.get('/users', { params: { page: 1, page_size: 200 } }), select: (d) => d.items })"
+    out = unwrap_raw_query_calls(src)
+    assert "apiClient.get('/users', { params: { page: 1, page_size: 200 } }).then(r => r.data)" in out
+
+
+def test_raw_call_that_already_unwraps_is_left_alone():
+    src = "queryFn: () => apiClient.get('/x').then(r => r.data),"
+    assert unwrap_raw_query_calls(src) == src
+
+
+def test_parentheses_inside_strings_do_not_confuse_the_scanner():
+    src = "queryFn: () => apiClient.get(`/x?q=${encodeURIComponent(q)}`, { params: { s: ')' } }),"
+    out = unwrap_raw_query_calls(src)
+    assert out.endswith("{ params: { s: ')' } }).then(r => r.data),")
+
+
+def test_items_reads_are_null_safe_after_the_contract_fix():
+    out = enforce_list_contract("{tasksData?.items.length === 0 && <p/>}{tasksData?.items.map(t => t.id)}", "TaskPage")
+    assert "?.items?.length" in out and "?.items?.map" in out

@@ -120,17 +120,39 @@ _LITERAL_COUNT = re.compile(
 _CALLS_STATS = re.compile(r"""\bstats\s*(?:as\b|[,}])|\bstatsApi\b|\bstats\(\)|['"`]/stats['"`]""")
 
 
-def hardcoded_counts_reason(code: str) -> Optional[str]:
-    """Why a dashboard may not ship (hard-coded counts or no /stats call), None when it is fine."""
+_STATS_KEY = re.compile(r"""\b((?:total|overdue)_[A-Za-z]\w*)\b""")
+
+
+def served_keys(entities: List[Dict[str, Any]]) -> set:
+    """The total_/overdue_ keys GET /stats returns for these entities (same rule as the p04a stats router)."""
+    keys = set()
+    for e in (x for x in entities if not _is_user(x) and x.get("table")):
+        keys.add(f"total_{e['table']}")
+        if overdue_fields(_pairs(e)):
+            keys.add(f"overdue_{e['table']}")
+    return keys
+
+
+def hardcoded_counts_reason(code: str, entities: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
+    """Why a dashboard may not ship (hard-coded counts, no /stats call, or /stats keys the backend does not serve),
+    None when it is fine."""
     if not _CALLS_STATS.search(code):
         return "does not read /stats"
     m = _LITERAL_COUNT.search(code)
-    return f"hard-coded count literal {m.group(0).strip()!r}" if m else None
+    if m:
+        return f"hard-coded count literal {m.group(0).strip()!r}"
+    if entities:
+        # Production run 21: the model read total_User / total_Project (entity names); /stats serves total_projects
+        # (table names), so every card showed a dash.
+        unknown = sorted({k for k in _STATS_KEY.findall(code)} - served_keys(entities))
+        if unknown:
+            return f"reads /stats keys the backend does not serve: {', '.join(unknown[:4])}"
+    return None
 
 
 def ensure_real_stats(code: str, entities: List[Dict[str, Any]], project_name: str) -> Tuple[str, bool]:
     """(dashboard, replaced): the model's dashboard when it passes the post-check, else the deterministic template."""
-    reason = hardcoded_counts_reason(code)
+    reason = hardcoded_counts_reason(code, entities)
     if reason is None:
         return code, False
     logger.warning("p05: Dashboard.tsx refused (%s); using the /stats template", reason)

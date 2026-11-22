@@ -283,8 +283,9 @@ export interface TableColumn<T> {
 }
 
 interface TableProps<T> {
-  data: T[]
-  columns: TableColumn<T>[]
+  data?: T[]
+  columns?: TableColumn<T>[]
+  children?: ReactNode
   isLoading?: boolean
   emptyState?: ReactNode
   keyExtractor?: (row: T, index: number) => string | number
@@ -293,7 +294,7 @@ interface TableProps<T> {
 
 type SortDir = 'asc' | 'desc' | null
 
-export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, className }: TableProps<T>) {
+export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, className, children }: TableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>(null)
 
@@ -303,7 +304,18 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
     setSortKey(null); setSortDir(null)
   }
 
-  const sorted = [...data].sort((a, b) => {
+  // Composition mode, the shadcn style model-written pages use: <Table><TableHeader>..</TableHeader><TableBody>..
+  // </TableBody></Table>. With no columns it is a plain table around its children. Without this branch the sort
+  // below spread an undefined data prop and every such page crashed ("e is not iterable", production run 21).
+  if (!columns) {
+    return (
+      <div className="w-full overflow-x-auto">
+        <table className={cn('w-full caption-bottom text-sm', className)}>{children}</table>
+      </div>
+    )
+  }
+  const rows: T[] = Array.isArray(data) ? data : []
+  const sorted = [...rows].sort((a, b) => {
     if (!sortKey || !sortDir) return 0
     const av = (a as Record<string, unknown>)[sortKey]
     const bv = (b as Record<string, unknown>)[sortKey]
@@ -331,7 +343,7 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
     )
   }
 
-  if (!data.length) {
+  if (!rows.length) {
     return (
       <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-gray-200 text-center" role="status">
         {emptyState ?? (
