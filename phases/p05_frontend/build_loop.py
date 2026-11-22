@@ -6,6 +6,7 @@ targeted find/replace patches. Retries up to max_rounds before giving up.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -105,6 +106,24 @@ def _tsc_messages(tsc_result: subprocess.CompletedProcess) -> list[str]:
     return lines
 
 
+def _manifest_digest(frontend_dir) -> str:
+    """sha256 of package.json, or "" when it is missing or unreadable."""
+    try:
+        return hashlib.sha256((frontend_dir / "package.json").read_bytes()).hexdigest()
+    except OSError as exc:
+        logger.warning("p05 build_loop: cannot read package.json: %s", exc)
+        return ""
+
+
+def _build_error_lines(output: str, limit: int = 1500) -> str:
+    """The lines that say WHY a bundle failed. The output's tail is mostly a stack trace: on production acceptance run 7
+    (22 Nov 2026) the logged last 1500 characters were all `at ...` frames, and the message itself was cut off."""
+    lines = [ln for ln in output.splitlines() if ln.strip() and not ln.lstrip().startswith("at ")]
+    keep = [ln for ln in lines if any(k in ln.lower() for k in ("error", "could not", "failed", "cannot", "not exported",
+                                                                 "unresolved", "resolve"))] or lines[-20:]
+    return "\n".join(keep)[:limit]
+
+
 def _outcome(built: bool, tsc_lines: list[str], rounds: int) -> dict:
     return {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
             "rounds": rounds}
@@ -138,15 +157,20 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
     tsc_lines: list[str] = []
     built = False
     round_num = 0
+    installed_manifest = _manifest_digest(frontend_dir)   # what node_modules was installed from before the loop
     for round_num in range(1, max_rounds + 1):
         ensure_local_modules(frontend_dir)  # LLM patches/revisions may add imports of files that do not exist
-        if ensure_npm_deps(frontend_dir):  # ...or of packages package.json lacks: they need an install first
+        added = ensure_npm_deps(frontend_dir)  # ...or of packages package.json lacks: they need an install first
+        # A model patch can also edit package.json itself. Without a reinstall the next build cannot resolve the new
+        # import, fails, and the project only builds later when another step reinstalls (production run 7, 22 Nov 2026).
+        if added or _manifest_digest(frontend_dir) != installed_manifest:
             try:
                 await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=300, network=True)
             except SandboxUnavailable:
                 raise
             except Exception as exc:
                 logger.warning("p05 build_loop: npm install after adding dependencies failed: %s", exc)
+            installed_manifest = _manifest_digest(frontend_dir)
         try:
             # Type-check and build execute the project's own tooling and plugins: sandbox, no network.
             tsc_result = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"],
@@ -166,7 +190,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
             # not be diagnosed afterwards (production acceptance run 4, 22 Nov 2026).
             logger.warning("p05 build_loop: round %d build failed (exit %s, dist/index.html %s): %s", round_num,
                            build_result.returncode, (frontend_dir / "dist" / "index.html").is_file(),
-                           _combine_output(build_result)[-1500:])
+                           _build_error_lines(_combine_output(build_result)))
         if built and not tsc_lines:
             return _outcome(True, [], round_num)
         if round_num == max_rounds:

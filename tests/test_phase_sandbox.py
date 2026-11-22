@@ -281,3 +281,33 @@ def test_p08_tiered_tests_run_in_the_sandbox_and_fail_closed(fake, tmp_path, mon
 def test_p06_never_pip_installs_on_the_host():
     src = (ROOT / "phases/p06_review_security/subtasks.py").read_text()
     assert '"pip", "install"' not in src
+
+
+
+def test_build_failure_log_keeps_the_message_not_the_stack():
+    from aether_os.phases.p05_frontend.build_loop import _build_error_lines
+    frames = "\n".join(f"    at frame{i} (file:///x.js:{i}:1)" for i in range(200))
+    out = ("vite v6\nBuild failed in 2s\nerror during build:\n"
+           '[vite]: Rollup failed to resolve import "date-fns" from "src/a.tsx".\n' + frames)
+    msg = _build_error_lines(out)
+    assert "failed to resolve import" in msg and "at frame" not in msg
+
+
+def test_build_loop_reinstalls_when_a_patch_edits_package_json(fake, tmp_path, monkeypatch):
+    """A model patch that adds a dependency to package.json must trigger `npm install` before the next build; without
+    it the build could not resolve the new import (production acceptance run 7, 22 Nov 2026)."""
+    from aether_os.phases.p05_frontend import build_loop as bl
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    (tmp_path / "package.json").write_text('{"dependencies": {"react": "18.3.1"}}')
+    fake.code = 1                                            # every build fails, so the loop reaches round 2
+
+    async def patch_adds_dependency(_err):
+        (tmp_path / "package.json").write_text('{"dependencies": {"react": "18.3.1", "date-fns": "4.1.0"}}')
+        return [{"file": "src/x.ts", "content": ""}]
+    monkeypatch.setattr(bl, "_llm_fix", patch_adds_dependency)
+    monkeypatch.setattr(bl, "_apply_patch", lambda *_a, **_k: True)
+    monkeypatch.setattr(bl, "ensure_npm_deps", lambda _d: [])
+    monkeypatch.setattr(bl, "ensure_local_modules", lambda _d: None)
+    asyncio.run(bl.run_build_loop(tmp_path, max_rounds=2))
+    installs = [c for c in fake.calls if c.argv[:2] == ["npm", "install"]]
+    assert len(installs) == 1 and installs[0].network
