@@ -61,6 +61,7 @@ from aether_os.core.llm.providers import (         # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
+_ZERO_VECTOR_LOGGED = False
 _cost_tasks: set = set()  # strong refs so fire-and-forget cost writes are not GC'd
 
 # ── Per-request org context ───────────────────────────────────────────────────
@@ -430,7 +431,14 @@ class LLMClient:
         ollama_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
         dim = _EMBEDDING_DIMS.get(bedrock_embed_model, 1024)
 
-        # ── Primary: AWS Bedrock Titan Embeddings ─────────────────────────────
+        # ── Configured OpenAI-compatible endpoint first (KAN-219) ─────────────
+        from aether_os.core.llm import embeddings_openai
+        if embeddings_openai.configured():
+            vector = await embeddings_openai.embed(text)
+            if vector:
+                return vector
+
+        # ── AWS Bedrock Titan Embeddings ──────────────────────────────────────
         _bedrock_ok = (
             bool(os.environ.get("AWS_ACCESS_KEY_ID", "").strip())
             or os.environ.get("BEDROCK_ENABLED", "false").lower() == "true"
@@ -487,7 +495,11 @@ class LLMClient:
         except Exception as e:
             logger.warning("Ollama embedding failed: %s", e)
 
-        logger.error("All embedding providers failed (Bedrock + Ollama). Returning zero vector.")
+        global _ZERO_VECTOR_LOGGED
+        if not _ZERO_VECTOR_LOGGED:      # once per process: it repeated on every call and hid real errors
+            _ZERO_VECTOR_LOGGED = True
+            logger.error("All embedding providers failed (endpoint/Bedrock/Ollama); returning zero vectors. "
+                         "Set EMBEDDING_OPENAI_MODEL, Bedrock or Ollama for real embeddings.")
         return [0.0] * (dim if _bedrock_ok else ollama_dim)
 
     def get_cost_stats(self) -> Dict[str, int]:
