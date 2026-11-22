@@ -308,19 +308,11 @@ def test_multi_char_operators_are_single_tokens():
         assert op in kinds
 
 
-def test_shape_d_named_import_from_an_existing_relative_module():
-    assert _safe("import { A } from './ui'", "import { A, B } from './ui'")
-    assert _safe("import { A, B } from './ui';", "import { A, B, C } from './ui';")
-    assert _safe("import { A } from './ui'", "import { A,B } from './ui'")
-    assert not _safe("import { A } from './ui'", "import { A, B } from './other'")        # specifier changed
-    assert not _safe("import { A } from 'react'", "import { A, B } from 'react'")        # not relative
-    assert not _safe("import { A } from './ui'", "import { A, fetch } from './ui'")
-    assert not _safe("import { A } from './ui'", "import { A, new } from './ui'")        # keyword
-    assert not _safe("import { A } from './ui'", "import { A, b() } from './ui'")
-    assert not _safe("import { A } from './ui'", "import { A as B } from './ui'")
-    assert not _safe("import { A } from './ui'", "import { A, A } from './ui'")          # already imported
-    assert not _safe("import { A } from './ui'", "import { A, B, B } from './ui'")
-    assert not _safe("import { A, B } from './ui'", "import { A, C, B } from './ui'")    # not appended
+def test_shape_d_named_import_additions_are_refused():
+    """Cut after five review rounds: weakest shape; A and C cover the observed repeat errors."""
+    assert not _safe("import { A } from './ui'", "import { A, B } from './ui'")
+    assert not _safe("import { A, B } from './ui';", "import { A, B, C } from './ui';")
+    assert not _safe("import { A } from './ui'", "import { A,B } from './ui'")
 
 
 def test_replay_skips_a_stored_patch_that_does_not_target_the_current_error_line(tmp_path, factory, monkeypatch):
