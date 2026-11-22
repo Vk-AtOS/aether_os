@@ -327,7 +327,7 @@ def _fallback_crud_routers(
         lines += [
             f"{var} = APIRouter(prefix='/{table}', tags=['{name}'])",
             "",
-            f"@{var}.get('/', response_model=dict)",
+            f"@{var}.get('', response_model=dict)",
             f"async def list_{table}(",
             "    page: int = Query(1, ge=1),",
             "    page_size: int = Query(20, ge=1, le=200),",
@@ -361,7 +361,7 @@ def _fallback_crud_routers(
             "    await _cache_set(_ck, _resp)",
             "    return _resp",
             "",
-            f"@{var}.post('/', status_code=status.HTTP_201_CREATED, response_model=dict)",
+            f"@{var}.post('', status_code=status.HTTP_201_CREATED, response_model=dict)",
             f"async def create_{table}(data: {name}Create, db: AsyncSession = Depends(get_db), current_user: dict = Depends({create_dep})):",
             f"    obj = models.{name}(**data.model_dump(exclude_unset=True){mt_create_kwarg})",
             "    db.add(obj)",
