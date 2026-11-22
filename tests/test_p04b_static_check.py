@@ -7,7 +7,7 @@ import shutil
 import pytest
 
 from aether_os.phases.p04b_business_logic.helpers import _FALLBACK_BUSINESS_RULES, _FALLBACK_WORKFLOW_ENGINE
-from aether_os.phases.p04b_business_logic.static_check import undefined_names
+from aether_os.core.codegen.static_check import undefined_names
 from aether_os.phases.p04b_business_logic.task_agent import _validate_python_output
 from aether_os.phases.p07a_unit_testing.crud_repair import _may_patch
 

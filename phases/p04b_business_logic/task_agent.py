@@ -15,7 +15,7 @@ from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_stripe_service,
     generate_s3_service,
 )
-from aether_os.phases.p04b_business_logic.static_check import undefined_names
+from aether_os.core.codegen.static_check import undefined_names
 from aether_os.phases.p04b_business_logic.safe_names import check_logic_names, normalise_event_names, write_inside
 from aether_os.phases.p04b_business_logic.helpers import (
     _FALLBACK_WORKFLOW_ENGINE,
