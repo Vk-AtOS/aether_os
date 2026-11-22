@@ -155,9 +155,12 @@ class RunAppManager:
                                     _tool_env, 120)
 
         # ── Locate frontend ────────────────────────────────────────────────────
+        # The repaired, built frontend first: s04 writes its final output to <run>/frontend after the build loop and
+        # its patches; p05_frontend/frontend is the first draft. Preferring the draft rebuilt the broken copy, the
+        # build failed and the Live App showed only the API explorer (production run 20, 22 Nov 2026).
         _frontend_candidates = [
-            root_dir / "p05_frontend" / "frontend",
             root_dir / "frontend",
+            root_dir / "p05_frontend" / "frontend",
         ]
         frontend_dir = next(
             (d for d in _frontend_candidates if (d / "package.json").exists()), None
