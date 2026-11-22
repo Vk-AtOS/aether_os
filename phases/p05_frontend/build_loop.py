@@ -160,9 +160,11 @@ def _build_error_lines(output: str, limit: int = 1500) -> str:
     return "\n".join(keep)[:limit]
 
 
-def _outcome(built: bool, tsc_lines: list[str], rounds: int) -> dict:
-    return {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
-            "rounds": rounds}
+def _outcome(built: bool, tsc_lines: list[str], rounds: int, build_errors: str = "") -> dict:
+    # build_errors: why the bundle failed, so the stage gate can name the files (KAN-210)
+    out = {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
+           "rounds": rounds}
+    return {**out, "build_errors": build_errors} if build_errors else out
 
 
 def result_summary(loop: dict) -> tuple[dict, list[str]]:
@@ -170,7 +172,8 @@ def result_summary(loop: dict) -> tuple[dict, list[str]]:
     the run result, and a bundled app with leftover type errors carries a warning instead of a failure."""
     n = int(loop.get("tsc_errors", 0))
     meta = {"build_ok": bool(loop.get("built", loop.get("success"))), "tsc_errors": n,
-            "tsc_messages": list(loop.get("tsc_messages", []))}
+            "tsc_messages": list(loop.get("tsc_messages", [])),
+            "build_errors": str(loop.get("build_errors", ""))}
     issues = []
     if n and meta["build_ok"]:
         issues.append(f"p05 warning: vite build succeeded but {n} TypeScript error(s) remain. First: "
@@ -192,6 +195,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
     tsc_lines: list[str] = []
     built = False
+    build_errors = ""
     round_num = 0
     installed_manifest = _manifest_digest(frontend_dir)   # what node_modules was installed from before the loop
     for round_num in range(1, max_rounds + 1):
@@ -221,6 +225,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
         tsc_lines = _tsc_messages(tsc_result) if tsc_result.returncode != 0 else []
         built = build_result.returncode == 0 and (frontend_dir / "dist" / "index.html").is_file()
+        build_errors = "" if built else _build_error_lines(_combine_output(build_result))
         if not built:
             # Without this the only trace of a failed bundle was the tsc count, so "built=False" on a real run could
             # not be diagnosed afterwards (production acceptance run 4, 22 Nov 2026).
@@ -239,7 +244,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
         if applied == 0:
             break  # no progress possible: do not burn rounds
     logger.warning("p05 build_loop: built=%s with %d tsc error(s); first: %s", built, len(tsc_lines), tsc_lines[:3])
-    return _outcome(built, tsc_lines, round_num)
+    return _outcome(built, tsc_lines, round_num, build_errors)
 
 
 if __name__ == "__main__":
