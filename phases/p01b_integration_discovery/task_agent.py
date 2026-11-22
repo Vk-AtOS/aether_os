@@ -110,7 +110,7 @@ Fields:
 
 Return ONLY the JSON object. No markdown fences."""
 
-        result = await llm.call(prompt, task_type="analysis", max_tokens=1500)
+        result = await llm.call(prompt, task_type="analysis")
         if result:
             result = re.sub(r"^```(?:json)?\s*\n?", "", result.strip())
             result = re.sub(r"\n?```\s*$", "", result.strip())

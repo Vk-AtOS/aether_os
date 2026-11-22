@@ -156,7 +156,7 @@ Rules:
 - Add field masks to hide sensitive fields (salary, ssn, password_hash, secret_key) from non-admins
 - Return ONLY valid JSON. No markdown, no explanation."""
 
-        result = await llm.call(prompt, task_type="analysis", max_tokens=2000)
+        result = await llm.call(prompt, task_type="analysis")
         if result:
             # Strip markdown fences
             result = re.sub(r"^```(?:json)?\s*\n?", "", result.strip())

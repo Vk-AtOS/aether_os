@@ -217,7 +217,7 @@ Return a JSON array where each element has:
 
 Return ONLY the JSON array, no markdown."""
 
-            result = await router.call(prompt, task_type="summarize", max_tokens=1024)
+            result = await router.call(prompt, task_type="summarize")
             text = result[0] if isinstance(result, (list, tuple)) else result
 
             import json

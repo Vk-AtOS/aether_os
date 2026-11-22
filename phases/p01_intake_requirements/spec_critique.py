@@ -115,7 +115,6 @@ async def critique_spec(spec_text: str, llm_client: Any) -> str:
                 prompt,
                 task_type="analysis",
                 system=_CRITIQUE_SYSTEM,
-                max_tokens=2048,
             )
             result = _parse_critique_response(raw_response, current_spec)
             issues = result.get("issues") or []

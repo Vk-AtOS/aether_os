@@ -57,7 +57,13 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
             raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
         if policy.disabled:
             raise LLMUnavailable("LLM calls are disabled for this organisation")
-        plan, cap = plan or policy.plan, policy.effective_cap_usd()
+        # The organisation's own plan is authoritative. A caller-supplied plan (pipeline_run falls back to "trial" when
+        # the run row has none) made the cap come from the org (pro, $200) while the token limit came from the
+        # caller's plan (trial, 500k): p01 intent_verification was refused at 845,087/500,000 tokens.
+        if plan and plan != policy.plan:
+            logger.warning("LLM call for org %s passed plan %r but the organisation is on %r: using %r",
+                           org_id, plan, policy.plan, policy.plan)
+        plan, cap = policy.plan, policy.effective_cap_usd()
     else:
         # Platform-owned call (no tenant): charged to the platform budget (PLATFORM_ORG row, plan "platform",
         # monthly cap PLATFORM_LLM_MONTHLY_CAP_USD or the plan default), so a runaway platform job stops too.
