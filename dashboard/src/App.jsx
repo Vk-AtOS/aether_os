@@ -49,6 +49,7 @@ const GlobalPatternsTuning = React.lazy(() => import('./pages/GlobalPatternsTuni
 const ProjectDesigner   = React.lazy(() => import('./pages/ProjectDesigner'));
 const Workspaces        = React.lazy(() => import('./pages/Workspaces'));
 const RunDetail         = React.lazy(() => import('./pages/RunDetail'));
+const PreviewOpen       = React.lazy(() => import('./pages/PreviewOpen'));
 const Operations        = React.lazy(() => import('./pages/Operations'));
 const Prime             = React.lazy(() => import('./pages/Prime'));
 const Chat              = React.lazy(() => import('./pages/Chat'));
@@ -112,6 +113,7 @@ function App() {
       <Route path="/signin"  element={<Navigate to="/login" replace />} />
       <Route path="/dashboard/connector-hub" element={<Navigate to="/connectors" replace />} />
       <Route path="/login"   element={<ErrorBoundary><Login /></ErrorBoundary>} />
+      <Route path="/preview-open/:runId" element={<ErrorBoundary><Suspense fallback={null}><PreviewOpen /></Suspense></ErrorBoundary>} />
       <Route path="/signup"  element={<ErrorBoundary><Suspense fallback={null}><Signup /></Suspense></ErrorBoundary>} />
       <Route path="/forgot-password" element={<ErrorBoundary><Suspense fallback={null}><ForgotPassword /></Suspense></ErrorBoundary>} />
       <Route path="/reset-password" element={<ErrorBoundary><Suspense fallback={null}><ResetPassword /></Suspense></ErrorBoundary>} />
