@@ -33,7 +33,7 @@ COPY requirements.lock .
 RUN pip install --no-cache-dir -r requirements.lock \
     # Build and venv tooling in the image (setuptools' vendored jaraco.context and wheel, virtualenv for per-run app
     # environments) is upgraded past the HIGH advisories that container-scan reported (22 Nov 2026).
-    && pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "virtualenv>=21.14.9"
+    && pip install --no-cache-dir --upgrade "setuptools>=78.1.1,<81" "wheel>=0.46.2" "virtualenv>=21.14.9"
 
 # Copy source into a directory named `aether_os` so `import aether_os` resolves
 COPY . ./aether_os/
