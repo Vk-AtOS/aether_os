@@ -57,3 +57,11 @@ def test_observability_stack_is_opt_in_and_out_of_the_main_compose_file():
     assert {"prometheus", "grafana"} <= set(obs["services"])
     for svc in obs["services"].values():
         assert "@sha256:" in svc["image"]
+
+
+def test_image_keeps_pkg_resources_for_razorpay():
+    """setuptools 81 removed pkg_resources; razorpay (billing) imports it, and the API aborted at startup on production
+    (22 Nov 2026) after an unbounded `setuptools>=78.1.1` upgrade in the image. Keep the upper bound until razorpay drops it."""
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    assert '"setuptools>=78.1.1,<81"' in dockerfile
