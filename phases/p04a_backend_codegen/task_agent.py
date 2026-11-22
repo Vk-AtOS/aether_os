@@ -46,6 +46,7 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     write_alembic_scaffold,
     patch_main_py,
 )
+from aether_os.phases.p04a_backend_codegen.templates_users import _USERS_ROUTER_PY
 from aether_os.phases.p04a_backend_codegen.schema_builder import (
     _fallback_models,
     _fallback_schemas,
@@ -156,6 +157,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (src_dir / "rate_limiter.py").write_text(_RATE_LIMITER_PY)
     (routers_dir / "__init__.py").write_text(_ROUTERS_INIT_PY)
     (routers_dir / "auth.py").write_text(_AUTH_ROUTER_PY)
+    (routers_dir / "users.py").write_text(_USERS_ROUTER_PY)   # KAN-224: admin users API the generated UI calls
 
     generated_via = "deterministic"
     models_code = ""
