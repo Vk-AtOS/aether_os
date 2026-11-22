@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from aether_os.phases.p07a_unit_testing.task_agent import _entity_from_label, _generate_crud_tests
+from aether_os.phases.p07a_unit_testing.task_agent import _entity_from_label, _generate_crud_tests, _reject_crud_fix
 
 
 @pytest.mark.parametrize("label, name, table", [
@@ -19,3 +19,13 @@ def test_label_to_entity(label, name, table):
 def test_generated_tests_use_the_real_table(tmp_path):
     code = _generate_crud_tests(None, "x", [_entity_from_label("users"), _entity_from_label("projects")])
     assert "/api/projects" in code and "/api/projectss" not in code
+
+
+GOOD = "all_routers = []\n" + "x = 1\n" * 100
+
+
+def test_reject_truncated_or_shrunken_rewrites():
+    assert "syntax error" in _reject_crud_fix("obj = models.User(**data.model_dump(exclude_u", GOOD)
+    assert _reject_crud_fix("y = 2\n" * 200, GOOD) == "drops all_routers"
+    assert "lost most" in _reject_crud_fix("all_routers = []\n", GOOD)
+    assert _reject_crud_fix(GOOD, GOOD) == ""
