@@ -88,6 +88,20 @@ _AUTH_DEPENDS_NAMES = frozenset({
     "oauth2_scheme",
 })
 
+# Dependency FACTORIES whose returned dependency itself depends on get_current_user, used as
+# Depends(require_role("admin")). The generated auth.py's require_role is exactly that, so a route guarded by it
+# is authenticated (and role-checked); without this the users router failed INV-001 on production run 21.
+_AUTH_FACTORY_NAMES = frozenset({"require_role", "require_roles", "require_admin_role", "require_permission"})
+
+
+def _is_auth_dep(dep_arg: ast.AST) -> bool:
+    """Depends(get_current_user) or Depends(require_role(...)): either form enforces authentication."""
+    if isinstance(dep_arg, ast.Name):
+        return dep_arg.id in _AUTH_DEPENDS_NAMES
+    if isinstance(dep_arg, ast.Call) and isinstance(dep_arg.func, ast.Name):
+        return dep_arg.func.id in _AUTH_FACTORY_NAMES
+    return False
+
 _SQL_CALL_NAMES = frozenset({
     "execute",
     "query",
@@ -271,7 +285,7 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
         # Extract auth dependency facts
         for dec in node.decorator_list:
             for dep_name in _extract_decorator_depends(dec):
-                if dep_name in _AUTH_DEPENDS_NAMES:
+                if dep_name in _AUTH_DEPENDS_NAMES or dep_name in _AUTH_FACTORY_NAMES:
                     info.has_auth_depends = True
 
         # Check function parameters for Depends(auth) and Pydantic bodies
@@ -292,14 +306,10 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
                 continue
             if isinstance(default, ast.Call):
                 func = default.func
-                if isinstance(func, ast.Name) and func.id == "Depends":
-                    for dep_arg in default.args:
-                        if isinstance(dep_arg, ast.Name) and dep_arg.id in _AUTH_DEPENDS_NAMES:
-                            info.has_auth_depends = True
-                elif isinstance(func, ast.Attribute) and func.attr == "Depends":
-                    for dep_arg in default.args:
-                        if isinstance(dep_arg, ast.Name) and dep_arg.id in _AUTH_DEPENDS_NAMES:
-                            info.has_auth_depends = True
+                if (isinstance(func, ast.Name) and func.id == "Depends") or (
+                        isinstance(func, ast.Attribute) and func.attr == "Depends"):
+                    if any(_is_auth_dep(dep_arg) for dep_arg in default.args):
+                        info.has_auth_depends = True
 
         info.has_raw_body = _check_raw_body(node)
         info.has_transition_guard = _check_transition_guard(node)
