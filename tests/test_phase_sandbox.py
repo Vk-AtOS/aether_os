@@ -303,9 +303,14 @@ def test_build_loop_reinstalls_when_a_patch_edits_package_json(fake, tmp_path, m
 
     async def patch_adds_dependency(*_err):
         (tmp_path / "package.json").write_text('{"dependencies": {"react": "18.3.1", "date-fns": "4.1.0"}}')
-        return [{"file": "src/x.ts", "content": ""}]
+        return [{"file": "src/x.ts", "find": "a", "replace": "b"}]
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "x.ts").write_text("a")
     monkeypatch.setattr(bl, "_llm_fix", patch_adds_dependency)
-    monkeypatch.setattr(bl, "_apply_patch", lambda *_a, **_k: True)
+
+    async def tsc_ok(*_a, **_k):
+        return True
+    monkeypatch.setattr(bl, "_tsc_not_worse", tsc_ok)
     monkeypatch.setattr(bl, "ensure_npm_deps", lambda _d: [])
     monkeypatch.setattr(bl, "ensure_local_modules", lambda _d: None)
     asyncio.run(bl.run_build_loop(tmp_path, max_rounds=2))
