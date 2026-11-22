@@ -14,6 +14,7 @@ from aether_os.core.memory.store import MemoryRecord, get_memory_store
 from aether_os.core.memory.vector_store import ChromaProjectMemory
 from aether_os.orchestrator.bus import get_bus
 from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
+from aether_os.phases.targeted_retry import describe_failures, failure_signature
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ class GateOutcome:
     passed: bool
     issues: List[str] = field(default_factory=list)
     confidence: float = 1.0
+    # {file path: error text} of the files that failed the gate. Set it and the retry repairs
+    # these files only (repair_failed_files) instead of re-running the whole stage.
+    failed_files: Dict[str, str] = field(default_factory=dict)
 
 
 class PhaseBase:
@@ -205,11 +209,17 @@ class PhaseBase:
 
         attempt = 0
         last_error = ""
+        last_sig = ""
         while attempt < self.max_retries:
             attempt += 1
             try:
                 result = await self.run_task(phase_input, memory_ctx)
                 gate = await self.validate_gate(result, phase_input)
+                if not gate.passed and gate.failed_files:
+                    result, gate, stop_reason = await self._repair_failed_files(result, gate, phase_input)
+                    if stop_reason:  # repairs failed or repeated: another whole-stage run would feed the same input
+                        last_error = stop_reason
+                        break
 
                 if gate.passed:
                     # Persist gate result to disk for Phase Detail view
@@ -242,10 +252,17 @@ class PhaseBase:
                     return result
                 else:
                     last_error = "; ".join(gate.issues)
+                    if gate.failed_files:
+                        last_error = describe_failures(gate.failed_files) or last_error
                     self.logger.warning(
                         "[%s] Gate fail attempt %d/%d: %s",
                         self.phase_name, attempt, self.max_retries, last_error,
                     )
+                    sig = failure_signature(gate.failed_files, gate.issues)
+                    if sig == last_sig:
+                        last_error = f"identical gate failure repeated, not retrying again: {last_error}"
+                        break
+                    last_sig = sig
                     memory_ctx = [{"failure": last_error}] + memory_ctx
 
             except Exception as e:
@@ -262,6 +279,36 @@ class PhaseBase:
             escalated=True,
             issues=[last_error],
         )
+
+    async def _repair_failed_files(self, result: TaskResult, gate: GateOutcome,
+                                   phase_input: Any):
+        """Repair the files the gate named, one repair per attempt, never the same failure twice.
+
+        Returns (result, gate, stop_reason). stop_reason is None when the gate passed or this phase has no
+        repair (the caller then falls back to the whole-stage retry); otherwise it names the files and errors.
+        """
+        seen: set = set()
+        for n in range(1, self.max_retries + 1):
+            sig = failure_signature(gate.failed_files, gate.issues)
+            if sig in seen:
+                return result, gate, ("identical failure after repair, not retrying: "
+                                      + describe_failures(gate.failed_files))
+            seen.add(sig)
+            self.logger.warning("[%s] Gate fail, repair attempt %d/%d on: %s", self.phase_name, n,
+                                self.max_retries, describe_failures(gate.failed_files))
+            try:
+                repaired = await self.repair_failed_files(result, gate, phase_input)
+            except Exception as e:
+                self.logger.warning("[%s] repair attempt %d raised: %s", self.phase_name, n, e)
+                return result, gate, "repair raised %s: %s" % (e, describe_failures(gate.failed_files))
+            if repaired is None:
+                return result, gate, None
+            result = repaired
+            gate = await self.validate_gate(result, phase_input)
+            if gate.passed or not gate.failed_files:
+                return result, gate, None
+        return result, gate, (f"still failing after {self.max_retries} repair attempt(s): "
+                              + describe_failures(gate.failed_files))
 
     async def _escalate(self, phase_input: Any, reason: str) -> None:
         """Tell the pipeline and the live view that the gate failed after all retries.
@@ -288,6 +335,11 @@ class PhaseBase:
     async def run_task(self, phase_input: Any,
                        memory_ctx: List[Dict]) -> TaskResult:
         raise NotImplementedError
+
+    async def repair_failed_files(self, result: TaskResult, gate: GateOutcome,
+                                  phase_input: Any) -> Optional[TaskResult]:
+        """Repair gate.failed_files in place and return the updated result, or None if this phase cannot."""
+        return None
 
     async def validate_gate(self, result: TaskResult,
                             phase_input: Any) -> GateOutcome:
