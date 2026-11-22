@@ -13,6 +13,7 @@ back to disk.
 """
 from __future__ import annotations
 
+import ast
 import logging
 import re
 from pathlib import Path
@@ -223,6 +224,36 @@ def find_crud_py(project_dir: Path) -> Optional[Path]:
     return None
 
 
+def _class_names(path: Path) -> set:
+    try:
+        tree = ast.parse(path.read_text())
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        logger.warning("p07b: cannot read class names from %s: %s", path, exc)
+        return set()
+    return {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+
+
+def entities_the_app_defines(src_dir: Path, entities: list, need_schemas: bool) -> list:
+    """The entities the generated app really has: a model class in models.py and, for CRUD, <Name>Create and
+    <Name>Update in schemas.py.
+
+    The fallback used to emit routes for every architecture entity. Users are usually handled by auth.py with no
+    UserCreate schema, so on production acceptance run 14 (22 Nov 2026) the fallback wrote
+    `from schemas import UserCreate, ...` over a working crud.py and the app no longer imported.
+    """
+    models = _class_names(src_dir / "models.py")
+    schemas = _class_names(src_dir / "schemas.py") if need_schemas else set()
+    keep = []
+    for e in entities:
+        name = e.get("name", "")
+        if name not in models:
+            continue
+        if need_schemas and not {f"{name}Create", f"{name}Update"} <= schemas:
+            continue
+        keep.append(e)
+    return keep
+
+
 def apply_deterministic_fallback(project_dir: Path, entities: list, input_data: dict) -> None:
     """Re-generate crud.py and seed.py from the deterministic fallback generator.
 
@@ -240,14 +271,21 @@ def apply_deterministic_fallback(project_dir: Path, entities: list, input_data: 
         project_name = input_data.get("project_name", "App") if isinstance(input_data, dict) else "App"
         crud_path = find_crud_py(project_dir)
         seed_path = find_seed_py(project_dir)
-        if entities and crud_path and crud_path.exists():
-            fallback_code = _fallback_crud_routers(entities)
-            crud_path.write_text(fallback_code)
-            logger.info("p07b: switched to deterministic fallback crud generator at %s", crud_path)
-        if entities and seed_path and seed_path.exists():
-            fallback_seed = _fallback_seed(project_name, entities)
-            seed_path.write_text(fallback_seed)
-            logger.info("p07b: switched to deterministic fallback seed generator at %s", seed_path)
+        if crud_path and crud_path.exists():
+            crud_entities = entities_the_app_defines(crud_path.parent.parent, entities, need_schemas=True)
+            if crud_entities:
+                fallback_code = _fallback_crud_routers(crud_entities)
+                compile(fallback_code, "crud.py", "exec")
+                crud_path.write_text(fallback_code)
+                logger.info("p07b: switched to deterministic fallback crud generator at %s (%s)", crud_path,
+                            [e["name"] for e in crud_entities])
+            else:
+                logger.warning("p07b: fallback crud skipped: no entity has a model and Create/Update schemas")
+        if seed_path and seed_path.exists():
+            seed_entities = entities_the_app_defines(seed_path.parent, entities, need_schemas=False)
+            if seed_entities:
+                seed_path.write_text(_fallback_seed(project_name, seed_entities))
+                logger.info("p07b: switched to deterministic fallback seed generator at %s", seed_path)
     except Exception as _fb_exc:
         logger.warning("p07b: fallback generator failed: %s", _fb_exc)
 
