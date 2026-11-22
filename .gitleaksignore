@@ -4,12 +4,12 @@
 # Format: <commit>:<file>:<rule>:<line>. Never add a finding at HEAD here: remove the secret instead. See docs/security/ROTATION_RUNBOOK.md.
 
 # Test fixtures: fake API keys used as inputs to e2e and unit tests
-0161884e24ff85e526728cc92872494a40d6972f:dashboard/e2e/provider_health.spec.js:generic-api-key:15
-64977dbe7e747e204286830bd6919889ad5f0864:tests/test_provider_status.py:generic-api-key:12
-d3b4ce0520740a97f06150046a0921c8a8cee80e:dashboard/e2e/approvals.spec.js:generic-api-key:20
+9f2b35398b016a80d776a6b6a2913e6e7d1a25f2:dashboard/e2e/provider_health.spec.js:generic-api-key:15
+fcd1a2b9d7ae5e5b2c58d707af184c987192a25e:tests/test_provider_status.py:generic-api-key:12
+d87cb90f54ad325ca1b7489c92b466524f2da0f7:dashboard/e2e/approvals.spec.js:generic-api-key:20
 
 # Historic config identifier in a deleted k8s Secret manifest line (not a credential; file since rewritten)
-dc2446556fe74e7a28c5374e4347042a62d8ec69:deploy/kubernetes/secret.yaml:generic-api-key:55
+30abad622726880a0f8797859acf7ffa91b38d63:deploy/kubernetes/secret.yaml:generic-api-key:55
 
 # Historic: credentials quoted in an old notes file, since removed from HEAD (plans2.md is now untracked and gitignored)
 229169c8f98917e0abaf39d3bf024867c1b93178:plans2.md:aws-access-token:13
