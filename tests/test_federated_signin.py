@@ -1,9 +1,12 @@
 """KAN-110: OAuth/SAML/SCIM users are verified; MFA is not skipped by federated sign-in."""
+import re
 import asyncio
 import uuid
 import urllib.parse
 
 from aether_os.gateway import auth_oauth
+
+_JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 
 
 def test_oauth_refuses_to_link_unverified_account(gw):
@@ -58,7 +61,9 @@ def test_the_jwt_is_never_in_the_redirect_url_and_the_code_is_single_use(gw, mon
     u = gw.register("codeorg")
     user, org = asyncio.run(auth_oauth._upsert_oauth_user(u.email))
     resp = _redirect(monkeypatch, user, org)
-    assert "eyJ" not in resp.headers["location"] and "token=" not in resp.headers["location"]
+    # A JWT is three dot-separated base64url parts starting "eyJ". Checking the bare substring "eyJ" failed main CI on
+    # 22 Nov 2026: the random 43-character code contains it by chance about once in 6,000 runs.
+    assert not _JWT.search(resp.headers["location"]) and "token=" not in resp.headers["location"]
     code = _code_of(resp)
     first = gw.client.post("/auth/oauth/exchange", json={"code": code})
     assert first.status_code == 200 and first.json()["kind"] == "session" and first.json()["token"].count(".") == 2
