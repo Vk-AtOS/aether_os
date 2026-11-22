@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.core.codegen.entities import entity_from_label as _entity_from_label
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p07a_unit_testing.crud_repair import repair_crud
 from aether_os.core.sandbox import phase_exec
@@ -66,46 +67,11 @@ def _find_src_dir(data: dict) -> Optional[Path]:
 def _normalise_entities(raw: Any) -> list:
     """Entities as dicts. The architecture step sometimes lists them as bare names ("Task"), and every consumer here
     calls .get() on them: production acceptance run 9 (22 Nov 2026) failed Stage 6 with "'str' object has no attribute
-    'get'" before any test ran."""
+    'get'" before any test ran. Labels are turned into entities by core/codegen/entities.py, shared with p04a."""
     if not isinstance(raw, list):
         return []
-    out = []
-    for e in raw:
-        if isinstance(e, dict):
-            out.append(e)
-        elif isinstance(e, str) and e.strip():
-            out.append(_entity_from_label(e.strip()))
-    return out
-
-
-def _singular(word: str) -> str:
-    w = word.lower()
-    if w.endswith("ies") and len(w) > 3:
-        return word[:-3] + "y"
-    if w.endswith(("sses", "uses", "xes", "ches", "shes", "zes")):
-        return word[:-2]
-    if w.endswith("s") and not w.endswith(("ss", "us", "is")):
-        return word[:-1]
-    return word
-
-
-def _entity_from_label(label: str) -> dict:
-    """A bare entity label as the generators expect it: class name singular PascalCase, table plural snake_case.
-
-    The architecture step lists either class names ("Task") or table names ("users"). Using the label as the class name
-    produced `models.users` / `userss_router` in p07b's fallback and `/api/projectss` in p07a's tests (production
-    acceptance run 13, 22 Nov 2026): the fallback broke a backend s03 had validated, and the CRUD tests hit 404.
-    """
-    words = [w for w in re.split(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])", label) if w]
-    if not words:
-        return {"name": "Item", "table": "items"}
-    words[-1] = _singular(words[-1])
-    name = "".join(w[:1].upper() + w[1:].lower() for w in words)
-    last = words[-1].lower()
-    plural = last[:-1] + "ies" if last.endswith("y") and last[-2:-1] not in "aeiou" else (
-        last + "es" if last.endswith(("s", "x", "ch", "sh", "z")) else last + "s")
-    table = "_".join([w.lower() for w in words[:-1]] + [plural])
-    return {"name": name, "table": table}
+    return [e if isinstance(e, dict) else _entity_from_label(e.strip())
+            for e in raw if isinstance(e, dict) or (isinstance(e, str) and e.strip())]
 
 
 def _reject_crud_fix(fixed: str, original: str) -> str:
