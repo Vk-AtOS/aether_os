@@ -63,6 +63,16 @@ async def _llm_fix(error_output: str, source: str = "") -> list[dict[str, Any]]:
     return await request_patches(prompt, "p05 build_loop")
 
 
+def _may_patch(frontend_dir: Path):
+    """Only the app's own sources and package.json: never configs, tests or anything outside the frontend."""
+    root = frontend_dir.resolve()
+
+    def allowed(target: Path) -> bool:
+        rel = target.relative_to(root).parts
+        return rel == ("package.json",) or (rel[0] == "src" and not any(t in ("tests", "__tests__") for t in rel))
+    return allowed
+
+
 async def _tsc_not_worse(frontend_dir: Path, before: int) -> bool:
     """True when `tsc --noEmit` (sandboxed, as in the loop) reports no more errors than before the patches."""
     res = await phase_exec.run(["npx", "tsc", "--noEmit", "--skipLibCheck"], cwd=frontend_dir, timeout=60, text=True)
@@ -174,7 +184,7 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3) -> dict:
 
         combined = (_combine_output(tsc_result) + "\n" + _combine_output(build_result))[-_MAX_ERR_CHARS:]
         patches = await _llm_fix(combined, _error_context(frontend_dir, combined))
-        report = await apply_verified(frontend_dir, patches, "p05 build_loop",
+        report = await apply_verified(frontend_dir, patches, _may_patch(frontend_dir), "p05 build_loop",
                                       lambda: _tsc_not_worse(frontend_dir, len(tsc_lines)))
         report.log("p05 build_loop", round_num)
         if report.applied == 0:

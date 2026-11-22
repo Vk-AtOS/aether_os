@@ -26,6 +26,7 @@ async def repair_crud(src_dir: Path, error_text: str) -> bool:
         source += f"\n--- {crud.relative_to(root)} (lines 1-60)\n{head}"
     prompt = build_prompt("You are a FastAPI developer. Importing the generated app fails.", error_text, source,
                           example=str(crud.relative_to(root)), extra=_HINTS)
-    report = await apply_verified(root, await request_patches(prompt, "[p07a] crud repair"), "[p07a] crud repair")
+    report = await apply_verified(root, await request_patches(prompt, "[p07a] crud repair"),
+                                  lambda t: t == crud.resolve(), "[p07a] crud repair")
     report.log("[p07a] crud repair", 1)
     return report.applied > 0

@@ -41,13 +41,14 @@ class PatchReport:
     proposed: int = 0
     applied: int = 0
     rolled_back: int = 0
+    rejected: int = 0   # patches that name a file the caller does not allow to be repaired
     reasons: list[str] = field(default_factory=list)
     touched: list[Path] = field(default_factory=list)   # files that still carry an applied patch
 
     def log(self, tag: str, round_num: int) -> None:
         """One line per repair round: proposed, applied, rolled back (and why when nothing applied)."""
-        logger.info("%s: round %d - proposed %d, applied %d, rolled back %d%s", tag, round_num, self.proposed,
-                    self.applied, self.rolled_back,
+        logger.info("%s: round %d - proposed %d, applied %d, rolled back %d, rejected %d%s", tag, round_num,
+                    self.proposed, self.applied, self.rolled_back, self.rejected,
                     "" if self.applied else f" ({'; '.join(self.reasons[:3]) or 'no patches proposed'})")
 
 
@@ -162,10 +163,14 @@ def _valid_patch(p: Any) -> bool:
 async def apply_verified(
     root: Path,
     patches: list,
+    allowed: Callable[[Path], bool],
     tag: str = "patching",
     ts_check: Optional[Callable[[], Awaitable[bool]]] = None,
 ) -> PatchReport:
     """Apply `patches` under `root`; keep only the ones that validate.
+
+    `allowed(path)` is required: a patch to any other file is rejected (counted and logged). Without it a model could
+    make the gate pass by editing the tests instead of the app.
 
     .py files must compile (checked per file). For TS/JS files `ts_check()` runs once after all of them were written
     (the sandboxed `tsc --noEmit`) and returns False when the patches made things worse; then every TS/JS file of
@@ -182,6 +187,11 @@ async def apply_verified(
         target = resolve_in_project(root, p["file"])
         if target is None:
             rep.reasons.append(f"{p['file']}: no such file in the project")
+            continue
+        if not allowed(target):
+            rep.rejected += 1
+            logger.warning("%s: patch to %s rejected (not a file this repair may change)", tag, p["file"])
+            rep.reasons.append(f"{p['file']}: rejected, not an allowed file")
             continue
         try:
             text = current[target] if target in current else target.read_text()

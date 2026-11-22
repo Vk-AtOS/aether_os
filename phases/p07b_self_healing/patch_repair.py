@@ -43,6 +43,18 @@ def ensure_all_routers(code: str, file: Path) -> str:
     return code.rstrip() + f"\n\nall_routers = [{', '.join(router_vars)}]\n"
 
 
+def may_heal(project_dir: Path):
+    """Application source under the project's src/ only. Rewriting a test makes it pass without fixing the app, so
+    test_*/conftest*/tests/ and anything outside src/ are never allowed."""
+    root = project_dir.resolve()
+
+    def allowed(target: Path) -> bool:
+        rel = target.relative_to(root).parts if target.is_relative_to(root) else ()
+        return bool(rel) and "src" in rel[:-1] and target.suffix == ".py" and not target.name.startswith(
+            ("test_", "conftest")) and not any(p in ("tests", "test") for p in rel)
+    return allowed
+
+
 def _context(project_dir: Path, failing_file: Path, output: str) -> str:
     source = error_context(project_dir, output)
     if failing_file.name not in source:   # no traceback location: show the file's head so `find` can be copied
@@ -79,7 +91,7 @@ async def heal_file(
                           _context(project_dir, failing_file, output), example=str(rel), extra=extra)
     patches = [dict(p, replace=flatten_imports(p["replace"])) if isinstance(p, dict) and isinstance(p.get("replace"), str)
                else p for p in await request_patches(prompt, TAG)]
-    report = await apply_verified(project_dir, patches, TAG)
+    report = await apply_verified(project_dir, patches, may_heal(project_dir), TAG)
     report.log(TAG, attempt)
     if report.applied:
         try:
