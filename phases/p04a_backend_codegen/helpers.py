@@ -408,7 +408,18 @@ def _fallback_auth_flow_code() -> str:
         _reset_tokens: dict = {}   # token -> (user_id, expiry_unix_timestamp)
         _verify_tokens: dict = {}  # token -> user_id
 
+        from pydantic import BaseModel as _BaseModel, Field as _Field
+
         _auth_flow_router = APIRouter(prefix="/auth", tags=["Auth Flow"])
+
+
+        class ForgotPasswordRequest(_BaseModel):
+            email: str = _Field(min_length=3, max_length=254)
+
+
+        class ResetPasswordRequest(_BaseModel):
+            token: str = _Field(min_length=16, max_length=256)
+            new_password: str = _Field(min_length=8, max_length=128)
 
 
         def _send_reset_email(to_email: str, reset_token: str, base_url: str) -> None:
@@ -447,8 +458,8 @@ def _fallback_auth_flow_code() -> str:
 
 
         @_auth_flow_router.post("/forgot-password")
-        async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
-            email = body.get("email", "")
+        async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+            email = body.email
             result = await db.execute(select(models.User).where(models.User.email == email))
             user = result.scalar_one_or_none()
             if user:
@@ -466,9 +477,9 @@ def _fallback_auth_flow_code() -> str:
 
 
         @_auth_flow_router.post("/reset-password")
-        async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
-            token = body.get("token", "")
-            new_password = body.get("new_password", "")
+        async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+            token = body.token
+            new_password = body.new_password
             entry = _reset_tokens.get(token)
             if not entry or _time.time() > entry[1]:
                 raise HTTPException(status_code=400, detail="Invalid or expired reset token")
@@ -482,8 +493,9 @@ def _fallback_auth_flow_code() -> str:
                 _pwd_ctx = _CryptContext(schemes=["bcrypt"], deprecated="auto")
                 user.password_hash = _pwd_ctx.hash(new_password)
             except Exception as _hash_exc:
-                logger.warning("[auth] passlib unavailable, storing plain hash stub: %s", _hash_exc)
-                user.password_hash = new_password  # fallback only — prod must have passlib
+                # Never store the password itself: without a hasher the reset fails and the token stays usable.
+                logger.error("[auth] password hashing unavailable, reset refused: %s", _hash_exc)
+                raise HTTPException(status_code=503, detail="Password reset is temporarily unavailable")
             del _reset_tokens[token]
             await db.flush()
             await _log_action(db, str(user_id), 'PASSWORD_RESET', 'User', str(user_id))
