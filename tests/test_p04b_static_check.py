@@ -10,6 +10,7 @@ import pytest
 from aether_os.phases.p04b_business_logic.helpers import _FALLBACK_BUSINESS_RULES, _FALLBACK_WORKFLOW_ENGINE
 from aether_os.phases.p04b_business_logic.static_check import undefined_names
 from aether_os.phases.p04b_business_logic.task_agent import _validate_python_output
+from aether_os.phases.p07a_unit_testing.crud_repair import _may_patch
 
 needs_ruff = pytest.mark.skipif(shutil.which("ruff") is None, reason="ruff not on PATH")
 
@@ -34,3 +35,19 @@ def test_clean_code_passes():
 def test_the_fallbacks_themselves_are_clean(template):
     code = template.format(domain="saas", project_name="x")
     assert _validate_python_output(code, "fallback.py") == []
+
+
+def test_p07a_repair_may_patch_the_module_the_traceback_names(tmp_path):
+    src = tmp_path / "src"
+    (src / "routers").mkdir(parents=True)
+    (src / "tests").mkdir()
+    crud = src / "routers" / "crud.py"
+    for f in (crud, src / "workflow_engine.py", src / "models.py", src / "tests" / "test_x.py", src / "conftest.py"):
+        f.write_text("")
+    err = 'File "/app/src/workflow_engine.py", line 4\nNameError: name \'_apply_task_status_change\' is not defined'
+    allowed = _may_patch(src, crud, err)
+    assert allowed(crud.resolve()) and allowed((src / "workflow_engine.py").resolve())
+    assert not allowed((src / "models.py").resolve())                   # not named by the traceback
+    assert not allowed((src / "tests" / "test_x.py").resolve())
+    assert not allowed((src / "conftest.py").resolve())
+    assert not allowed((tmp_path / "outside.py").resolve())
