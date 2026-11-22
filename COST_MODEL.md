@@ -86,7 +86,7 @@ basis: runs per plan are not measured.
 The code limits concurrent pipelines per process with a semaphore set by `PIPELINE_MAX_CONCURRENT` (default 2)
 (`orchestrator/factory_pipeline.py:148`), and per organisation by `MAX_CONCURRENT_RUNS_PER_ORG` (default 5) and
 `MAX_STARTS_PER_ORG_PER_HOUR` (default 20) (`core/rate_limiter.py:161-165`). A run times out after
-`PIPELINE_TIMEOUT_MINUTES` (default 30) (`factory_pipeline.py:144`). Throughput in runs per hour: not measured.
+`PIPELINE_TIMEOUT_MINUTES` (default 120, `core/run_limits.py`). Throughput in runs per hour: not measured.
 Run duration: not measured.
 
 ## Not measured

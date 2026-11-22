@@ -142,8 +142,8 @@ def timeout_reason(seconds: float, stage: Optional[str] = None) -> str:
                 "The usual cause is that no model provider is answering: check the model key in Settings.")
     else:
         text = (f"The build did not finish within {int(seconds // 60)} minutes and was stopped. "
-                "The usual cause is a model provider that is slow or not answering: "
-                "check the model key in Settings, then restart the run.")
+                "Either the model provider is slow or not answering (check the model key in Settings), or this build "
+                "needs longer than the limit (an operator can raise PIPELINE_TIMEOUT_MINUTES). Then restart the run.")
     return redact_secrets(text)
 
 
