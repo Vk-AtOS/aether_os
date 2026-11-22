@@ -42,9 +42,9 @@ _QUOTED = re.compile(r"""'[^']*'|"[^"]*"|`[^`]*`""")
 _PATH = re.compile(r"(?:[\w@.-]*/)+[\w@.-]+")
 _NUM = re.compile(r"\b\d+\b")
 
-# Memory poisoning guard (KAN-215). A stored patch is replayed into later builds with no model call, so only four
-# narrow EDIT SHAPES are storable (see is_safe_patch); everything else is refused. Code cannot be filtered with
-# regexes or denylists alone (comments split tokens, strings concatenate into URLs, number grammar swallows names).
+# Memory poisoning guard (KAN-215). A stored patch is replayed into later builds with no model call, so only two
+# narrow EDIT SHAPES (A import-path case fix, C missing closing tags) are storable (see is_safe_patch); everything
+# else is refused. Code cannot be filtered with regexes or denylists alone (comments split tokens, strings concatenate into URLs, number grammar swallows names).
 MAX_PATCH_CHARS = 400
 LINE_SLACK = 3
 _TOKEN = re.compile(
@@ -61,11 +61,6 @@ _DENIED_IDENTIFIERS = frozenset(
     "postMessage importScripts require import export from setTimeout setInterval innerHTML outerHTML "
     "insertAdjacentHTML dangerouslySetInnerHTML srcdoc atob btoa open script iframe String fromCharCode "
     "decodeURIComponent unescape Image opener Worker SharedWorker Blob URL createObjectURL".split())
-_KEYWORDS = frozenset(
-    "break case catch class const continue debugger default delete do else enum export extends false finally for "
-    "function if import in instanceof new null return super switch this throw true try typeof var void while with "
-    "yield let static implements interface package private protected public await async of as type".split())
-_IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _SRC_EXTS = ("", ".ts", ".tsx", ".js", ".jsx")
 Token = tuple[str, str]
 
@@ -113,29 +108,6 @@ def _shape_closing_tags(find: str, rep: str, tf: list[Token]) -> bool:
     return all(n in opened and n not in _DENIED_IDENTIFIERS for n in names)
 
 
-_NAMED_IMPORT = re.compile(r"(import\s*\{)([^{}]*)(\}\s*from\s*(['\"])(\.{1,2}/[\w./@-]*)\4\s*;?\s*)", re.S)
-
-
-def _shape_named_import(find: str, rep: str) -> bool:
-    """D) raw text: the statement outside the braces is byte-identical; the brace content differs only by added
-    `, Identifier` items (identifiers, not keywords, not denied, not already imported)."""
-    mf, mr = _NAMED_IMPORT.fullmatch(find), _NAMED_IMPORT.fullmatch(rep)
-    if not mf or not mr or mf.group(1) != mr.group(1) or mf.group(3) != mr.group(3):
-        return False
-    bf, br = mf.group(2), mr.group(2)
-    core = bf.rstrip()
-    names = [x.strip() for x in core.split(",")]
-    if not core or not all(_IDENT.fullmatch(n) for n in names) or not br.startswith(core):
-        return False
-    tail = br[len(core):]
-    tail_core = tail.rstrip()
-    if tail[len(tail_core):] != bf[len(core):] or not re.fullmatch(r"(?:, ?[A-Za-z_$][A-Za-z0-9_$]*)+", tail_core):
-        return False
-    added = [x.strip().lstrip(",").strip() for x in re.findall(r",\s?[A-Za-z_$][A-Za-z0-9_$]*", tail_core)]
-    return all(a not in _KEYWORDS and a not in _DENIED_IDENTIFIERS and a not in names for a in added) \
-        and len(set(added)) == len(added)
-
-
 def import_target_ok(frontend_dir: Path, file: str, patch: dict) -> bool:
     """Every `from '<relative>'` specifier of replace must resolve, from the patched file's directory, to an existing
     file (or index file) INSIDE <frontend_dir>/src, with the exact letter case on disk."""
@@ -156,8 +128,8 @@ def import_target_ok(frontend_dir: Path, file: str, patch: dict) -> bool:
 
 
 def is_safe_patch(patch: dict) -> bool:
-    """Storable / replayable only if the edit is exactly one of three shapes: A case-only import-path fix, C missing
-    JSX closing tags, D extra names in an existing relative named import (identifier renames are NOT allowed). Comments, template literals,
+    """Storable / replayable only if the edit is exactly one of two shapes: A case-only import-path fix, C missing
+    JSX closing tags (identifier renames and added named imports are NOT allowed). Comments, template literals,
     backslashes and escapes are refused outright; numbers, other strings and punctuation can never change.
     Also re-checked on replay (older rows)."""
     find, rep = patch.get("find"), patch.get("replace")
@@ -167,7 +139,7 @@ def is_safe_patch(patch: dict) -> bool:
     tf, tr = tokenize(find), tokenize(rep)
     if any(k in ("comment", "tpl") for k, _ in tf + tr) or tf == tr:
         return False
-    return (_shape_import_path(tf, tr) or _shape_closing_tags(find, rep, tf) or _shape_named_import(find, rep))
+    return (_shape_import_path(tf, tr) or _shape_closing_tags(find, rep, tf))
 
 
 def patch_targets_error(patch: dict, err: dict, source: str, frontend_dir: Optional[Path] = None) -> bool:
