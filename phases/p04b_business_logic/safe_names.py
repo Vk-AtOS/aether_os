@@ -13,6 +13,51 @@ from typing import Any, Dict, List
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
+_NON_IDENT = re.compile(r"[^a-z0-9]+")
+# Path or code syntax in an event name looks like an injected spec, not a sentence: leave it for the check to refuse.
+_HOSTILE = re.compile(r"[/\\'\"`;]|\.\.")
+
+
+def _event_identifier(text: str) -> str:
+    slug = _NON_IDENT.sub("_", text.lower()).strip("_")[:63].rstrip("_")
+    if slug and slug[0].isdigit():
+        slug = f"event_{slug}"[:63]
+    return slug
+
+
+def normalise_event_names(ir: Dict[str, Any]) -> List[tuple]:
+    """Turn notification events the model wrote as sentences into identifiers, keeping the sentence as `trigger`.
+
+    The model describes events as conditions ("Task.assignee_id changed from null to user", "Daily cron:
+    Task.due_date < CURRENT_DATE"); check_logic_names rightly refused those, so production acceptance run 16
+    (22 Nov 2026) got no notifications at all (KAN-218). The slug keeps only [a-z0-9_], so the file-name and source
+    safety of check_logic_names is unchanged; names with path or code syntax are not renamed and are refused there. Returns
+    the (old, new) renames.
+    """
+    renamed: List[tuple] = []
+    seen: set = set()
+    for notif in ir.get("notifications") or []:
+        if not isinstance(notif, dict):
+            continue
+        event = notif.get("event", "notification")
+        if not isinstance(event, str):
+            continue
+        if _HOSTILE.search(event):
+            seen.add(event)
+            continue
+        name = event if _IDENT.match(event) else _event_identifier(event)
+        base, n = name, 2
+        while name and name in seen:
+            name = f"{base[:60]}_{n}"
+            n += 1
+        if name and name != event:
+            notif.setdefault("trigger", event)
+            notif["event"] = name
+            renamed.append((event, name))
+        seen.add(name)
+    return renamed
+
+
 def check_logic_names(ir: Dict[str, Any]) -> List[str]:
     errors: List[str] = []
     for wf in ir.get("workflows") or []:
