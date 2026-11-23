@@ -168,6 +168,7 @@ async def get_golden_examples(
             rows = q.scalars().all()
             return [
                 {
+                    "id": r.id,   # KAN-229: the learning loop records each use by id
                     "project_name": r.project_name,
                     "domain": r.domain,
                     "prompt_summary": r.prompt_summary,

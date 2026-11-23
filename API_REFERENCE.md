@@ -728,6 +728,17 @@ Tags: prime. Routes: 8.
 | POST | `/prime/requests/{request_id}/edit` | `get_current_user`; floor: any role | Change a pending request's amount or editable parameters. Makes a new revision with a new |
 | POST | `/prime/requests/{request_id}/reject` | `get_current_user`; floor: any role | Reject request. |
 
+### `gateway/routers/prime_learning_router.py`
+
+Tags: prime-learning. Routes: 4.
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| GET | `/prime/learning/items` | `get_current_user`; floor: any role | Per kind (correction, golden, fix): this organisation's learned items with usage, help rate and retirement. |
+| POST | `/prime/learning/items/{kind}/{item_id}/restore` | `get_current_user`; floor: any role; handler checks role inline (owner or admin) | Put a retired item back into prompts with a fresh failure count (owner or admin). |
+| POST | `/prime/learning/items/{kind}/{item_id}/retire` | `get_current_user`; floor: any role; handler checks role inline (owner or admin) | Stop putting this item into prompts (owner or admin). |
+| GET | `/prime/learning/metrics` | `get_current_user`; floor: any role | Per week: help rate per kind, build first-pass rate and correction rate. |
+
 ### `gateway/routers/prime_ledger_router.py`
 
 Tags: prime. Routes: 2.

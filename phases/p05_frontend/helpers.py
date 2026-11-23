@@ -109,10 +109,12 @@ async def _generate_domain_component(
     # Inject golden few-shot examples for this domain
     golden_hint = ""
     try:
-        from aether_os.core.learning.golden_retriever import get_golden_examples, format_golden_hint_p05
-        # Tenant data: only this org's (and platform-owned) builds may reach the prompt.
-        _examples = await get_golden_examples(
-            domain, limit=2, org_id=(accumulated_context or {}).get("org_id") or None,
+        from aether_os.core.learning.golden_retriever import format_golden_hint_p05
+        from aether_os.prime.learning.adapters import golden_for_prompt
+        # Tenant data: only this org's (and platform-owned) builds may reach the prompt. KAN-229: retired examples
+        # are left out and each one used is recorded; the run's build outcome says whether it helped.
+        _examples = await golden_for_prompt(
+            domain, 2, (accumulated_context or {}).get("org_id") or None, "p05_frontend",
         )
         golden_hint = format_golden_hint_p05(_examples)
     except Exception as exc:
