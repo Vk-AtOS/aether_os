@@ -419,6 +419,57 @@ Model `LearningClarificationPending` at `core/models.py:415`. Project-scoped cla
 - Index `ix_learning_clarifications_pending_org_id` on (org_id)
 - Index `ix_learning_clarifications_pending_user_id` on (user_id)
 
+### `learning_build_outcomes`
+
+Model `LearningBuildOutcome` at `prime/learning/models.py`. How a run's first frontend build went (KAN-229): the build first-pass trend of "What Prime has learned". One row per run; a later rebuild of the same run does not count.
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `id` | VARCHAR(36) | no | PK | generated in Python |
+| `org_id` | VARCHAR(50) | no | indexed |  |
+| `run_id` | VARCHAR(36) | no | unique |  |
+| `built` | BOOLEAN | no |  |  |
+| `first_pass` | BOOLEAN | no |  | (built, no TypeScript errors, round 1) |
+| `rounds` | INTEGER | no |  | `0` |
+| `created_at` | DATETIME | no |  | `_utcnow()` |
+
+### `learning_item_state`
+
+Model `LearningItemState` at `prime/learning/models.py`. Retirement of one learned item (correction, golden build or fix) in one organisation (KAN-229). A retired item is no longer put into prompts. `failures` counts outcomes in a row that did not help; at 3 the item is retired by Prime (`retired_by` = `prime`); an owner or admin can retire or restore it.
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `id` | VARCHAR(36) | no | PK | generated in Python |
+| `org_id` | VARCHAR(50) | no | indexed |  |
+| `kind` | VARCHAR(16) | no |  | `correction`, `golden` or `fix` |
+| `item_id` | VARCHAR(64) | no |  | the item's id in its own table (fix: the error signature) |
+| `failures` | INTEGER | no |  | `0` |
+| `retired` | BOOLEAN | no |  | `False` |
+| `retired_at` | DATETIME | yes |  |  |
+| `retired_by` | VARCHAR(255) | yes |  |  |
+| `retired_reason` | VARCHAR(255) | yes |  |  |
+
+- Unique `uq_learning_item_state_item` on (org_id, kind, item_id)
+
+### `learning_uses`
+
+Model `LearningUse` at `prime/learning/models.py`. Each time a learned item was put into a prompt or a stored fix was replayed, and later whether it helped (KAN-229): approval unchanged (correction), the run's build passed (golden), the fixed error is gone after the rebuild (fix). `helped` stays NULL until the outcome is known. No person is named in a row.
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `id` | VARCHAR(36) | no | PK | generated in Python |
+| `org_id` | VARCHAR(50) | no |  |  |
+| `kind` | VARCHAR(16) | no |  |  |
+| `item_id` | VARCHAR(64) | no |  |  |
+| `scope` | VARCHAR(200) | no |  | `agent:action_type`, phase or file kind |
+| `ref` | VARCHAR(64) | yes |  | the run it was used in |
+| `used_at` | DATETIME | no |  | `_utcnow()` |
+| `helped` | BOOLEAN | yes |  |  |
+| `settled_at` | DATETIME | yes |  |  |
+
+- Index `ix_learning_uses_org_kind_item` on (org_id, kind, item_id)
+- Index `ix_learning_uses_org_used_at` on (org_id, used_at)
+
 ### `llm_cache_entries`
 
 Model `LLMCacheEntry` at `core/models.py:309`. Shared LLM response cache - replaces per-process SQLite file.

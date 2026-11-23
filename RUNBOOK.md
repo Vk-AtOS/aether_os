@@ -16,12 +16,13 @@ This file was checked against the code at commit `e5c23fd`. Commands that depend
 10. [High Availability (reference design)](#10-high-availability-reference-design)
 11. [Velaris public app](#11-velaris-public-app-careers-scheduling-interview-participant-e-sign---kan-128)
 12. [Prime learning: consent, data rights, retention](#12-prime-learning-consent-data-rights-retention---kan-228)
+13. [Prime learning loop](#13-prime-learning-loop---kan-229)
 
 ---
 
 ## 0. Database Migrations
 
-The Alembic history has a single head: `add_prime_consent_learning` (`python3.11 -m alembic heads` prints `add_prime_consent_learning (head)`). It follows `fix_memory_tables`, which follows `prime_corrections_in_eval`, which follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
+The Alembic history has a single head: `prime_learning_loop` (`python3.11 -m alembic heads` prints `prime_learning_loop (head)`). It follows `add_prime_consent_learning`, which follows `fix_memory_tables`, which follows `prime_corrections_in_eval`, which follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
 
 Use the one migration command the project uses everywhere (`scripts/db_migrate.py`, called by `deploy/deploy.sh:52`, compose service `migrate`):
 
@@ -308,3 +309,22 @@ sources are git, Jira, calendar and Velaris attendance; consent is opt-in per pe
   again by someone shown the new notice; existing consents keep the version they were given under.
 - Account deletion and organisation deletion erase learned items and consent records through
   `core/audit/deletion.py`, like the other personal data.
+
+---
+
+## 13. Prime learning loop - KAN-229
+
+Three learners feed prompts: approver corrections (`prime/corrections.py`), golden builds
+(`core/learning/golden_retriever.py`) and build-fix memory (`core/fix_memory.py`). `prime/learning/` records every use
+(`learning_uses`) and its outcome, and retires an item after 3 outcomes in a row that did not help
+(`learning_item_state`). A retired item is not put into prompts. Recording is best effort: a database error is logged
+as `learning: ... not recorded` and the build or approval goes on.
+
+- See it: dashboard Prime > "What Prime has learned" (`/prime/learned`), or `GET /prime/learning/items` and
+  `GET /prime/learning/metrics?weeks=12`.
+- A learned item makes things worse and has not been retired yet: an owner or admin presses Retire on that screen, or
+  `POST /prime/learning/items/{kind}/{item_id}/retire` (`kind` is `correction`, `golden` or `fix`; a fix is addressed
+  by its error signature). Restore with `.../restore`; it starts a fresh failure count.
+- How outcomes are matched: a correction helped when the next request of the same proposer and action type was
+  approved without an edit (pending uses older than 7 days are not settled); golden examples by the run's first frontend
+  build; a replayed fix by whether its error is gone after the rebuild.
