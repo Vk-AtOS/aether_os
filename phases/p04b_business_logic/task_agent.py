@@ -24,6 +24,8 @@ from aether_os.phases.p04b_business_logic.helpers import (
     recover_domain_ir,
 )
 
+from aether_os.phases.p04b_business_logic.import_check import import_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -236,8 +238,10 @@ Project description: {raw_input}
 Entities: {entities_summary}
 Existing workflows from domain model: {workflows_summary}
 
-For each entity that requires approval flows (expense reports need manager approval, \
-contracts need legal sign-off, invoices need finance approval, leave requests need HR, etc.):
+Model workflows ONLY for the entities listed above that really need an approval or status flow. Do not \
+invent entities (no expense reports, contracts, invoices, subscriptions or leave requests unless they are listed). \
+If none needs one, return the module with an empty WORKFLOWS dict. Every state used in a transition MUST be a member \
+of the WorkflowState enum (refer to members as WorkflowState.NAME, never WorkflowState("value")). For each:
 - Define states (e.g. DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED)
 - Define transitions between states with actor and conditions
 - Define who can trigger each transition
@@ -267,6 +271,10 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
 
     _wf_fallback = _FALLBACK_WORKFLOW_ENGINE.format(domain=domain, project_name=project_name)
     _wf_errs = _validate_python_output(workflow_engine_code, "workflow_engine.py")
+    if not _wf_errs and workflow_engine_code != _wf_fallback:   # parses is not enough: it must import (run 32)
+        _imp = await import_error(workflow_engine_code, "workflow_engine", output_dir)
+        if _imp:
+            _wf_errs = [f"workflow_engine.py: import fails: {_imp}"]
     if _wf_errs and workflow_engine_code != _wf_fallback:
         logger.warning("p04b: model workflow engine refused (%s); using the deterministic fallback", _wf_errs[:2])
         workflow_engine_code = _wf_fallback
@@ -326,6 +334,10 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
         domain=domain, project_name=project_name
     )
     _br_errs = _validate_python_output(business_rules_code, "business_rules.py")
+    if not _br_errs and business_rules_code != _br_fallback:
+        _imp = await import_error(business_rules_code, "business_rules", output_dir)
+        if _imp:
+            _br_errs = [f"business_rules.py: import fails: {_imp}"]
     if _br_errs and business_rules_code != _br_fallback:
         logger.warning("p04b: model business rules refused (%s); using the deterministic fallback", _br_errs[:2])
         business_rules_code = _br_fallback
