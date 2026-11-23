@@ -146,17 +146,31 @@ def main(pw_file: str, rid: str, out: str) -> int:
         if new.count():
             new.click()
             page.wait_for_timeout(2500)
+            stamp = re.sub(r"\D", "", str(page.evaluate("Date.now()")))[-8:]
             for inp in page.locator('form input:visible, [role="dialog"] input:visible').all():
                 kind = (inp.get_attribute("type") or "text").lower()
-                if kind in ("text", "email", "search", ""):
-                    inp.fill("Acceptance check item")
+                name = (inp.get_attribute("name") or inp.get_attribute("id") or "").lower()
+                # Fill what a person would: a valid unique email (run 29 typed prose into type=email and the browser
+                # blocked the submit), a strong password, a date, a number; otherwise a label.
+                if kind == "email" or "email" in name:
+                    inp.fill(f"acceptance{stamp}@example.com")
+                elif kind == "password" or "password" in name:
+                    inp.fill("Acceptance-Check-2030!")
                 elif kind == "date":
                     inp.fill("2030-01-01")
                 elif kind == "number":
                     inp.fill("1")
+                elif kind in ("text", "search", "url", "tel", ""):
+                    inp.fill("Acceptance check item")
             for sel in page.locator('form select:visible, [role="dialog"] select:visible').all():
-                opts = sel.locator("option").all()
-                if len(opts) > 1:
+                # Related-record selects (project, owner) load their options from the API after the form opens; run
+                # 29 filled the form before they arrived, a required select stayed empty and the browser blocked the
+                # submit, so C5 failed although the app worked. Wait for real options before choosing one.
+                for _ in range(20):
+                    if sel.locator("option").count() > 1:
+                        break
+                    page.wait_for_timeout(250)
+                if sel.locator("option").count() > 1:
                     sel.select_option(index=1)
             page.screenshot(path=str(out_dir / "c5_form.png"))
             page.locator('form button[type="submit"], [role="dialog"] button:has-text("Save"), '
@@ -164,6 +178,12 @@ def main(pw_file: str, rid: str, out: str) -> int:
             page.wait_for_timeout(4000)
             page.screenshot(path=str(out_dir / "c5_after_submit.png"))
             created = any(m == "POST" and 200 <= s < 300 for m, _, s in api)
+            if not created:
+                # A blocked native submit sends no request: name the required fields the browser still rejects.
+                invalid = page.evaluate("""() => [...document.querySelectorAll('form :invalid')]
+                    .filter(e => e.tagName !== 'FORM').map(e => e.name || e.id || e.tagName.toLowerCase())""")
+                if invalid:
+                    print("  C5 submit blocked by the browser; invalid fields:", invalid[:6])
             if not created:     # KAN-242: say why, from what the user sees (alert, toast or the still-open dialog)
                 shown = page.locator('[role="alert"], [role="status"], [role="dialog"]').all_inner_texts()
                 print("  C5 no 2xx POST; page shows:", re.sub(r"\s+", " ", " | ".join(shown))[:300] or "(nothing)")
