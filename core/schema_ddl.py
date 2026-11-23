@@ -37,6 +37,7 @@ MODEL_MODULES = (
     "core.audit.backfill",
     "core.guardian.models",
     "prime.models",
+    "prime.learning.models",
 )
 
 
