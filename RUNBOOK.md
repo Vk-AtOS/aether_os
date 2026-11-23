@@ -15,12 +15,13 @@ This file was checked against the code at commit `e5c23fd`. Commands that depend
 9. [SQLite to PostgreSQL](#9-sqlite-to-postgresql)
 10. [High Availability (reference design)](#10-high-availability-reference-design)
 11. [Velaris public app](#11-velaris-public-app-careers-scheduling-interview-participant-e-sign---kan-128)
+12. [Prime learning: consent, data rights, retention](#12-prime-learning-consent-data-rights-retention---kan-228)
 
 ---
 
 ## 0. Database Migrations
 
-The Alembic history has a single head: `fix_memory_tables` (`python3.11 -m alembic heads` prints `fix_memory_tables (head)`). It follows `prime_corrections_in_eval`, which follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
+The Alembic history has a single head: `add_prime_consent_learning` (`python3.11 -m alembic heads` prints `add_prime_consent_learning (head)`). It follows `fix_memory_tables`, which follows `prime_corrections_in_eval`, which follows `org_llm_org_cap`, which follows `hash_legacy_plaintext_tokens`, which follows `add_org_dpa_acceptance`, which sits on top of `merge_r3_heads`, which merged `add_password_history` and `add_user_velaris_employee_id` (`alembic/versions/merge_r3_heads_merge_r3_integration_heads.py`); the earlier merge `merge_r2_heads` is an ancestor. `scripts/ci/check_docs.py` fails if this sentence names a head that is not the real one. `alembic upgrade head` therefore works. Check again with `alembic heads` after you merge branches: two heads make `upgrade head` fail with "Multiple heads are present".
 
 Use the one migration command the project uses everywhere (`scripts/db_migrate.py`, called by `deploy/deploy.sh:52`, compose service `migrate`):
 
@@ -283,3 +284,27 @@ client); 256 KiB body cap; per-IP rate and connection limits; `Referrer-Policy: 
 the first path segment (`/sign/***`) and never the query or Referer, so a link token is never logged. The nginx error log
 is set to `crit`; a critical error line can still name the request, so do not ship that file to a third party.
 Rollback: `systemctl disable --now velaris-public && rm /etc/nginx/sites-enabled/velaris-public && systemctl reload nginx`.
+
+---
+
+## 12. Prime learning: consent, data rights, retention - KAN-228
+
+Owner decisions (22 Nov 2026): a person's learned data is visible to that person alone (no manager or admin view);
+sources are git, Jira, calendar and Velaris attendance; consent is opt-in per person and per source, off by default.
+
+- The person manages it on the dashboard at Prime, tab "Your data" (`/prime/data`): the notice, one switch per source
+  plus an overall switch, what was learned (counts, newest items), export as JSON, erase per source or everything.
+  API: `GET /prime/data/{person}` and the routes under it (`person` is `me`); `API_REFERENCE.md` lists them.
+- Nobody else can read or change it: another person's id answers 403 for every role, and the attempt is in the ledger
+  as `prime.data.refuse`. There is no support override. A request from an employee for their data is answered by the
+  employee using the export button.
+- Ledger actions: `prime.consent.change`, `prime.data.export`, `prime.data.erase`, `prime.data.purge`,
+  `prime.data.retention.change`, `prime.data.refuse`.
+- Retention: learned items expire after 365 days by default. An owner or admin changes it per organisation with
+  `PUT /prime/data-retention` (1 to 1825 days). The purge job runs inside the API process every
+  `PRIME_LEARNING_PURGE_INTERVAL` seconds (default 3600, `0` turns it off; then nothing expires). It also deletes
+  anything stored from a source whose consent no longer holds.
+- Changing the notice or a purpose (`prime/consent.py`): bump `NOTICE_VERSION`. A switch can then only be turned on
+  again by someone shown the new notice; existing consents keep the version they were given under.
+- Account deletion and organisation deletion erase learned items and consent records through
+  `core/audit/deletion.py`, like the other personal data.
