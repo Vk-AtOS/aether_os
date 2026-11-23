@@ -27,6 +27,11 @@ export const primeApi = {
   eraseSubject: (subject) => c.post('/prime/ledger/subjects/erase', { subject }),
   evalSet: (params) => c.get('/prime/corrections/eval-set', { params }),
   setInEval: (id, good) => c.put(`/prime/corrections/${id}/good-example`, { good }),
+  // KAN-228: always "me": the API serves a person's learned data to that person alone.
+  myData: () => c.get('/prime/data/me'),
+  setConsent: (body) => c.put('/prime/data/me/consent', body),
+  exportMyData: () => c.get('/prime/data/me/export'),
+  eraseMyData: (source) => c.delete('/prime/data/me/learned', { params: source ? { source } : {} }),
 };
 
 export const errText = (e, fallback) => {

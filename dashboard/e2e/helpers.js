@@ -33,6 +33,12 @@ const DEFAULTS = {
   'GET /control/tasks': { tasks: [] },
   'GET /memory/graph': { nodes: [], edges: [], stats: {} },
   'GET /admin/users': { items: [], page: 1, limit: 50, total: 0 },
+  'GET /prime/data/me': {
+    notice: 'Prime can learn how you work.', notice_version: 'v1', retention_days: 365, newest: [],
+    counts: { git: 0, jira: 0, calendar: 0, attendance: 0 },
+    switches: ['all', 'git', 'jira', 'calendar', 'attendance'].map((source) => (
+      { source, enabled: false, purpose: `${source} purpose`, enabled_at: null, changed_at: null, notice_version: null })),
+  },
 };
 
 export const stubApi = async (page, routes = {}) => {
@@ -58,5 +64,5 @@ export const ROUTES = [
   '/memory', '/costs', '/admin/users', '/admin/billing', '/admin/intelligence', '/profile', '/settings/webhooks',
   '/settings/api-keys', '/decisions', '/frontend-builder', '/backend-builder', '/prompt', '/audit', '/learning',
   '/intelligence', '/search', '/deployments', '/health', '/guardian', '/agents', '/designer', '/workspaces',
-  '/operations', '/prime', '/chat', '/mail', '/control', '/hr', '/runs/r1',
+  '/operations', '/prime', '/prime/data', '/chat', '/mail', '/control', '/hr', '/runs/r1',
 ];
