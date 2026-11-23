@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.domain_ir import AetherType
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import is_user_entity
 from aether_os.phases.p05_frontend.dashboard_stats import ensure_real_stats
 from aether_os.phases.p05_frontend.llm_page_writer import (
     write_entity_page_llm,
@@ -402,6 +403,13 @@ async def assemble_domain_pages(
                     generate_product_grid_fn(_ir_ent_dict, route_map),
                 )
                 return 0, 1
+            if is_user_entity(ir_entity):
+                # The users API is a fixed template router (KAN-224) with a fixed contract (`password`, never
+                # `password_hash`); its page is the matching template, never model-written (run 33: the model's
+                # Users page had a Create button bound to a form id that did not exist and mapped password ->
+                # password_hash, so no user could be created).
+                write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _gen_ent_page(ir_entity))
+                return 0, 1
             async with _ir_sem:
                 _llm_code = await write_entity_page_llm(
                     entity=_ir_ent_dict, route_map=route_map,
@@ -461,6 +469,10 @@ async def assemble_domain_pages(
             pascal = ent.get("name") or to_pascal_case_fn(ent["table"])
             if layout_mode == "storefront" and is_product_entity_fn(ent["table"]):
                 write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", generate_product_grid_fn(ent, route_map))
+                return 0, 1
+            if ent.get("table") == "users" or ent.get("name") == "User":   # fixed users API: fixed template page
+                write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx",
+                                    generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None))
                 return 0, 1
             async with _ent_sem:
                 _llm_code = await write_entity_page_llm(

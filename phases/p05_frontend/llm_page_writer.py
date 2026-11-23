@@ -203,6 +203,23 @@ async def write_dashboard_llm(
     return cleaned
 
 
+_FORM_ATTR = re.compile(r"""\bform=["']([\w-]+)["']""")
+
+
+def page_defects(code: str) -> list:
+    """Contract defects that make a model-written page silently useless; the template page is used instead.
+
+    - a button bound with form="x" to a form that has no id="x" does nothing when clicked (run 33: Users "Create");
+    - a page must never send or show a stored password hash: the API takes `password` and hashes it (run 29/33)."""
+    out = []
+    for form_id in sorted(set(_FORM_ATTR.findall(code))):
+        if not re.search(rf"""\bid=["']{re.escape(form_id)}["']""", code):
+            out.append(f'button bound to form "{form_id}", which does not exist')
+    if "password_hash" in code:
+        out.append("handles password_hash (send `password`; the API hashes it)")
+    return out
+
+
 def mutations_without_error_handler(code: str) -> int:
     """How many useMutation({...}) calls have no onError. Run 23's page had three: a rejected save (422) left the
     dialog open with no message (KAN-242)."""
@@ -307,6 +324,11 @@ async def write_entity_page_llm(
 
     if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
         logger.warning("p05: LLM entity page for %s missing required tokens — falling back", name)
+        return None
+
+    defects = page_defects(cleaned)
+    if defects:
+        logger.warning("p05: LLM entity page for %s refused (%s) — falling back", name, "; ".join(defects))
         return None
 
     silent = mutations_without_error_handler(cleaned)
