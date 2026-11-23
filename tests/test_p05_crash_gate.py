@@ -42,3 +42,60 @@ def test_a_page_without_a_template_twin_is_left_alone(tmp_path):
     tsc = ["src/pages/ReportPage.tsx(1,1): error TS2339: Property 'z' does not exist on type 'Y'."]
     assert replace_crashing_pages(tmp_path, tsc, entities=[], route_map={}) == []
     assert (tmp_path / "src/pages/ReportPage.tsx").read_text() == "x.y.z"
+
+
+# --- run 27: tsc reports no type errors while any file fails to parse --------------------------------------------
+import asyncio  # noqa: E402
+
+from aether_os.phases.p05_frontend import crash_gate  # noqa: E402
+
+RUN27_TSC = ["src/pages/customer/Home.tsx(129,47): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?"]
+RUN27_PER_FILE = RUN27_TSC + [
+    "src/pages/ProjectPage.tsx(228,34): error TS2552: Cannot find name 'AlertDialogFooter'. Did you mean 'DialogFooter'?"]
+
+
+def _project(tmp_path):
+    fe = tmp_path / "frontend"
+    (fe / "src/pages").mkdir(parents=True)
+    (fe / "src/pages/ProjectPage.tsx").write_text("<AlertDialogFooter />")
+    ir = DomainIR(domain="saas", app_name="T")
+    ir.entities = [IREntity(name="Project", table="projects", fields=[IRField(name="name", type="string")])]
+    (tmp_path / "p02b_domain_ir").mkdir()
+    ir.save(tmp_path / "p02b_domain_ir" / "domain_ir.json")
+    return fe
+
+
+def test_plain_tsc_output_hides_the_crash_when_another_file_does_not_parse():
+    assert crashing_files(RUN27_TSC) == {}
+
+
+def test_gate_uses_per_file_diagnostics_and_loads_the_project_ir(tmp_path, monkeypatch):
+    fe = _project(tmp_path)
+
+    async def per_file(_dir):
+        return RUN27_PER_FILE
+
+    monkeypatch.setattr(crash_gate, "per_file_diagnostics", per_file)
+    replaced = asyncio.run(crash_gate.run_crash_gate(fe, RUN27_TSC))      # no IR passed: s04 repair calls it so
+    assert replaced == ["src/pages/ProjectPage.tsx"]
+    assert "AlertDialogFooter" not in (fe / "src/pages/ProjectPage.tsx").read_text()
+
+
+def test_s04_repair_runs_the_gate_and_rebuilds_once(tmp_path, monkeypatch):
+    from aether_os.phases.base import TaskResult
+    from aether_os.stages.s04_frontend import repair
+
+    calls = []
+
+    async def loop(frontend_dir, max_rounds=3):
+        calls.append(max_rounds)
+        return {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "tsc_all": RUN27_TSC, "rounds": 1}
+
+    async def gate(frontend_dir, tsc_lines):
+        return ["src/pages/ProjectPage.tsx"]
+
+    monkeypatch.setattr(repair, "run_build_loop", loop)
+    monkeypatch.setattr(repair, "run_crash_gate", gate)
+    out = asyncio.run(repair.repair_frontend_files(TaskResult(output_path=str(tmp_path), confidence=0.5, success=False,
+                                                              metadata={}), tmp_path))
+    assert calls == [2, 1] and out.success
