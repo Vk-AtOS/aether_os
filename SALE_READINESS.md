@@ -17,28 +17,28 @@ AetherOS is a 12-stage pipeline (`stages/s01_intake` to `stages/s12_specialist`)
 The table is generated: no figure in it is typed by hand, and `python scripts/ci/repo_stats.py --check` (part of the CI step "Docs match code") fails when it drifts from the repository.
 
 <!-- repo_stats:begin (written by `python scripts/ci/repo_stats.py --write`; do not edit by hand) -->
-Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `861ef014` (2026-11-23). Counts are over git-tracked files.
+Computed by `python scripts/ci/repo_stats.py --write` on the working tree on top of commit `bea506c2` (2026-11-23). Counts are over git-tracked files.
 
 | Metric | Value | How it is counted |
 |---|---|---|
-| Git commits | 1817 | `git rev-list --count HEAD` |
-| Tracked Python files | 1376 | `git ls-files '*.py'` |
-| Python lines (tracked files) | 198607 | lines of those files |
-| Alembic migration files | 90 | `alembic/versions/*.py` |
-| Gateway router files named `*_router.py` | 74 | `gateway/routers/*_router.py` |
-| All `.py` files in `gateway/routers/` | 78 | `gateway/routers/*.py` |
-| Route decorators in `gateway/routers/*.py` | 342 | lines starting `@...router.<method>(` |
+| Git commits | 1828 | `git rev-list --count HEAD` |
+| Tracked Python files | 1384 | `git ls-files '*.py'` |
+| Python lines (tracked files) | 199832 | lines of those files |
+| Alembic migration files | 91 | `alembic/versions/*.py` |
+| Gateway router files named `*_router.py` | 75 | `gateway/routers/*_router.py` |
+| All `.py` files in `gateway/routers/` | 79 | `gateway/routers/*.py` |
+| Route decorators in `gateway/routers/*.py` | 348 | lines starting `@...router.<method>(` |
 | Pipeline stages | 12 | `stages/s<digit>*/` |
 | Phase directories | 49 | `phases/p<digit>*/` (`phases/patterns/` is not a phase) |
 | Tracked Python files under `phases/` | 405 | `git ls-files 'phases/*.py'` |
-| Test files | 365 | `tests/**/test_*.py` |
-| `def test_` lines in `tests/` | 2332 | lower than the collected count: parametrized tests expand |
-| Frontend source files in `dashboard/src` | 221 | `.ts .tsx .js .jsx` |
+| Test files | 367 | `tests/**/test_*.py` |
+| `def test_` lines in `tests/` | 2356 | lower than the collected count: parametrized tests expand |
+| Frontend source files in `dashboard/src` | 223 | `.ts .tsx .js .jsx` |
 | Benchmark prompt files | 10 | `benchmarks/prompts/*` |
 | Python files over 600 lines | 0 | none |
 | `dashboard/src/pages/ProjectView.jsx` lines | 457 | `wc -l` |
 | Bare `except:` lines | 2 | `core/prompt_compiler.py:273`, `phases/p04a_backend_codegen/prompts.py:89` |
-| Tests collected by pytest | 2950 | `python -m pytest --collect-only -q tests` (collection only, not a run) |
+| Tests collected by pytest | 2977 | `python -m pytest --collect-only -q tests` (collection only, not a run) |
 <!-- repo_stats:end -->
 
 Last full test run: **2360 passed, 47 skipped**, the "Run tests" step of CI run 44929175212 on `main` at `9913c09`, 21 Nov 2026. That step passed; the later gitleaks full-history secret scan step of the same job failed in that run (history still holds old secrets, KAN-175). The suite was not re-run for this document, and the collected count in the table is for the tree named there, which is newer than that run.
