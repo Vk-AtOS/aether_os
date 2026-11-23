@@ -117,3 +117,46 @@ class PrimeCorrection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
 
     __table_args__ = (Index("ix_prime_corrections_lookup", "org_id", "agent", "action_type"),)
+
+
+class PrimeConsent(Base):
+    """One switch of one person's consent to Prime learning (KAN-228): `source` is "all" (the overall switch) or
+    one of prime/consent.py SOURCES. No row means off. Who changed it, when, the notice version shown and the
+    purpose text are kept with it; every change is also in the ledger."""
+    __tablename__ = "prime_consents"
+
+    org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    enabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)   # last turned on; NULL while off
+    changed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    notice_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PrimeLearnedItem(Base):
+    """Something Prime learned about one person from one source. Read and written only through
+    prime/learned.py, which checks consent first; personal data in it is pseudonymised before storage."""
+    __tablename__ = "prime_learned_items"
+    __table_args__ = (Index("ix_prime_learned_person", "org_id", "user_id", "source"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    learned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow, index=True)
+
+
+class PrimeLearningSettings(Base):
+    """Per-organisation retention of learned data. No row means prime/retention.py DEFAULT_RETENTION_DAYS."""
+    __tablename__ = "prime_learning_settings"
+
+    org_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=_utcnow)
