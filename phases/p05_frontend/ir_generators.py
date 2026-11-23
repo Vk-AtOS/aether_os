@@ -250,11 +250,28 @@ def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
       </div>"""
 
 
+# Columns the server sets: never form inputs or payload keys (run 29: a required "Created At" date input).
+_SERVER_SET_COLUMNS = frozenset({"id", "created_at", "updated_at"})
+# Stored secrets: never shown and never typed in. A person types a password; the API hashes it (run 29's Users form
+# posted password_hash as plain text and the users API answered 422 "password: Field required").
+_SECRET_COLUMNS = frozenset({"password_hash", "hashed_password", "password"})
+
+_PASSWORD_FIELD_JSX = """      <div>
+        <label className="block text-sm font-medium text-gray-700">Password</label>
+        <input type="password" name="password" autoComplete="new-password" required={!item}
+          placeholder={item ? 'Leave blank to keep the current password' : ''}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
+      </div>"""
+
+
 def generate_ir_entity_page(entity: IREntity) -> str:
     """Generate a complete EntityPage.tsx with typed form fields from IR."""
     name = entity.name
     table = entity.table
     label = name.replace("_", " ")
+    has_secret = any(f.name.lower() in _SECRET_COLUMNS for f in entity.fields)
+    shown = [f for f in entity.fields if f.name.lower() not in _SECRET_COLUMNS]
+    editable = [f for f in shown if f.name.lower() not in _SERVER_SET_COLUMNS]
 
     # Collect FK refs → unique query hooks.
     # If f.ref_entity is missing but field name ends in _id, infer the ref entity
@@ -300,7 +317,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     col_headers = "\n".join(
         f"              <th className='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>"
         f"{f.name.replace('_', ' ').title()}</th>"
-        for f in entity.fields[:6]
+        for f in shown[:6]
     )
 
     _DATE_SUFFIXES = ("_date", "_at", "_time", "_on", "date", "time")
@@ -328,12 +345,14 @@ def generate_ir_entity_page(entity: IREntity) -> str:
             )
         return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{fname} ?? '')}}</td>"
 
-    col_cells = "\n".join(_col_cell(f) for f in entity.fields[:6])
-    form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in entity.fields)
+    col_cells = "\n".join(_col_cell(f) for f in shown[:6])
+    form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in editable)
+    if has_secret:
+        form_fields += "\n" + _PASSWORD_FIELD_JSX
 
     # FIX 13: Build typed payload extraction
     payload_fields = []
-    for f in entity.fields:
+    for f in editable:
         if f.type in (AetherType.INTEGER, AetherType.FK):
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') ? parseInt(fd.get('{f.name}') as string, 10) : undefined,")
         elif f.type == AetherType.DECIMAL:
@@ -342,6 +361,8 @@ def generate_ir_entity_page(entity: IREntity) -> str:
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') === 'on',")
         else:
             payload_fields.append(f"      {f.name}: fd.get('{f.name}') as string || undefined,")
+    if has_secret:   # blank on edit = keep the current password (the key is left out)
+        payload_fields.append("      password: fd.get('password') as string || undefined,")
     payload_jsx = "\n".join(payload_fields)
 
     plural_label = label + ("s" if not label.endswith("s") else "")
