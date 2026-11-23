@@ -17,7 +17,7 @@ from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p05_frontend.build_loop import result_summary, run_build_loop
-from aether_os.phases.p05_frontend.crash_gate import replace_crashing_pages
+from aether_os.phases.p05_frontend.crash_gate import run_crash_gate
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
 from aether_os.phases.p05_frontend.cloud_console_generator import (
@@ -538,8 +538,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
             if build_success:
                 _loop_result = await run_build_loop(frontend_dir_final, max_rounds=3)
-                if replace_crashing_pages(frontend_dir_final, _loop_result.get("tsc_all", []), domain_ir=_domain_ir,
-                                          entities=entities, route_map=route_map, domain=domain):
+                if await run_crash_gate(frontend_dir_final, _loop_result.get("tsc_all", []), domain_ir=_domain_ir,
+                                        entities=entities, route_map=route_map, domain=domain):
                     _loop_result = await run_build_loop(frontend_dir_final, max_rounds=1)   # template pages: no patching
                 build_success = _loop_result["success"]
                 tsc_errors = _loop_result["tsc_errors"]
