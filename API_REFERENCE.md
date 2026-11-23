@@ -700,6 +700,19 @@ Tags: prime-corrections. Routes: 4.
 | GET | `/prime/corrections/relevant` | `get_current_user`; floor: any role | The corrections to show an agent before it proposes this action, and the prompt block. |
 | PUT | `/prime/corrections/{correction_id}/good-example` | `get_current_user`; floor: any role; handler calls `_admin` | Remove a correction from (False) or put it back in (True) its agent's eval set; all are in by default. |
 
+### `gateway/routers/prime_data_router.py`
+
+Tags: prime-data. Routes: 6. KAN-228: a person's learned data is served to that person alone. `{person}` must be `me` or the caller's own user id; any other person is 403 for every role (owner, admin and superadmin included) and the refusal is ledgered (`prime.data.refuse`). API keys get 403.
+
+| Method | Path | Auth | Summary |
+|---|---|---|---|
+| GET | `/prime/data-retention` | `get_current_user`; floor: any role | How long this organisation keeps learned data, and the bounds. |
+| PUT | `/prime/data-retention` | `get_current_user`; floor: any role; handler checks role inline | Change how long learned data is kept. Organisation owner or admin; ledgered. |
+| GET | `/prime/data/{person}` | `get_current_user`; floor: any role; handler calls `_self` (the person only) | The notice, your switches (with the date each was turned on), and what Prime has learned (counts, newest). |
+| PUT | `/prime/data/{person}/consent` | `get_current_user`; floor: any role; handler calls `_self` (the person only) | Turn one source (or the overall switch) on or off. Off stops collection now and deletes what it learned. |
+| GET | `/prime/data/{person}/export` | `get_current_user`; floor: any role; handler calls `_self` (the person only) | Everything Prime learned about you, and your consent record, as JSON. |
+| DELETE | `/prime/data/{person}/learned` | `get_current_user`; floor: any role; handler calls `_self` (the person only) | Erase what Prime learned from one source, or from every source when none is given. Consent is unchanged. |
+
 ### `gateway/routers/prime_inbox_router.py`
 
 Tags: prime. Routes: 8.

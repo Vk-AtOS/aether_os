@@ -24,7 +24,7 @@ from aether_os.core.audit import chain, subjects
 from aether_os.core.audit.subjects import AuditErasure
 from aether_os.core.db import get_session_factory
 from aether_os.core.models import AuditLog, Organisation, User
-from aether_os.prime import corrections
+from aether_os.prime import corrections, learned
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ async def org_erased(org_id: Any) -> bool:
 async def erase_organisation(org_id: str, by: str) -> Dict[str, Any]:
     try:
         await corrections.erase_org(org_id)    # approvers' corrections are the organisation's personal data too
+        await learned.erase_org(org_id)        # what Prime learned about its people, their consents (KAN-228)
         return await subjects.erase_org(org_id, by)
     except Exception as e:  # reported to the caller as retryable, never skipped
         logger.error("audit erasure of org %s failed: %s", org_id, type(e).__name__)
@@ -69,6 +70,7 @@ async def erase_person(org_id: str, user_id: str, by: str) -> Dict[str, Any]:
     erased = 0
     try:
         await corrections.erase_person(org_id, [user_id, *([email.lower()] if email else [])])
+        await learned.erase_person(org_id, user_id)   # what Prime learned about them and their consents (KAN-228)
         for target in targets:
             try:
                 await subjects.erase_subject(org_id, target, by)

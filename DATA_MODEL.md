@@ -3,7 +3,7 @@
 **Generated from the SQLAlchemy metadata, not written by hand.** Source commit: `e5c23fd`. Method: import the
 model modules and read `Base.metadata.tables` (`core/db.py:32` defines `Base`). The throw-away script is
 `/private/tmp/claude-501/-Users-apple/1a57cd35-efca-4a1e-b634-a519eaf0e507/scratchpad/a_docs/docs_b/dump_models.py`
-(not in the repository). Result: **52 tables, 483 columns.** The previous version of this file listed 22 tables.
+(not in the repository). Result: **55 tables, 504 columns** (52 and 483 at that commit, plus the three KAN-228 tables). The previous version of this file listed 22 tables.
 
 Files that define tables (count of tables per file, from the "Model" lines below):
 
@@ -14,7 +14,7 @@ Files that define tables (count of tables per file, from the "Model" lines below
 - `core/guardian/models.py`: 2
 - `core/billing/payments.py`: 1
 - `core/onboarding.py`: 1
-- `prime/models.py`: 4
+- `prime/models.py`: 7
 
 A table in a module that nothing imports is missing from `Base.metadata`. `alembic/env.py` imports only
 `core.models` (and the `scim_models` it pulls in). Whether the other modules are imported through
@@ -694,6 +694,22 @@ Model `PortalToken` at `core/identity/portal_access.py:38`.
 - Index `ix_portal_tokens_project_id` on (project_id)
 - Unique `unnamed` on (token_hash)
 
+### `prime_consents`
+
+Model `PrimeConsent` at `prime/models.py:122`. One switch of one person's consent to Prime learning (KAN-228): `source` is `all` (the overall switch) or one of `git`, `jira`, `calendar`, `attendance`. No row means off. Read only through `prime/consent.py` (`allowed()`); every change is also in the ledger (`prime.consent.change`).
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `org_id` | VARCHAR(50) | no | PK |  |
+| `user_id` | VARCHAR(255) | no | PK |  |
+| `source` | VARCHAR(16) | no | PK |  |
+| `enabled` | BOOLEAN | no |  | `False` |
+| `enabled_at` | DATETIME | yes |  |  |
+| `changed_by` | VARCHAR(255) | no |  |  |
+| `changed_at` | DATETIME | no |  |  |
+| `notice_version` | VARCHAR(32) | no |  |  |
+| `purpose` | TEXT | no |  |  |
+
 ### `prime_corrections`
 
 Model `PrimeCorrection` at `prime/models.py:91`. What a person changed or refused before approving (KAN-24): the agent's proposal, the correction and why. Personal data is pseudonymised before it is stored; every row belongs to one organisation and is never read across organisations.
@@ -743,6 +759,35 @@ Model `PrimeDelegation` at `prime/models.py:15`.
 | `created_at` | DATETIME | no |  | `_utcnow()` |
 
 - Index `ix_prime_delegations_grantor` on (grantor)
+
+### `prime_learned_items`
+
+Model `PrimeLearnedItem` at `prime/models.py:139`. What Prime learned about one person from one source (KAN-228). Read and written only by `prime/learned.py`, which checks consent first and filters every query on organisation AND person; personal data is pseudonymised before storage. Expires after the organisation's retention period (`prime/retention.py`).
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `id` | VARCHAR(36) | no | PK | generated in Python |
+| `org_id` | VARCHAR(50) | no |  |  |
+| `user_id` | VARCHAR(255) | no |  |  |
+| `source` | VARCHAR(16) | no |  |  |
+| `kind` | VARCHAR(64) | no |  |  |
+| `summary` | TEXT | no |  |  |
+| `data` | JSON | yes |  |  |
+| `learned_at` | DATETIME | no | indexed | `_utcnow()` |
+
+- Index `ix_prime_learned_person` on (org_id, user_id, source)
+- Index `ix_prime_learned_items_learned_at` on (learned_at)
+
+### `prime_learning_settings`
+
+Model `PrimeLearningSettings` at `prime/models.py:155`. Per-organisation retention of learned data; no row means 365 days.
+
+| Column | Type | Nullable | Key / FK | Default |
+|---|---|---|---|---|
+| `org_id` | VARCHAR(50) | no | PK |  |
+| `retention_days` | INTEGER | no |  |  |
+| `updated_by` | VARCHAR(255) | no |  |  |
+| `updated_at` | DATETIME | no |  | `_utcnow()` |
 
 ### `prime_org_limits`
 

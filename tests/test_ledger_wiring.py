@@ -5,6 +5,7 @@ personal data in logs. Real chain code on a throwaway SQLite file; identity inje
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 import httpx
 import pytest
@@ -17,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import aether_os.core.db as db
 from aether_os.core.audit import anchor, backfill, chain, deletion, subjects
 from aether_os.core.audit.ledger import DecisionLedger
-from aether_os.prime.models import PrimeCorrection  # erasure also deletes corrections (KAN-24)
+# erasure also deletes corrections (KAN-24) and what Prime learned, with the consents (KAN-228)
+from aether_os.prime.models import PrimeConsent, PrimeCorrection, PrimeLearnedItem, PrimeLearningSettings
 from aether_os.core.models import APIKey, AuditLog, Organisation, Run, User
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.gateway.routers import (
@@ -39,7 +41,8 @@ ROOT = {"user_id": "u-root", "org_id": A, "role": "superadmin"}
 async def world(ledger_sqlite, monkeypatch):
     async with db.get_engine().begin() as conn:
         await conn.run_sync(lambda c: db.Base.metadata.create_all(
-            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run, PrimeCorrection)]))
+            c, tables=[t.__table__ for t in (Organisation, User, APIKey, Run, PrimeCorrection, PrimeConsent,
+                                             PrimeLearnedItem, PrimeLearningSettings)]))
     async with ledger_sqlite() as s:
         s.add_all([Organisation(id=o, name=o, slug=o) for o in (A, B)])
         await s.flush()
@@ -128,6 +131,25 @@ async def test_account_deletion_erases_the_person_and_can_be_retried(world, monk
     again = await deletion.erase_person(A, "u-alice", by="u-alice")   # idempotent
     assert again == {"subjects_erased": 0}
     assert (await chain.verify(A, full=True)).ok
+
+
+async def test_account_and_org_deletion_also_erase_what_prime_learned(world):
+    """KAN-228: the existing erasure path removes learned items and consent records too."""
+    async with db.get_session_factory()() as s:
+        for org, uid in ((A, "u-alice"), (A, "u-mem"), (B, "u-bob")):
+            s.add(PrimeConsent(org_id=org, user_id=uid, source="all", enabled=True, changed_by=uid,
+                               changed_at=datetime.now(), notice_version="v", purpose="p"))
+            s.add(PrimeLearnedItem(org_id=org, user_id=uid, source="git", kind="commit", summary="s"))
+        await s.commit()
+
+    async def left(model):
+        async with db.get_session_factory()() as s:
+            return sorted(r.user_id for r in (await s.execute(select(model))).scalars().all())
+    assert (await world.delete("/account")).status_code == 200
+    assert await left(PrimeLearnedItem) == await left(PrimeConsent) == ["u-bob", "u-mem"]
+    world.who["user"] = {"user_id": "u-owner2", "org_id": A, "role": "owner"}
+    assert (await world.delete("/org")).status_code == 200
+    assert await left(PrimeLearnedItem) == await left(PrimeConsent) == ["u-bob"]
 
 
 async def test_org_deletion_erases_the_org_and_a_failure_is_retryable(world, monkeypatch):

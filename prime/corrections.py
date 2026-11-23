@@ -52,13 +52,13 @@ def agent_of(params: Dict[str, Any], requested_by: str) -> str:
     return requested_by[:128]
 
 
-async def _clean(org_id: str, value: Any) -> Any:
+async def pseudonymise(org_id: str, value: Any) -> Any:
     """Pseudonymise personal fields and emails, mask credentials, recursively."""
     if isinstance(value, dict):
-        return {k: (await pseudonym(org_id, v) if str(k).lower() in PERSONAL_KEYS else await _clean(org_id, v))
+        return {k: (await pseudonym(org_id, v) if str(k).lower() in PERSONAL_KEYS else await pseudonymise(org_id, v))
                 for k, v in value.items()}
     if isinstance(value, list):
-        return [await _clean(org_id, v) for v in value[:50]]
+        return [await pseudonymise(org_id, v) for v in value[:50]]
     if isinstance(value, str):
         out = redact_secrets(value, limit=2000)
         for m in set(_EMAIL.findall(out)):
@@ -68,7 +68,7 @@ async def _clean(org_id: str, value: Any) -> Any:
 
 
 async def _text(org_id: str, value: Any, cap: int = 2000) -> str:
-    return json.dumps(await _clean(org_id, value), sort_keys=True, default=str)[:cap]
+    return json.dumps(await pseudonymise(org_id, value), sort_keys=True, default=str)[:cap]
 
 
 async def record(*, org_id: str, request_id: str, revision: Optional[int], action_type: str,

@@ -9,6 +9,7 @@ import Deputies from '../components/prime/Deputies';
 import LimitsSettings from '../components/prime/LimitsSettings';
 import LedgerBrowser from '../components/prime/LedgerBrowser';
 import EvalSet from '../components/prime/EvalSet';
+import YourData from '../components/prime/YourData';
 import { primeApi, useLoad } from '../components/prime/primeApi';
 
 const TABS = [
@@ -18,6 +19,7 @@ const TABS = [
   { key: 'limits',      label: 'Limits',      path: '/prime/limits', Panel: LimitsSettings, adminOnly: true },
   { key: 'ledger',      label: 'Ledger',      path: '/prime/ledger', Panel: LedgerBrowser },
   { key: 'evals',       label: 'Evaluation set', path: '/prime/evals', Panel: EvalSet, adminOnly: true },
+  { key: 'data',        label: 'Your data',   path: '/prime/data', Panel: YourData },
 ];
 
 const Prime = () => {
