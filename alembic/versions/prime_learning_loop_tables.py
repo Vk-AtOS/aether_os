@@ -6,7 +6,7 @@ forever and nobody could see whether learning improved builds or approvals. Thes
 outcome, retire items that keep failing, and keep the first-pass build trend. The learners keep their own tables.
 
 Revision ID: prime_learning_loop
-Revises: fix_memory_tables
+Revises: add_prime_consent_learning
 Create Date: 2026-11-23
 """
 from typing import Sequence, Union
@@ -15,7 +15,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'prime_learning_loop'
-down_revision: Union[str, None] = 'fix_memory_tables'
+down_revision: Union[str, None] = 'add_prime_consent_learning'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
