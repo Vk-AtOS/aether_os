@@ -25,6 +25,7 @@ from aether_os.prime.authz import (
     ACTION_TYPES, AUTHORITY, EXECUTOR_AUTHORITY, EXTERNAL_EFFECT, NEVER, PRIME, Action, Outcome, dead_reason, money_reason, needs_second_person,
 )
 from aether_os.prime import corrections, detail
+from aether_os.prime.learning import adapters as learning
 from aether_os.prime.executors import (
     DEFAULT_EXECUTOR, ExecutionContext, ExecutionFailed, get_executor,
 )
@@ -295,6 +296,9 @@ class ApprovalService:
                 params_before=row.params or {}, before={"amount": row.amount, "params": row.params or {}},
                 after={"rejected": True}, reason=reason, requested_by=row.requested_by,
                 on_behalf_of=row.on_behalf_of, corrected_by=uid, approver_role=role)
+        if won:   # KAN-229: corrections shown to the proposer helped when approved unchanged (best effort)
+            await learning.approval_settled(org_id, row.action_type, row.params or {}, row.requested_by,
+                                            approve, bool(row.edited_by))
         if approve:
             await self._execute(row.id)  # claims the row, so a duplicate call runs nothing
         return await self._view(await self._load(row.id), uid, ids)

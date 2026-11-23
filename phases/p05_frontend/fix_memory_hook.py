@@ -1,7 +1,8 @@
 """P05 build loop <-> fix memory (KAN-215): try stored fixes before a model call, remember what worked.
 
 One RoundMemory per run_build_loop. It never raises: a memory failure must not break the build, it only disables
-itself (logged), and the loop falls back to the model.
+itself (logged), and the loop falls back to the model. KAN-229: a fix retired by the learning loop is not replayed;
+each replay is recorded as a use, and the rebuild says whether it helped (error gone) or not.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from typing import Callable, Optional
 
 from aether_os.core import fix_memory
 from aether_os.core.run_context import ACTIVE_RUN_ID
+from aether_os.prime.learning import loop as learning
 
 logger = logging.getLogger(__name__)
 _ALL_ERRORS = 200
@@ -39,10 +41,11 @@ class RoundMemory:
             return 0
         total = 0
         try:
+            retired = await learning.retired_ids(self.org_id, "fix")
             for err in fix_memory.parse_errors(output):
                 sig = err["signature"]
-                if sig in self._tried:
-                    continue   # already tried in this build: never loop on the same stored fix
+                if sig in self._tried or sig in retired:
+                    continue   # already tried in this build (never loop on the same stored fix), or retired
                 self._tried.add(sig)
                 applied = await fix_memory.apply_stored(
                     self.org_id, sig, lambda p: self._apply(self.dir, p), target_file=err["file"],
@@ -51,6 +54,7 @@ class RoundMemory:
                     self.hits += 1
                     total += len(applied)
                     self._pending.append({"signature": sig, "kind": err["file_kind"], "patches": applied, "reused": True})
+                    await learning.record_use(self.org_id, "fix", [sig], scope=err["file_kind"], ref=self._run_id)
                     logger.info("p05 fix memory: hit sig=%s (%d patch(es)), model call skipped; hits so far=%d",
                                 sig[:8], len(applied), self.hits)
         except Exception as exc:
@@ -98,6 +102,9 @@ class RoundMemory:
             current = {e["signature"] for e in fix_memory.parse_errors(output, limit=_ALL_ERRORS)}
             for item in pending:
                 sig = item["signature"]
+                if item["reused"]:   # KAN-229: the replayed fix helped when its error is gone
+                    await learning.record_outcome(self.org_id, "fix", sig not in current, ref=self._run_id,
+                                                  item_ids=[sig])
                 if sig not in current:
                     if item["reused"]:
                         await fix_memory.mark_hit(self.org_id, sig)

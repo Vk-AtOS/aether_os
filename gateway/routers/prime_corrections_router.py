@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from aether_os.core.db import get_session_factory
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.prime import corrections
+from aether_os.prime.learning import adapters as learning
 from aether_os.prime.models import PrimeCorrection
 
 router = APIRouter(prefix="/prime/corrections", tags=["prime-corrections"])
@@ -50,8 +51,9 @@ async def relevant(
     also: List[str] = Query(default=[], max_length=corrections.ALSO_MAX),
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """The corrections to show an agent before it proposes this action, and the prompt block."""
-    found = await corrections.relevant(_org(user), agent, action_type, q, k, also)
+    """The corrections to show an agent before it proposes this action, and the prompt block. Retired corrections are
+    left out and each one returned is recorded as used (KAN-229); the outcome is the approval decision."""
+    found = await learning.corrections_for_prompt(_org(user), agent, action_type, q, k, also)
     return {"corrections": found, "prompt_block": corrections.prompt_block(found)}
 
 

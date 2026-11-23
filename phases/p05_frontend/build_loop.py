@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from aether_os.core.run_context import ACTIVE_ORG_ID
+from aether_os.core.run_context import ACTIVE_ORG_ID, ACTIVE_RUN_ID
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.codegen.patching import (
     apply_patch_text, apply_verified, build_prompt, error_context, extract_json_array as _extract_json_array, request_patches, resolve_in_project,
@@ -24,6 +24,7 @@ from aether_os.phases.p05_frontend.fix_memory_hook import RoundMemory
 from aether_os.phases.p05_frontend.missing_modules import ensure_local_modules
 from aether_os.phases.p05_frontend.npm_deps import ensure_npm_deps
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
+from aether_os.prime.learning import loop as learning
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,16 @@ async def run_build_loop(frontend_dir: Path, max_rounds: int = 3, org_id: str | 
     """
     if os.environ.get("ENVIRONMENT") == "test":
         return {"success": True, "built": True, "tsc_errors": 0, "tsc_messages": [], "rounds": 0}
+    org_id = org_id or ACTIVE_ORG_ID.get()
+    result = await _build_rounds(frontend_dir, max_rounds, org_id)
+    # KAN-229: the run's first build is the first-pass trend, and settles the golden examples its prompts used.
+    await learning.record_build(org_id, ACTIVE_RUN_ID.get(), result["built"],
+                                result["built"] and not result["tsc_errors"] and result["rounds"] == 1,
+                                result["rounds"])
+    return result
 
+
+async def _build_rounds(frontend_dir: Path, max_rounds: int, org_id: str | None) -> dict:
     memory = RoundMemory(org_id or ACTIVE_ORG_ID.get(), frontend_dir, _apply_patch)  # KAN-215: org-scoped fix memory
     tsc_lines: list[str] = []
     built = False
