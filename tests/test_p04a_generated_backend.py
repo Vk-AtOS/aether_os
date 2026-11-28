@@ -125,7 +125,7 @@ def run_app(app_dir, entities):
     import sys
     for mod in ("slowapi", "aiosqlite", "jwt", "bcrypt", "email_validator", "httpx"):
         pytest.importorskip(mod)
-    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
     p = subprocess.run([sys.executable, "-c", _RUNNER, str(app_dir), entities], capture_output=True, text=True,
                        env=env, timeout=120, cwd=str(app_dir))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
@@ -193,7 +193,7 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
         heads = [{"Authorization": "Bearer " + tok}] * 8 + [{}] * 8
     print("RESULT " + json.dumps([c.post("/api/auth/login", json=bad, headers=h).status_code for h in heads]))
 '''
-    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
+    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true"}
     for mode in ("forged", "valid_token"):
         p = subprocess.run([sys.executable, "-c", runner, str(app), mode], capture_output=True, text=True, env=env,
                            timeout=120, cwd=str(app))
@@ -217,10 +217,10 @@ def test_generated_app_ships_no_known_admin_password_or_real_secret_in_the_examp
         assert ".env" in (app / name).read_text().splitlines()
 
 
-@pytest.mark.parametrize("source", ["dotenv", "private_file"])
+@pytest.mark.parametrize("source", ["dotenv", "no_password"])
 def test_seed_admin_password_is_random_and_never_the_old_default(tmp_path, monkeypatch, source):
     # "dotenv": the generated .env carries this app's own random ADMIN_PASSWORD.
-    # "private_file": no .env and no ADMIN_PASSWORD, so the seed writes a random one to a 0600 file.
+    # "no_password": no .env and no ADMIN_PASSWORD: no admin exists at all and no password file is written (KAN-267).
     monkeypatch.setenv("ENVIRONMENT", "test")
     _, app = generate(tmp_path, domain="crm", use_ir=True, monkeypatch=monkeypatch)
     import os
@@ -230,7 +230,7 @@ def test_seed_admin_password_is_random_and_never_the_old_default(tmp_path, monke
         pytest.importorskip(mod)
     expected = dict(ln.split("=", 1) for ln in (app / ".env").read_text().splitlines()
                     if "=" in ln and not ln.startswith("#"))["ADMIN_PASSWORD"]
-    if source == "private_file":
+    if source == "no_password":
         (app / ".env").unlink()
     runner = r'''
 import json, os, sys
@@ -254,8 +254,8 @@ print("RESULT " + json.dumps({"ok": ok, "old": old, "mode": mode, "pw": pw}))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
     assert line, p.stderr[-1500:]
     r = json.loads(line[7:])
-    assert r["ok"] == 200 and r["old"] == 401 and len(r["pw"]) >= 16
-    assert r["mode"] == ("0o600" if source == "private_file" else None)
+    assert r["old"] == 401 and r["mode"] is None
+    assert r["ok"] == (200 if source == "dotenv" else 401) and (source == "no_password" or len(r["pw"]) >= 16)
     assert r["pw"] not in p.stdout.replace(line, "") and r["pw"] not in p.stderr     # never logged
 
 
@@ -305,7 +305,7 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     out["t2_stats"] = c.get("/api/stats", headers=t2).json().get("total_customers")      # was: every tenant's count
 print("RESULT " + json.dumps(out))
 '''
-    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z"}
+    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true"}
     p = subprocess.run([sys.executable, "-c", runner, str(app)], capture_output=True, text=True, env=env, timeout=120, cwd=str(app))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
     assert line, p.stdout[-600:] + p.stderr[-1500:]

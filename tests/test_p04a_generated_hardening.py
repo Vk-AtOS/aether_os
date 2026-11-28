@@ -22,7 +22,7 @@ def run_script(app, body: str, env_extra=None, timeout=120):
         pytest.importorskip(m)
     head = ("import json, os, sys\napp_dir = sys.argv[1]; os.chdir(app_dir); sys.path.insert(0, os.path.join(app_dir, 'src'))\n"
             "os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///' + os.path.join(app_dir, 't.db')\nout = {}\n")
-    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z", **(env_extra or {})}
+    env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true", **(env_extra or {})}
     p = subprocess.run([sys.executable, "-c", head + body + "\nprint('RESULT ' + json.dumps(out))", str(app)],
                        capture_output=True, text=True, env=env, timeout=timeout, cwd=str(app))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
@@ -233,6 +233,15 @@ with TestClient(main.app, raise_server_exceptions=False) as c:
     adm = c.post("/api/auth/login", json={"email": "admin@example.com", "password": os.environ["ADMIN_PASSWORD"]}).json()["access_token"]
     out["missing_required"] = c.post("/api/customers", headers={"Authorization": "Bearer " + adm}, json={"name": "A"}).status_code
 '''
+    # production never creates tables (KAN-267): the database must be migrated before the app starts
+    import asyncio
+    from aether_os.phases.p04a_backend_codegen.templates_alembic import generate_initial_migration
+    monkeypatch.setenv("AETHER_SANDBOX", "none")
+    monkeypatch.setenv("AETHER_SANDBOX_ALLOW_NONE", "1")
+    asyncio.run(generate_initial_migration(app))
+    up = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=app, capture_output=True, text=True,
+                        env={**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{app}/t.db"}, timeout=120)
+    assert up.returncode == 0, up.stderr[-1500:]
     prod = run_script(app, body, {"ENVIRONMENT": "production"})
     assert prod["docs"] == [404, 404, 404], prod
     assert prod["ready"][0] == 503 and "dbadmin" not in prod["ready"][1] and "10.9.8.7" not in prod["ready"][1], prod

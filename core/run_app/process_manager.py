@@ -384,6 +384,8 @@ class RunAppManager:
             DATABASE_URL=f"sqlite+aiosqlite:///{root_dir}/preview.db",
             PYTHONPATH=str(backend_dir / "src"),
             ADMIN_PASSWORD=_PREVIEW_PASSWORD,
+            ADMIN_EMAIL=_preview_email,
+            SEED_DEMO_DATA="true",      # a preview shows demo rows; a delivered app seeds only when asked to
             **sandbox_dirs(root_dir),
         )
         # Per-launch marker, passed in the environment (UVICORN_HEADERS), never on the command

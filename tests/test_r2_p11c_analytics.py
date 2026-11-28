@@ -105,7 +105,7 @@ def test_generated_app_analytics_endpoints_need_a_signed_in_user_and_events_need
     monkeypatch.setenv("ENVIRONMENT", "test")
     _, app = generate(tmp_path, monkeypatch=monkeypatch)
     asyncio.run(task_agent.run(SimpleNamespace(input_data={"project_dir": str(app)}), [], app))
-    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
     p = subprocess.run([sys.executable, "-c", _RUNNER, str(app)], capture_output=True, text=True, env=env, timeout=120, cwd=str(app))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
     assert line, f"generated app did not run:\n{p.stdout[-800:]}\n{p.stderr[-1500:]}"

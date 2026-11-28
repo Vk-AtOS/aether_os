@@ -126,48 +126,30 @@ def _fallback_seed(
 
     entity_seed_code = "\n".join(entity_blocks) if entity_blocks else "        pass  # no entity seed data"
 
+    first = next((e.get("name") for e in safe_entities if e.get("name")), None)
+    seed_guard = (f"from models import {first} as _First\n"
+                  "        if (await db.execute(select(func.count()).select_from(_First))).scalar_one() > 0:\n"
+                  "            return  # already seeded") if first else "pass"
     return textwrap.dedent("""\
         from __future__ import annotations
-        import os, logging
+        import logging
         from sqlalchemy import select, func
         from database import AsyncSessionLocal
-        from auth import get_password_hash
-        from models import User
+        from bootstrap import ensure_admin
 
         _logger = logging.getLogger(__name__)
-        def _admin_password() -> str:
-            # ADMIN_PASSWORD from the environment, else a random one written once to a 0600 file.
-            # Never a known default, and never logged.
-            pw = os.environ.get('ADMIN_PASSWORD')
-            if pw:
-                return pw
-            import secrets
-            pw = secrets.token_urlsafe(16)
-            path = os.path.join(os.getcwd(), 'admin_initial_password.txt')
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, 'w') as f:
-                f.write(pw)
-            _logger.warning('ADMIN_PASSWORD is not set: a random admin password was written to %s', path)
-            return pw
 
         async def seed_database() -> None:
+            # Demo rows only: the first admin comes from ADMIN_EMAIL / ADMIN_PASSWORD (bootstrap.ensure_admin).
             async with AsyncSessionLocal() as db:
-                count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-                if count > 0:
+                if await ensure_admin(db) is None:
+                    _logger.warning("Demo seed skipped: set ADMIN_EMAIL and ADMIN_PASSWORD")
                     return
-                admin = User(
-                    email="admin@example.com",
-                    password_hash=get_password_hash(_admin_password()),
-                    role="admin",
-                    is_active=True,__ADMIN_ORG__
-                )
-                db.add(admin)
-                # the admin is committed first: a failing demo row must never take the admin account with it
-                await db.commit()
+                __SEED_GUARD__
                 __ENTITY_SEED__
-                _logger.info("Seeded admin user admin@example.com")
+                _logger.info("Demo data seeded")
     """).replace("        __ENTITY_SEED__", entity_seed_code.rstrip("\n")).replace(
-        "__ADMIN_ORG__", "\n                    org_id='default'," if multi_tenancy else "")
+        "__SEED_GUARD__", seed_guard)
     # The entity blocks are already indented for the function body (8 spaces). They used to be pasted into the
     # template before textwrap.dedent, which stripped 8 spaces from all but the first line and left an
     # IndentationError, so every fallback seed was replaced by an empty one: no admin, no data (KAN-169).
@@ -203,8 +185,8 @@ async def generate_llm_seed(
         "- Define async def seed_database() -> None: that uses AsyncSessionLocal.\n"
         "- Create exactly 5 realistic, domain-plausible records per entity "
         f"(real names, realistic prices, real dates appropriate for the {domain} domain).\n"
-        "- Also create one admin User (email='admin@example.com', role='admin').\n"
-        "- Guard with: if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0: return\n"
+        "- Do NOT create any user: call `admin = await ensure_admin(db)` (from bootstrap import ensure_admin) and return if it is None.\n"
+        "- Guard with: if the first entity table already has rows: return\n"
         "- Wrap each entity block in try/except Exception as _e: _logger.warning(..., _e)\n"
         "- Return ONLY valid Python code — no markdown fences, no explanation.\n"
     )

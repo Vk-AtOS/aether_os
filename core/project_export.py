@@ -335,7 +335,7 @@ def assemble_export(ws: Path, dest: Path, project_name: str = "app") -> dict:
             raise ExportError(f"frontend/package.json is not valid JSON: {e}") from e
         tree.write("frontend/Dockerfile", frontend_dockerfile(has_lock).encode())
         tree.write("frontend/nginx.conf", frontend_nginx_conf().encode())
-    tree.write("backend/Dockerfile", backend_dockerfile(module).encode())
+    tree.write("backend/Dockerfile", backend_dockerfile(module, migrations=(dest / "backend" / "alembic.ini").exists()).encode())
     tree.write("docker-compose.yml", compose(use_postgres, has_fe, extra_vars).encode())
     tree.write(".env.example", env_example(use_postgres, extra_vars).encode())
     tree.write("README.md", readme(project_name, has_fe, use_postgres, has_tests).encode())

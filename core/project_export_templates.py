@@ -39,7 +39,11 @@ def env_vars_from_example(text: str) -> Dict[str, str]:
     return out
 
 
-def backend_dockerfile(module: str) -> str:
+def backend_dockerfile(module: str, migrations: bool = False) -> str:
+    # With migrations the schema is created by `alembic upgrade head` before the server starts: the app itself
+    # never create_all()s in production (KAN-267).
+    cmd = (f'CMD ["sh", "-c", "alembic upgrade head && exec uvicorn {module}:app --host 0.0.0.0 --port 8000"]\n'
+           if migrations else f'CMD ["uvicorn", "{module}:app", "--host", "0.0.0.0", "--port", "8000"]\n')
     return (
         "FROM python:3.11-slim\n"
         "WORKDIR /app\n"
@@ -54,7 +58,7 @@ def backend_dockerfile(module: str) -> str:
         "EXPOSE 8000\n"
         "HEALTHCHECK --interval=15s --timeout=5s --retries=5 \\\n"
         "  CMD python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\"\n"
-        f'CMD ["uvicorn", "{module}:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+        + cmd
     )
 
 

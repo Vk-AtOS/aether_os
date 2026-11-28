@@ -233,14 +233,12 @@ ABSOLUTE IMPORTS RULE: Use absolute imports only — NO relative imports.
 Example: `from database import AsyncSessionLocal`, `from auth import get_password_hash`, `from models import User`
 
 REQUIREMENTS:
-1. Import: `from database import AsyncSessionLocal`, `from auth import get_password_hash`
+1. Import: `from database import AsyncSessionLocal`
 2. Import all models from `models` (absolute: `from models import User, ...`)
-3. `async def seed_database()` — called on every startup
-4. Check if already seeded via count > 0 and return early (idempotent)
-5. Create admin user: email="admin@example.com", role="admin"
-   Read the admin password from `os.environ.get("ADMIN_PASSWORD")`; if it is not set, generate a random one
-   with `secrets.token_urlsafe(16)` and write it to a mode 0600 file. NEVER use a fixed default password
-   and NEVER log the password.
+3. `async def seed_database()` — demo rows only, called at startup only when SEED_DEMO_DATA=true
+4. Check if already seeded via a count on the first entity and return early (idempotent)
+5. Do NOT create any user or password: `from bootstrap import ensure_admin`, `admin = await ensure_admin(db)`,
+   and return if it is None (the first admin comes from ADMIN_EMAIL / ADMIN_PASSWORD in the environment)
 6. Create 15-20 realistic records for EACH entity with domain-appropriate values
 7. Use `db.add_all([...])` for bulk inserts
 

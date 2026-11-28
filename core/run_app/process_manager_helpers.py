@@ -475,6 +475,9 @@ def _spa_catchall(path: str = ""):
         _email_m = re.search(r'email\s*=\s*["\']([^"\']+@[^"\']+)["\']', safe_read_text(root_dir, _seed_py))
         if _email_m:
             _preview_email = _email_m.group(1)
+    # The generated app creates its admin from ADMIN_EMAIL / ADMIN_PASSWORD (process_manager sets both); the seed
+    # no longer names an address, so fall back to the conventional one.
+    _preview_email = _preview_email or "admin@example.com"
 
     # Write credentials file
     _creds_path = root_dir / "preview_credentials.json"
