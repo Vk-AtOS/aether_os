@@ -32,7 +32,18 @@ import ast
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Iterable, List, Optional, Tuple
+
+from aether_os.phases.p06b_formal_verification.route_deps import (
+    _kw,
+    analyse_module,
+    expr_is_auth,
+    function_has_auth_param,
+    has_public_marker,
+    has_tenant_filter,
+    in_public_allowlist,
+    route_decorator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +57,8 @@ class RouteInfo:
     name: str
     path: str
     method: str
-    has_auth_depends: bool = False       # Depends(get_current_user) or similar
+    has_auth_depends: bool = False       # effective auth: own, decorator, router or include-level dependency
+    is_declared_public: bool = False     # @public_route, PUBLIC_ROUTES or the allowlist: intentionally unauthenticated
     has_pydantic_body: bool = False      # request body is a Pydantic model
     has_raw_body: bool = False           # request.body() / request.json() call
     has_transition_guard: bool = False   # references ALLOWED_TRANSITIONS
@@ -77,30 +89,6 @@ class InvariantResult:
 # ---------------------------------------------------------------------------
 # AST-based route scanner
 # ---------------------------------------------------------------------------
-
-_AUTH_DEPENDS_NAMES = frozenset({
-    "get_current_user",
-    "require_auth",
-    "current_user",
-    "get_current_active_user",
-    "require_scope",
-    "security",
-    "oauth2_scheme",
-})
-
-# Dependency FACTORIES whose returned dependency itself depends on get_current_user, used as
-# Depends(require_role("admin")). The generated auth.py's require_role is exactly that, so a route guarded by it
-# is authenticated (and role-checked); without this the users router failed INV-001 on production run 21.
-_AUTH_FACTORY_NAMES = frozenset({"require_role", "require_roles", "require_admin_role", "require_permission"})
-
-
-def _is_auth_dep(dep_arg: ast.AST) -> bool:
-    """Depends(get_current_user) or Depends(require_role(...)): either form enforces authentication."""
-    if isinstance(dep_arg, ast.Name):
-        return dep_arg.id in _AUTH_DEPENDS_NAMES
-    if isinstance(dep_arg, ast.Call) and isinstance(dep_arg.func, ast.Name):
-        return dep_arg.func.id in _AUTH_FACTORY_NAMES
-    return False
 
 _SQL_CALL_NAMES = frozenset({
     "execute",
@@ -136,25 +124,6 @@ def _has_dynamic_attr(node: ast.AST) -> bool:
             if isinstance(func, ast.Name) and func.id == "getattr":
                 return True
     return False
-
-
-def _extract_decorator_depends(decorator: ast.expr) -> List[str]:
-    """Pull argument names out of Depends(...) decorator calls."""
-    names: List[str] = []
-    for node in ast.walk(decorator):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id == "Depends":
-                for arg in node.args:
-                    if isinstance(arg, ast.Name):
-                        names.append(arg.id)
-                    elif isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name):
-                        names.append(arg.func.id)
-            elif isinstance(func, ast.Attribute) and func.attr == "Depends":
-                for arg in node.args:
-                    if isinstance(arg, ast.Name):
-                        names.append(arg.id)
-    return names
 
 
 def _check_f_string_sql(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -225,37 +194,42 @@ def _is_pydantic_param(annotation: Optional[ast.expr]) -> bool:
     return False
 
 
-def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
+def _const_arg(dec: ast.Call) -> str:
+    """The route path: first positional argument or path=."""
+    node = dec.args[0] if dec.args else _kw(dec, "path")
+    return str(node.value) if isinstance(node, ast.Constant) else ""
+
+
+def extract_routes(
+    module_ast: ast.Module,
+    module_key: str = "",
+    included_auth: Iterable[Tuple[str, str]] = (),
+    public_routes: Iterable[str] = (),
+) -> List[RouteInfo]:
     """
     Walk the module AST and return RouteInfo for every FastAPI route function.
-    Routes are identified by decorators containing @router.<method> or
-    @app.<method> patterns.
+
+    has_auth_depends is the route's EFFECTIVE authentication: its own Depends/Annotated parameters, the route
+    decorator's dependencies=[...], the router's APIRouter(dependencies=[...]) and an include_router(...,
+    dependencies=[...]) elsewhere in the project (included_auth, from route_deps.collect_included_auth).
+    Routes marked @public_route, listed in a module PUBLIC_ROUTES or in the public_routes allowlist are
+    is_declared_public.
     """
     routes: List[RouteInfo] = []
-    _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
+    deps = analyse_module(module_ast)
+    included = set(included_auth)
+    allowlist = list(public_routes) + deps.public_routes
 
     for node in ast.walk(module_ast):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-
-        route_path = ""
-        route_method = ""
-
-        for dec in node.decorator_list:
-            # @router.get("/path") or @app.post("/path")
-            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
-                if dec.func.attr in _HTTP_METHODS:
-                    route_method = dec.func.attr.upper()
-                    if dec.args and isinstance(dec.args[0], ast.Constant):
-                        route_path = str(dec.args[0].value)
-                    break
-            # @router.get (without call args — rare but handle gracefully)
-            if isinstance(dec, ast.Attribute) and dec.attr in _HTTP_METHODS:
-                route_method = dec.attr.upper()
-                break
-
-        if not route_method:
+        dec_info = route_decorator(node)
+        if dec_info is None:
             continue  # not a route function
+        dec, receiver, route_method = dec_info
+        raw_path = _const_arg(dec)
+        facts = deps.routers.get(receiver)
+        route_path = (facts.prefix if facts else "") + raw_path
 
         info = RouteInfo(
             name=node.name,
@@ -263,53 +237,30 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
             method=route_method,
         )
 
-        # Graceful degradation — complex patterns are unverifiable
-        if _has_try_except(node):
-            info.is_unverifiable = True
-            info.unverifiable_reason = "try/except block — Z3 cannot model exception paths"
-            routes.append(info)
-            continue
-
-        if _has_async_generator(node):
-            info.is_unverifiable = True
-            info.unverifiable_reason = "async generator — Z3 cannot model streaming paths"
-            routes.append(info)
-            continue
-
-        if _has_dynamic_attr(node):
-            info.is_unverifiable = True
-            info.unverifiable_reason = "dynamic attribute access (getattr) — path is not statically determinable"
-            routes.append(info)
-            continue
-
-        # Extract auth dependency facts
-        for dec in node.decorator_list:
-            for dep_name in _extract_decorator_depends(dec):
-                if dep_name in _AUTH_DEPENDS_NAMES or dep_name in _AUTH_FACTORY_NAMES:
-                    info.has_auth_depends = True
-
-        # Check function parameters for Depends(auth) and Pydantic bodies
+        info.has_auth_depends = (
+            function_has_auth_param(node, deps)
+            or expr_is_auth(_kw(dec, "dependencies"), deps.local_auth, deps.alias_auth)
+            or bool(facts and facts.auth)
+            or (module_key, receiver) in included
+        )
+        info.is_declared_public = has_public_marker(node) or in_public_allowlist(route_method, route_path, allowlist)
         for arg in node.args.args + node.args.kwonlyargs:
-            if arg.annotation is None:
-                continue
-            # Depends(get_current_user) in parameter default
-            # The default expression is in node.args.defaults — align by index
-            ann = arg.annotation
-            if isinstance(ann, ast.Name) and ann.id in _AUTH_DEPENDS_NAMES:
-                info.has_auth_depends = True
-            if _is_pydantic_param(ann):
+            if _is_pydantic_param(arg.annotation) and not expr_is_auth(arg.annotation, deps.local_auth, deps.alias_auth):
                 info.has_pydantic_body = True
 
-        # Check defaults for Depends(...)
-        for default in node.args.defaults + node.args.kw_defaults:
-            if default is None:
-                continue
-            if isinstance(default, ast.Call):
-                func = default.func
-                if (isinstance(func, ast.Name) and func.id == "Depends") or (
-                        isinstance(func, ast.Attribute) and func.attr == "Depends"):
-                    if any(_is_auth_dep(dep_arg) for dep_arg in default.args):
-                        info.has_auth_depends = True
+        # Graceful degradation — complex patterns are unverifiable (auth above is still resolved and checked)
+        unverifiable = ""
+        if _has_try_except(node):
+            unverifiable = "try/except block — exception paths are not modelled"
+        elif _has_async_generator(node):
+            unverifiable = "async generator — streaming paths are not modelled"
+        elif _has_dynamic_attr(node):
+            unverifiable = "dynamic attribute access (getattr) — path is not statically determinable"
+        if unverifiable:
+            info.is_unverifiable = True
+            info.unverifiable_reason = unverifiable
+            routes.append(info)
+            continue
 
         info.has_raw_body = _check_raw_body(node)
         info.has_transition_guard = _check_transition_guard(node)
@@ -322,7 +273,7 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
 
         # Extended fields for INV-005/006/007
         info.source_text = _extract_source_text(node)
-        info.has_org_id_filter = _check_org_id_filter(node)
+        info.has_org_id_filter = has_tenant_filter(node)
         info.has_ownership_check = _check_ownership_pattern(node)
         info.multi_db_commits = _count_db_commits(node)
 
@@ -335,10 +286,6 @@ def extract_routes(module_ast: ast.Module) -> List[RouteInfo]:
 # Extended AST helpers for INV-005/006/007
 # ---------------------------------------------------------------------------
 
-_TENANT_FILTER_RE = re.compile(
-    r"\.(?:where|filter)\s*\([^)]*(?:org_id|tenant_id|organization_id|workspace_id)[^)]*\)",
-    re.IGNORECASE,
-)
 _OWNERSHIP_SRC_RE = re.compile(
     r"(?:user_id|created_by|owner_id)\s*==\s*current_user"
     r"|current_user\.(?:id|user_id)\s*==\s*"
@@ -361,16 +308,6 @@ def _extract_source_text(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     except Exception as e:
         logger.warning("[z3_encoder] ast.unparse failed for %s: %s", getattr(node, "name", "<unknown>"), e)
         return ""
-
-
-def _check_org_id_filter(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """Return True if a .where(org_id/tenant_id) pattern is found in the function."""
-    try:
-        src = ast.unparse(node)
-        return bool(_TENANT_FILTER_RE.search(src))
-    except Exception as e:
-        logger.warning("[z3_encoder] constraint check failed (org_id_filter/%s): %s", getattr(node, "name", "<unknown>"), e)
-        return False
 
 
 def _check_ownership_pattern(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -419,13 +356,22 @@ class Z3Encoder:
         results = encoder.verify_all()
     """
 
-    def __init__(self, module_ast: ast.Module) -> None:
+    def __init__(
+        self,
+        module_ast: ast.Module,
+        module_key: str = "",
+        included_auth: Iterable[Tuple[str, str]] = (),
+        public_routes: Iterable[str] = (),
+    ) -> None:
         self._ast = module_ast
+        self._module_key = module_key
+        self._included_auth = tuple(included_auth)
+        self._public_routes = tuple(public_routes)
         self._routes: Optional[List[RouteInfo]] = None
 
     def _get_routes(self) -> List[RouteInfo]:
         if self._routes is None:
-            self._routes = extract_routes(self._ast)
+            self._routes = extract_routes(self._ast, self._module_key, self._included_auth, self._public_routes)
         return self._routes
 
     def verify_all(self) -> List[InvariantResult]:
@@ -456,7 +402,9 @@ class Z3Encoder:
 
         for route in routes:
             if route.is_unverifiable:
-                for inv_id, inv_name in _unverifiable_inv_list:
+                # Authentication comes from dependencies, not the body, so it is still checked.
+                results.append(_check_inv001_auth(route))
+                for inv_id, inv_name in _unverifiable_inv_list[1:]:
                     results.append(InvariantResult(
                         invariant_id=inv_id,
                         invariant_name=inv_name,

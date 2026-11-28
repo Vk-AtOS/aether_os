@@ -21,11 +21,11 @@ OUTPUTS:
 
 SUB-STEPS:
   1. [PARALLEL] p06_review_security   — LLM security review + compliance PDF generation
-  2. [PARALLEL] p06b_formal_verification — Z3 SMT proofs of auth/SQL/state-machine invariants
+  2. [PARALLEL] p06b_formal_verification — static invariant checks (auth, SQL, state machine, tenant) + Z3 permission proof
   3. [SEQUENTIAL] Dimension Critic    — 8-dimension static scoring on all .py files
 
 CRITICAL: No for ordinary findings (they go to self-healing); unresolved High/Critical security
-         findings and a Z3 FAIL fail the gate, which ends the run.
+         findings and a failed static invariant check fail the gate, which ends the run.
 NOTE: Findings from this stage are fed into Stage 7 (SELF-HEALING) as repair targets.
 """
 from __future__ import annotations
@@ -293,7 +293,7 @@ class QualityGateSupervisor(PhaseBase):
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
         """Fail closed: a High/Critical security finding that regeneration could not fix, or a
-        Z3 FAIL verdict, stops delivery (the base class escalates and the run ends at this stage).
+        static-check FAIL verdict, stops delivery (the base class escalates and the run ends at this stage).
         Every other finding still flows on to Stage 7 (SELF-HEALING) as a repair target.
         """
         if not result.output_path:
@@ -302,7 +302,7 @@ class QualityGateSupervisor(PhaseBase):
         meta = result.metadata or {}
         blockers = list(meta.get("blocking_findings") or [])
         if (meta.get("verification_report") or {}).get("overall_verdict") == "FAIL":
-            blockers.append("Z3 formal verification verdict FAIL")
+            blockers.append("static invariant checks verdict FAIL")
         if blockers:
             return GateOutcome(
                 passed=False, confidence=0.0,

@@ -1,5 +1,5 @@
 """
-Base Z3 invariant checker functions (INV-001 through INV-004).
+Base static invariant checker functions (INV-001 through INV-004).
 
 Split from z3_encoder.py to keep that file under 600 lines.
 These checkers are imported by Z3Encoder.verify_all() in z3_encoder.py.
@@ -7,7 +7,6 @@ These checkers are imported by Z3Encoder.verify_all() in z3_encoder.py.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -24,31 +23,21 @@ def _z3_bool_invariant(
     confidence_violated: float = 0.9,
 ) -> "InvariantResult":
     """
-    Generic Z3 invariant check: encodes 'fact must be True' as UNSAT of NOT(fact).
-    Used by INV-002 and INV-004 which follow the same SAT/UNSAT pattern.
+    Static check: `fact` must be True. (Name kept for callers; no solver is involved: a Z3 query over one boolean
+    equal to a Python bool proves nothing the `if` below does not, so the report calls these static checks.)
     """
-    import z3  # noqa: PLC0415
     from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult  # noqa: PLC0415
 
-    t0 = time.monotonic()
-    flag = z3.Bool("flag")
-    solver = z3.Solver()
-    solver.add(flag == fact)
-    solver.add(z3.Not(flag))          # violation: flag is False
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
+    if fact:
         return InvariantResult(
             invariant_id=inv_id, invariant_name=inv_name,
-            route_name=route_name, status="VERIFIED",
-            proof_method=verified_method, solver_time_ms=elapsed_ms,
+            route_name=route_name, status="VERIFIED", proof_method=verified_method,
         )
     return InvariantResult(
         invariant_id=inv_id, invariant_name=inv_name,
         route_name=route_name, status="VIOLATED",
         proof_method=violated_method, violation_detail=violation_detail,
-        solver_time_ms=elapsed_ms, confidence=confidence_violated,
+        confidence=confidence_violated,
     )
 
 
@@ -77,47 +66,33 @@ def _check_inv001_auth(route: "RouteInfo") -> "InvariantResult":
     """
     from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult  # noqa: PLC0415
 
-    if _is_public_route(route.path, getattr(route, "method", "")) and not route.has_auth_depends:
+    if not route.has_auth_depends and (
+            getattr(route, "is_declared_public", False) or _is_public_route(route.path, getattr(route, "method", ""))):
         return InvariantResult(
             invariant_id="INV-001",
             invariant_name="No route reachable without valid JWT",
             route_name=route.name, status="N/A",
-            proof_method="public by design (login/logout/register/refresh/health/docs, GET /)",
+            proof_method="public by design (@public_route / PUBLIC_ROUTES allowlist, or login/logout/register/"
+                         "refresh/health/docs, GET /)",
         )
 
-    import z3  # noqa: PLC0415
-
-    t0 = time.monotonic()
-    route_reachable = z3.Bool("route_reachable")
-    auth_enforced = z3.Bool("auth_enforced")
-    invariant = z3.Implies(route_reachable, auth_enforced)
-
-    solver = z3.Solver()
-    solver.add(route_reachable == True)  # noqa: E712 — z3 equality
-    solver.add(auth_enforced == route.has_auth_depends)
-    solver.add(z3.Not(invariant))
-
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
+    if route.has_auth_depends:
         return InvariantResult(
             invariant_id="INV-001",
             invariant_name="No route reachable without valid JWT",
             route_name=route.name, status="VERIFIED",
-            proof_method="Z3 UNSAT — negation of auth invariant is unsatisfiable",
-            solver_time_ms=elapsed_ms, confidence=1.0,
+            proof_method="static check: an authentication dependency guards the route (route, router or include level)",
         )
     detail = (
-        f"Route '{route.name}' ({route.method} {route.path}) has no "
-        "Depends(get_current_user) — accessible without authentication"
+        f"Route '{route.name}' ({route.method} {route.path}) has no authentication dependency (own, router-level "
+        "or include-level) and is not declared public: accessible without authentication"
     )
     return InvariantResult(
         invariant_id="INV-001",
         invariant_name="No route reachable without valid JWT",
         route_name=route.name, status="VIOLATED",
-        proof_method="Z3 SAT — counter-example: route reachable without auth",
-        violation_detail=detail, solver_time_ms=elapsed_ms, confidence=0.9,
+        proof_method="static check: no authentication dependency found",
+        violation_detail=detail, confidence=0.9,
     )
 
 
@@ -132,8 +107,8 @@ def _check_inv002_input(route: "RouteInfo") -> "InvariantResult":
             f"Route '{route.name}' reads raw request body. "
             "Use a Pydantic schema as a parameter instead."
         ),
-        verified_method="Z3 UNSAT — raw body usage is unsatisfiable given Pydantic validation",
-        violated_method="Z3 SAT — route calls request.body()/request.json() directly",
+        verified_method="static check — no request.body()/json() call",
+        violated_method="static check — route calls request.body()/request.json() directly",
     )
 
 
@@ -156,10 +131,10 @@ def _check_inv003_state_machine(route: "RouteInfo") -> "Optional[InvariantResult
         route_name=route.name,
         violation_detail=(
             f"Route '{route.name}' references ALLOWED_TRANSITIONS but "
-            "Z3 found a satisfying model where the guard is bypassed."
+            "the guard is not applied."
         ),
-        verified_method="Z3 UNSAT — guard bypass unsatisfiable: ALLOWED_TRANSITIONS present",
-        violated_method="Z3 SAT — transition guard bypass is satisfiable",
+        verified_method="static check — ALLOWED_TRANSITIONS referenced",
+        violated_method="static check — transition guard missing",
         confidence_violated=0.8,
     )
 
@@ -176,8 +151,8 @@ def _check_inv004_sql(route: "RouteInfo") -> "InvariantResult":
             "SQLAlchemy .execute() call. Use bindparams() or text() with "
             "named parameters instead."
         ),
-        verified_method="Z3 UNSAT — f-string SQL unsatisfiable given parameterised patterns",
-        violated_method="Z3 SAT — f-string inside SQL execute() found",
+        verified_method="static check — no f-string inside execute()/query()",
+        violated_method="static check — f-string inside SQL execute() found",
         confidence_violated=0.95,
     )
 

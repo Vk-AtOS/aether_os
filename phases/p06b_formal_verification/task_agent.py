@@ -1,9 +1,9 @@
 """
-P06b Formal Verification — Z3 SMT proofs of security invariants in generated routes.
+P06b static invariant checks on generated routes (AST), plus a Z3 proof of the permission rule (INV-008/009).
 
 Orchestrates:
   1. Scan all .py files in the generated project for FastAPI routes
-  2. For each route, run Z3 encoding + verification (4 invariants)
+  2. For each route, run the static invariant checks (INV-001..007)
   3. Write formal_verification_report.json to the generated project root
   4. Return a VerificationReport — verdict PASS/FAIL/PARTIAL
 
@@ -90,10 +90,12 @@ def _parse_file(path: Path, root: Path) -> ast.Module | None:
 # Z3 only confirms that the fact is true. It is a static check of the generated source, not a proof about
 # runtime behaviour, and it can only be as right as the scan.
 _SCOPE_NOTE = (
-    "Static check of the generated source, not a proof of runtime behaviour. INV-001..007: each invariant is a "
-    "boolean fact extracted from the AST and Z3 confirms the fact holds (a consistency check, not a proof of "
-    "the rule). INV-008/009: the permission rule the app enforces (services/permissions.py) is modelled "
-    "symbolically over every role, resource and action, including unseen ones, and the property itself is proved."
+    "Static invariant checks over the generated source (AST), not a proof of runtime behaviour. INV-001..007 "
+    "are yes/no facts extracted from the AST (effective route/router/include-level auth dependencies, tenant "
+    "filters, raw body reads, f-string SQL, commit counts); no solver is used for them. Only INV-008/009 use Z3: "
+    "the permission rule the app enforces (services/permissions.py) is modelled symbolically over every role, "
+    "resource and action, and that property is proved. Routes marked @public_route or listed in PUBLIC_ROUTES / "
+    "the public allowlist are intentionally public."
 )
 
 
@@ -155,7 +157,7 @@ def _build_report(
     # Overall verdict
     if failed:
         verdict = "FAIL"          # a proven violation is a FAIL even when the run was otherwise partial
-    elif not z3_available or partial_reason:
+    elif partial_reason:
         verdict = "PARTIAL"
     elif not verified and not unverifiable:
         verdict = "PARTIAL"  # No routes found — cannot claim PASS
@@ -225,14 +227,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Z3 availability check ─────────────────────────────────────────────────
     z3_available = False
     z3_version = "unavailable"
-    partial_reason = ""
     try:
         import z3  # noqa: PLC0415
         z3_available = True
         z3_version = z3.get_version_string()
     except ImportError as exc:
-        partial_reason = f"z3-solver not installed: {exc}"
-        logger.warning("[p06b] Z3 unavailable — returning PARTIAL: %s", exc)
+        logger.warning("[p06b] Z3 unavailable: static checks still run, the permission proof falls back to enumeration: %s", exc)
 
     if project_dir is None or not project_dir.is_dir():
         # Best-effort: scan output_dir itself (e.g., if called standalone)
@@ -242,19 +242,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # The permission rule is proved with Z3 when present, else by exhaustive enumeration of its finite domain.
     perm_results = _permission_results(project_dir)
 
-    if not z3_available:
-        report = _build_report(
-            all_results=perm_results,
-            project_name=project_name,
-            domain=domain,
-            total_files=0,
-            z3_version=z3_version,
-            run_time_ms=0,
-            z3_available=False,
-            partial_reason=partial_reason,
-        )
-        return _write_and_return(report, output_dir, project_dir, partial_reason)
-
     # ── Locate generated files ────────────────────────────────────────────────
     try:
         py_files = _find_py_files(project_dir)
@@ -263,16 +250,20 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         py_files = []
     logger.info("[p06b] scanning %d Python files in %s", len(py_files), project_dir)
 
-    # ── Run Z3 verification ───────────────────────────────────────────────────
+    # ── Run the static invariant checks ───────────────────────────────────────
+    from aether_os.phases.p06b_formal_verification.route_deps import collect_included_auth  # noqa: PLC0415
     from aether_os.phases.p06b_formal_verification.z3_encoder import Z3Encoder  # noqa: PLC0415
 
+    parsed = [(py_file, _parse_file(py_file, project_dir)) for py_file in py_files]
+    parsed = [(f, m) for f, m in parsed if m is not None]
+    # include_router(..., dependencies=[...]) lives in main.py but guards routes defined in other files.
+    included_auth = collect_included_auth({f.stem: m for f, m in parsed})
+    public_routes = list(data.get("public_routes") or [])
+
     all_results = list(perm_results)
-    for py_file in py_files:
-        module_ast = _parse_file(py_file, project_dir)
-        if module_ast is None:
-            continue
+    for py_file, module_ast in parsed:
         try:
-            encoder = Z3Encoder(module_ast)
+            encoder = Z3Encoder(module_ast, py_file.stem, included_auth, public_routes)
             if encoder.route_count() == 0:
                 continue  # not a routes file
             file_results = encoder.verify_all()
@@ -293,7 +284,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         total_files=len(py_files),
         z3_version=z3_version,
         run_time_ms=run_time_ms,
-        z3_available=True,
+        z3_available=z3_available,
     )
 
     verdict = report["overall_verdict"]

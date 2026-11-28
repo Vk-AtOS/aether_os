@@ -22,8 +22,9 @@ from __future__ import annotations
 import ast
 import logging
 import re
-import time
 from typing import TYPE_CHECKING
+
+from aether_os.phases.p06b_formal_verification.route_deps import has_tenant_filter  # noqa: E402
 
 if TYPE_CHECKING:
     from aether_os.phases.p06b_formal_verification.z3_encoder import InvariantResult, RouteInfo
@@ -36,11 +37,6 @@ logger = logging.getLogger(__name__)
 
 _TENANT_COLUMNS = frozenset({"org_id", "tenant_id", "organization_id", "workspace_id"})
 
-# Patterns for .where(... org_id ...) or filter(org_id == ...) in source text
-_TENANT_FILTER_RE = re.compile(
-    r"\.(?:where|filter)\s*\([^)]*(?:org_id|tenant_id|organization_id|workspace_id)[^)]*\)",
-    re.IGNORECASE,
-)
 
 def _is_tenant_target(node: ast.AST) -> bool:
     """extra["org_id"], obj.org_id or a bare org_id as an assignment target."""
@@ -81,6 +77,15 @@ def _reads_tenant_column(source_text: str) -> bool:
     return False
 
 
+def _source_has_tenant_filter(source_text: str) -> bool:
+    """AST check on the route's source (replaces a regex that stopped at the first closing parenthesis)."""
+    try:
+        return has_tenant_filter(ast.parse(source_text))
+    except SyntaxError as e:
+        logger.warning("[z3_invariants] route source did not parse, tenant filter not detectable: %s", e)
+        return False
+
+
 # Patterns indicating a DB select/query is present in the source
 _SELECT_RE = re.compile(
     r"(?:select|scalars|execute|fetchall|fetchone|scalar_one|scalar_one_or_none)\s*\(",
@@ -102,14 +107,10 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
         select(Model).where(Model.org_id == ...)  → filtered
         select(Model) without .where(org_id ...)  → missing filter = VIOLATED
     """
-    import z3  # noqa: PLC0415
-
-    # Fall back gracefully if source_text is unavailable
     source_text: str = getattr(route, "source_text", "")
 
-    normalised = re.sub(r"\.filter_by\s*\(", ".filter(", source_text)   # filter_by(org_id=...) filters too
-    has_tenant_filter = bool(_TENANT_FILTER_RE.search(normalised))
-    has_tenant_col = has_tenant_filter or _reads_tenant_column(source_text)
+    tenant_filtered = _source_has_tenant_filter(source_text) or bool(getattr(route, "has_org_id_filter", False))
+    has_tenant_col = tenant_filtered or _reads_tenant_column(source_text)
     has_db_query = bool(_SELECT_RE.search(source_text))
 
     if not has_tenant_col or not has_db_query:
@@ -123,22 +124,13 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
             confidence=1.0,
         )
 
-    t0 = time.monotonic()
-    flag = z3.Bool("has_tenant_filter")
-    solver = z3.Solver()
-    solver.add(flag == has_tenant_filter)
-    solver.add(z3.Not(flag))   # negation: filter is absent
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
+    if tenant_filtered:
         return _build_result(
             "INV-005",
             "Multi-tenant isolation: DB queries filter by org_id/tenant_id",
             route.name,
             status="VERIFIED",
-            proof_method="Z3 UNSAT — tenant filter present; negation is unsatisfiable",
-            solver_time_ms=elapsed_ms,
+            proof_method="static check: a .where()/.filter()/.filter_by() on a tenant column is present",
             confidence=0.9,
         )
     return _build_result(
@@ -146,13 +138,12 @@ def _check_inv005_tenant_isolation(route: "RouteInfo") -> "InvariantResult":
         "Multi-tenant isolation: DB queries filter by org_id/tenant_id",
         route.name,
         status="VIOLATED",
-        proof_method="Z3 SAT — tenant column referenced but no .where(org_id/tenant_id) filter found",
+        proof_method="static check: tenant column referenced but no where/filter on it found",
         violation_detail=(
             f"Route '{route.name}' ({route.method} {route.path}) references tenant "
             "columns (org_id/tenant_id) but no .where() filter on those columns was "
             "detected. All multi-tenant queries must be scoped to the requesting tenant."
         ),
-        solver_time_ms=elapsed_ms,
         confidence=0.85,
     )
 
@@ -190,8 +181,6 @@ def _check_inv006_resource_ownership(route: "RouteInfo") -> "InvariantResult":
     Routes that are not mutation methods are N/A.
     Routes without auth are not checked here (INV-001 handles that).
     """
-    import z3  # noqa: PLC0415
-
     if route.method not in ("DELETE", "PUT", "PATCH"):
         return _build_result(
             "INV-006",
@@ -233,22 +222,13 @@ def _check_inv006_resource_ownership(route: "RouteInfo") -> "InvariantResult":
     if getattr(route, "has_ownership_check", False):
         has_ownership_check = True
 
-    t0 = time.monotonic()
-    flag = z3.Bool("has_ownership_check")
-    solver = z3.Solver()
-    solver.add(flag == has_ownership_check)
-    solver.add(z3.Not(flag))
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
+    if has_ownership_check:
         return _build_result(
             "INV-006",
             "Resource ownership verified before mutation",
             route.name,
             status="VERIFIED",
-            proof_method="Z3 UNSAT — ownership check present; bypass is unsatisfiable",
-            solver_time_ms=elapsed_ms,
+            proof_method="static check: ownership comparison present before the mutation",
             confidence=0.88,
         )
     return _build_result(
@@ -256,13 +236,12 @@ def _check_inv006_resource_ownership(route: "RouteInfo") -> "InvariantResult":
         "Resource ownership verified before mutation",
         route.name,
         status="VIOLATED",
-        proof_method="Z3 SAT — mutation route with ID lookup but no ownership comparison found",
+        proof_method="static check: mutation route with ID lookup but no ownership comparison found",
         violation_detail=(
             f"Route '{route.name}' ({route.method} {route.path}) mutates a resource "
             "by ID but no ownership check (user_id == current_user.id) was detected. "
             "Add an ownership guard before performing the mutation."
         ),
-        solver_time_ms=elapsed_ms,
         confidence=0.82,
     )
 
@@ -286,8 +265,6 @@ def _check_inv007_transaction_boundary(route: "RouteInfo") -> "InvariantResult":
     SQLAlchemy async sessions should commit once at the end, not after each operation,
     to ensure atomicity across multiple writes.
     """
-    import z3  # noqa: PLC0415
-
     source_text: str = getattr(route, "source_text", "")
     commit_count: int = getattr(route, "multi_db_commits", None)
 
@@ -306,25 +283,13 @@ def _check_inv007_transaction_boundary(route: "RouteInfo") -> "InvariantResult":
             confidence=1.0,
         )
 
-    # The invariant: at most 1 commit (True when commit_count <= 1)
-    single_commit = commit_count <= 1
-
-    t0 = time.monotonic()
-    flag = z3.Bool("single_commit")
-    solver = z3.Solver()
-    solver.add(flag == single_commit)
-    solver.add(z3.Not(flag))   # violation: multiple commits
-    result = solver.check()
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-
-    if result == z3.unsat:
+    if commit_count <= 1:
         return _build_result(
             "INV-007",
             "Single transaction boundary per route (no mid-route commits)",
             route.name,
             status="VERIFIED",
-            proof_method=f"Z3 UNSAT — exactly {commit_count} commit call(s); no mid-route commit boundary violation",
-            solver_time_ms=elapsed_ms,
+            proof_method=f"static check: exactly {commit_count} commit call(s)",
             confidence=0.95,
         )
     return _build_result(
@@ -332,13 +297,12 @@ def _check_inv007_transaction_boundary(route: "RouteInfo") -> "InvariantResult":
         "Single transaction boundary per route (no mid-route commits)",
         route.name,
         status="VIOLATED",
-        proof_method=f"Z3 SAT — {commit_count} commit/flush calls found; route commits mid-operation",
+        proof_method=f"static check: {commit_count} commit/flush calls found; route commits mid-operation",
         violation_detail=(
             f"Route '{route.name}' ({route.method} {route.path}) calls db.commit() or "
             f"db.flush() {commit_count} times. Multiple commits break atomicity — "
             "consolidate all writes into a single transaction and commit once at the end."
         ),
-        solver_time_ms=elapsed_ms,
         confidence=0.93,
     )
 
