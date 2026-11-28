@@ -42,6 +42,27 @@ _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _UNSAFE_TEXT = re.compile(r"[\'\"\\\x00-\x1f`]")
 
 
+def enum_value_problem(v) -> Optional[str]:
+    """Why an enum value cannot be written into generated source, or None if it can (KAN-253).
+
+    Numeric/boolean scalars (a day_of_week enum of 0-6) are legitimate: the column is a string and the value is
+    stored as its text form (see coerce_enum_values). Before, every non-str value was rejected with a message that
+    blamed quotes and backslashes.
+    """
+    if isinstance(v, (bool, int, float)):
+        return None
+    if not isinstance(v, str):
+        return f"is a {type(v).__name__}, not a text or number value"
+    if _UNSAFE_TEXT.search(v):
+        return "contains a quote, backslash, backtick or control character"
+    return None
+
+
+def coerce_enum_values(values) -> List[str]:
+    """Enum values as the text stored in the String column: 0 -> '0', True -> 'True'."""
+    return [v if isinstance(v, str) else str(v) for v in values or []]
+
+
 def check_identifiers(entities: List[Dict], business_rules: Optional[List[Dict]] = None) -> List[str]:
     """Names that are written into generated Python/SQL source must be plain identifiers (KAN-169).
 
@@ -63,8 +84,9 @@ def check_identifiers(entities: List[Dict], business_rules: Optional[List[Dict]]
             bad_ident("field name", f.get("name"))
             bad_ident("referenced entity", f.get("ref_entity"))
             for v in f.get("enum_values") or []:
-                if not isinstance(v, str) or _UNSAFE_TEXT.search(v):
-                    errors.append(f"unsafe_name: enum value {str(v)[:40]!r} of field {f.get('name')!r} contains a quote, backslash or control character")
+                problem = enum_value_problem(v)
+                if problem:
+                    errors.append(f"unsafe_name: enum value {str(v)[:40]!r} of field {f.get('name')!r} {problem}")
     for rule in business_rules or []:
         bad_ident("business rule entity", rule.get("entity"))
     return errors

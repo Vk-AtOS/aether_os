@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from aether_os.core.domain_ir import DomainIR
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import coerce_enum_values
 from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.core.error_registry import ErrorCategory, get_registry
 from aether_os.core.repair_learning import load_validators
@@ -299,6 +300,10 @@ def run_ir_fastpath(
     models_code = schemas_code = crud_code = seed_code = ""
     try:
         _ir = DomainIR.load(Path(ir_path_str))
+        for _e in _ir.entities:
+            for _f in _e.fields:
+                # KAN-253: int enum values (0-6) must reach models/seed/crud as the text the String column stores
+                _f.enum_values = coerce_enum_values(_f.enum_values)
         if not _ir.entities:
             return models_code, schemas_code, crud_code, seed_code, entities
 
