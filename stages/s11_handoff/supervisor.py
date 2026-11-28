@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.core.project_export import ExportError, export_files
+from aether_os.core.rulepacks.pipeline_gate import blocks_gate, run_stage_gate
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.phases.failure_reason import failure_issues
 
@@ -161,6 +162,9 @@ class HandoffStageSupervisor(PhaseBase):
                 f"handoff {name}: crashed" for name in ("p10_docs_delivery", "p14_client_portal", "p15_handoff")
                 if name not in results],
         }
+
+        # ── Rule packs (KAN-243): scan the export, repair model-written files, block on what is left ──
+        metadata["rulepacks"] = await run_stage_gate(phase_input, output_dir, issues)
 
         logger.info(
             "s11_handoff: complete — %d/%d sub-phases succeeded",
@@ -286,6 +290,7 @@ class HandoffStageSupervisor(PhaseBase):
             logger.warning("s11: quality_report write failed (non-critical): %s", e)
             return None
 
+    @blocks_gate   # KAN-243: a blocking rule-pack result fails this gate, whatever the checks below decide
     async def validate_gate(
         self, result: TaskResult, phase_input: Any
     ) -> GateOutcome:
