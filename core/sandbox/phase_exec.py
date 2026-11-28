@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
@@ -82,7 +83,9 @@ def run_sync(argv: Sequence[str], *, cwd: Path, project: Optional[Path] = None,
     resolved = _resolve(runner, argv)
     if not network and app_env.is_pytest(argv):
         # Tests import what the app's requirements.txt lists (stripe, boto3...): run them in the run's venv (KAN-256).
-        resolved[0] = app_env.app_python(runner, root, Path(cwd), full_env) or resolved[0]
+        deps = app_env.app_packages(runner, root, Path(cwd), full_env)
+        if deps:
+            full_env["PYTHONPATH"] = os.pathsep.join(p for p in (full_env.get("PYTHONPATH"), deps) if p)
     done = runner.run(resolved, run_dir=root, cwd=Path(cwd), env=full_env, timeout=timeout, network=network)
     if text:
         return subprocess.CompletedProcess(done.args, done.returncode,

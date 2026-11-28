@@ -26,6 +26,7 @@ anthropic>=0.102.0             # older releases pass `proxies` to httpx, which h
 
 # ── LLM — Tier 1b: Amazon Bedrock (Claude via AWS) ───────────────────────────
 boto3>=1.35.0
+packaging>=23.0
 
 # ── LLM — Tier 2: Google Gemini ──────────────────────────────────────────────
 google-genai>=1.47.0           # first tested release that accepts websockets 15 (langsmith needs >=15); needs httpx>=0.28.1

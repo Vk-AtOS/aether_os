@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import shutil
+
 import pytest
 
 from aether_os.core.sandbox import app_env, phase_exec
@@ -24,10 +26,8 @@ class Runner(SandboxRunner):
 
     def run(self, argv, *, run_dir, cwd=None, env, timeout=None, network=False):
         self.calls.append(SimpleNamespace(argv=list(argv), network=network, env=dict(env), cwd=cwd))
-        if "venv" in argv:
-            py = Path(argv[-1]) / "bin" / "python"
-            py.parent.mkdir(parents=True)
-            py.touch()
+        if "pip" in argv and self.pip_rc == 0:
+            (Path(argv[argv.index("--target") + 1]) / "stripe").mkdir(parents=True)
         rc = self.pip_rc if "pip" in argv else 0
         return subprocess.CompletedProcess(argv, rc, b"", (b"ERROR: No matching distribution found for stripe-x" if self.wheel_error else b"network down stripe-x") if rc else b"")
 
@@ -46,19 +46,22 @@ def _project(tmp_path):
     return tmp_path / "backend"
 
 
-def test_pytest_runs_in_venv_after_installing_requirements_with_network_only_for_pip(tmp_path, monkeypatch):
+def test_pytest_gets_the_installed_packages_on_pythonpath_and_network_is_only_for_pip(tmp_path, monkeypatch):
     runner = Runner()
     monkeypatch.setattr(phase_exec, "get_runner", lambda *a, **k: runner)
     monkeypatch.setattr(phase_exec, "project_root", lambda p: tmp_path)
     backend = _project(tmp_path)
-    phase_exec.run_sync(["python3", "-m", "pytest", "tests"], cwd=backend, project=tmp_path)
+    phase_exec.run_sync(["python3", "-m", "pytest", "tests"], cwd=backend, project=tmp_path, env={"PYTHONPATH": str(backend)})
     pip = [c for c in runner.calls if "pip" in c.argv]
-    assert pip and pip[0].network is True and "-r" in pip[0].argv
+    assert len(pip) == 1 and pip[0].network is True
     last = runner.calls[-1]
-    assert last.argv[0].endswith(".venv-fake/bin/python") and last.network is False
+    assert last.network is False and last.argv[0] == runner.base_python()
+    deps = [p for p in last.env["PYTHONPATH"].split(":") if ".deps-" in p]
+    assert deps and (Path(deps[0]) / "stripe").is_dir() and str(backend) in last.env["PYTHONPATH"]
     n = len(runner.calls)
     phase_exec.run_sync(["python3", "-m", "pytest", "tests"], cwd=backend, project=tmp_path)
-    assert len(runner.calls) == n + 1                       # second run: no reinstall (same requirements hash)
+    assert len(runner.calls) == n + 1                       # second run: no reinstall (same requirements)
+    assert not list(tmp_path.glob(".pipwork-*"))             # scratch dirs removed
 
 
 def test_failed_install_without_a_wheel_fails_naming_the_package(tmp_path, monkeypatch):
@@ -101,17 +104,48 @@ def test_firewall_unit_and_install_steps():
     assert "deploy/systemd/aether-sandbox-firewall.service" in (ROOT / "deploy/scripts/install_sandbox_firewall.sh").read_text()
 
 
-def test_pip_runs_isolated_with_a_minimal_env_binary_only_and_outside_the_project(tmp_path, monkeypatch):
+def test_pip_argv_env_and_cwd_trust_nothing_in_the_run_dir(tmp_path, monkeypatch):
     runner = Runner()
     monkeypatch.setattr(phase_exec, "get_runner", lambda *a, **k: runner)
     monkeypatch.setattr(phase_exec, "project_root", lambda p: tmp_path)
     backend = _project(tmp_path)
     phase_exec.run_sync(["python3", "-m", "pytest"], cwd=backend, project=tmp_path,
-                        env={"PYTHONPATH": str(backend), "PYTHONSTARTUP": "x", "SECRET": "s"})
+                        env={"PYTHONPATH": str(backend), "PYTHONSTARTUP": "x", "SECRET": "s", "PIP_INDEX_URL": "http://evil"})
     pip = next(c for c in runner.calls if "pip" in c.argv)
-    assert "-I" in pip.argv and "--only-binary=:all:" in pip.argv
-    assert not [k for k in pip.env if k.startswith("PYTHON") or k == "SECRET"]
-    assert Path(pip.cwd) == tmp_path / ".sandbox_home"
+    a = pip.argv
+    assert a[:4] == [runner.base_python(), "-I", "-m", "pip"] and "--python" not in a and "-r" not in a
+    assert "--only-binary=:all:" in a and "--no-cache-dir" in a and "--target" in a
+    assert a[a.index("--index-url") + 1] == "https://pypi.org/simple"
+    assert a[-2:] == ["stripe", "boto3"] and not any("requirements.txt" in x for x in a)   # validated strings, not a file
+    assert not [k for k in pip.env if k.startswith("PYTHON") or k in ("SECRET", "PIP_INDEX_URL")]
+    assert pip.env["PIP_CONFIG_FILE"] == "/dev/null" and pip.env["PIP_NO_INPUT"] == "1"
+    assert pip.env["HOME"] == pip.env["XDG_CONFIG_HOME"] and "/.pipwork-" in pip.env["HOME"]
+    assert "/.pipwork-" in str(pip.cwd) and str(backend) not in str(pip.cwd)
+
+
+def test_requirements_are_read_once_so_a_swap_after_validation_changes_nothing(tmp_path, monkeypatch):
+    runner = Runner()
+    backend = _project(tmp_path)
+    req = backend / "requirements.txt"
+    real_run = runner.run
+
+    def swap_then_run(argv, **kw):
+        req.write_text("-e git+https://evil/x\n")           # the sandbox rewrites the file while pip "runs"
+        return real_run(argv, **kw)
+
+    runner.run = swap_then_run
+    monkeypatch.setattr(phase_exec, "get_runner", lambda *a, **k: runner)
+    monkeypatch.setattr(phase_exec, "project_root", lambda p: tmp_path)
+    phase_exec.run_sync(["python3", "-m", "pytest"], cwd=backend, project=tmp_path)
+    pip = next(c for c in runner.calls if "pip" in c.argv)
+    assert pip.argv[-2:] == ["stripe", "boto3"]
+
+
+@pytest.mark.parametrize("line", ["pkg @ file:///etc/passwd", "foo.whl", "foo-1.0.tar.gz", "foo.zip", "bar.tgz",
+                                  "baz.tar.xz", "-x", "a b c", "pkg==", "[extra]"])
+def test_more_rejections_use_packaging_and_name_rules(line):
+    with pytest.raises(app_env.RequirementsRejected):
+        app_env.validate_requirements(line + "\n")
 
 
 @pytest.mark.parametrize("line", ["fastapi", "fastapi>=0.110,<1", "uvicorn[standard]==0.29.0", "pydantic ~= 2.0  # c",
@@ -129,16 +163,19 @@ def test_option_url_vcs_and_path_requirements_are_rejected_naming_the_line(line)
         app_env.validate_requirements("fastapi\n" + line + "\n")
 
 
-def test_marker_lives_outside_the_sandbox_writable_tree_so_a_symlink_cannot_redirect_it(tmp_path, monkeypatch, host_state):
+def test_marker_is_host_only_and_a_planted_deps_symlink_is_replaced_not_followed(tmp_path, monkeypatch, host_state):
     runner = Runner()
     monkeypatch.setattr(phase_exec, "get_runner", lambda *a, **k: runner)
     monkeypatch.setattr(phase_exec, "project_root", lambda p: tmp_path)
     backend = _project(tmp_path)
     victim = tmp_path.parent / "victim"
-    # the sandbox pre-plants a symlink where the old marker would have been created
-    (tmp_path / ".venv-fake").mkdir()
-    (tmp_path / ".venv-fake" / ".reqs-x").symlink_to(victim)
+    victim.mkdir()
     phase_exec.run_sync(["python3", "-m", "pytest"], cwd=backend, project=tmp_path)
-    assert not victim.exists()
-    assert [p.name for p in host_state.iterdir() if p.name.startswith("reqs-")]
-    assert not [p for p in (tmp_path / ".venv-fake").iterdir() if p.name != ".reqs-x" and p.name.startswith(".reqs-")]
+    deps = next(tmp_path.glob(".deps-*"))
+    marker = next(host_state.glob("reqs-*"))
+    # the sandbox swaps the packages dir for a symlink: the marker alone is not trusted, so it is rebuilt
+    shutil.rmtree(deps)
+    deps.symlink_to(victim)
+    phase_exec.run_sync(["python3", "-m", "pytest"], cwd=backend, project=tmp_path)
+    assert not deps.is_symlink() and (deps / "stripe").is_dir() and not list(victim.iterdir())
+    assert marker.exists() and not list(tmp_path.glob(".reqs-*"))
