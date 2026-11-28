@@ -14,6 +14,16 @@ from aether_os.core.model_router_providers import ModelSpec
 from aether_os.core.models import Organisation
 
 
+@pytest.fixture(autouse=True)
+def _fresh_provider_health():
+    """The exhausted-chain test records openrouter failures in the process-wide health monitor; left there, AHM moved
+    openrouter behind anthropic for every later test (test_llm_spend_controls saw ['anthropic'] for ['openrouter'])."""
+    from aether_os.core.llm.ahm import default_ahm
+    default_ahm.reset()
+    yield
+    default_ahm.reset()
+
+
 # ── KAN-259 ─────────────────────────────────────────────────────────────────
 
 class FakeOpenRouter:
