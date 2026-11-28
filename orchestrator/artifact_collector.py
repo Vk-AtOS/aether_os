@@ -27,6 +27,7 @@ from aether_os.core.services.memory_service import get_memory_service
 from aether_os.orchestrator.messages import PhaseInput
 from aether_os.orchestrator.phase_sequence import _load_supervisor
 from aether_os.orchestrator.run_state import _extract_project_name
+from aether_os.orchestrator.stage_gate import final_run_status
 from sqlalchemy import select as _sel_l
 from sqlalchemy import update as _sa_update
 import asyncio
@@ -186,10 +187,19 @@ async def _run_council_remediation_phases(
             logger.warning("[council_remediation] %s re-run timed out after 600s", phase_name)
         except Exception as _re_exc:
             logger.warning("[council_remediation] %s re-run failed: %s", phase_name, _re_exc)
-async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool) -> None:
-    """Persist council_delivery and final status to the Run record."""
+async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool,
+                              results: Optional[Dict] = None) -> None:
+    """Persist council_delivery and final status to the Run record.
+
+    "completed" needs every required stage to have passed (final_run_status, KAN-247), not only the council:
+    all 11 "completed" production runs of the 28 Nov audit had all_stages_ok=false.
+    """
     _council_score = delivery.get("score", 1.0)
-    _final_status = "completed" if council_passed else "needs_review"
+    _final_status, _stage_msg = final_run_status(results or {}, council_passed)
+    _council_msg = (None if council_passed
+                    else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
+                         f"{delivery.get('reason', '')} — "
+                         f"Suggestions: {'; '.join(delivery.get('suggestions', []))}")
     try:
         async with _gsf()() as _s:
             await _s.execute(
@@ -198,12 +208,7 @@ async def _persist_run_status(run_id: str, delivery: Dict, council_passed: bool)
                 .values(
                     council_delivery=delivery,
                     status=_final_status,
-                    message=(
-                        None if council_passed
-                        else f"DeliveryCouncil flagged issues (score={_council_score:.2f}): "
-                             f"{delivery.get('reason', '')} — "
-                             f"Suggestions: {'; '.join(delivery.get('suggestions', []))}"
-                    ),
+                    message=" | ".join(m for m in (_stage_msg, _council_msg) if m) or None,
                 )
             )
             await _s.commit()
@@ -314,7 +319,7 @@ async def delivery_council_check(
                 "passed": _council_passed,
             })
         # ── Persist final status ──────────────────────────────────────────────
-        await _persist_run_status(run_id, _delivery, _council_passed)
+        await _persist_run_status(run_id, _delivery, _council_passed, results)
         if not _council_passed:
             logger.warning(
                 "DeliveryCouncil: run %s flagged as needs_review (score=%.2f): %s | suggestions: %s",
@@ -335,16 +340,17 @@ async def delivery_council_check(
                 "type": "council_delivery_passed",
                 "passed": True,
                 "score": _council_score,
-                "status": "completed",
+                "status": final_run_status(results, True)[0],
             })
     except asyncio.TimeoutError:
         logger.warning("DeliveryCouncil timed out after 120s for run %s — recorded as unavailable", run_id)
-        await _record_council_unavailable(run_id, "council_timeout", org_id, project_name)
+        await _record_council_unavailable(run_id, "council_timeout", org_id, project_name, results)
     except Exception as _exc:
         logger.warning("DeliveryCouncil check failed: %s", _exc)
-        await _record_council_unavailable(run_id, "council_error", org_id, project_name)
+        await _record_council_unavailable(run_id, "council_error", org_id, project_name, results)
 async def _record_council_unavailable(
     run_id: str, note: str, org_id: Optional[str] = None, project_name: Optional[str] = None,
+    results: Optional[Dict] = None,
 ) -> None:
     """The delivery council did not produce a verdict (timeout/error).
 
@@ -357,12 +363,14 @@ async def _record_council_unavailable(
         "status": "unavailable", "passed": None, "score": None, "advisory": True,
         "reason": note, "suggestions": [],
     }
+    final_status, stage_msg = final_run_status(results or {}, None)
+    council_msg = "DeliveryCouncil did not run (" + note + ") - delivery was not independently reviewed"
     try:
         async with _gsf()() as _s:
             await _s.execute(
                 _sa_update(_Run).where(_Run.id == run_id)
-                .values(council_delivery=verdict, status="completed",
-                        message="DeliveryCouncil did not run (" + note + ") - delivery was not independently reviewed")
+                .values(council_delivery=verdict, status=final_status,
+                        message=" | ".join(m for m in (stage_msg, council_msg) if m))
             )
             await _s.commit()
     except Exception as _db_exc:
@@ -370,7 +378,7 @@ async def _record_council_unavailable(
     await publish_event(run_id, {
         "type": "council_delivery_unavailable",
         "passed": None,
-        "status": "completed",
+        "status": final_status,
         "note": note,
     })
     if not org_id:

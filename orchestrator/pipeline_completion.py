@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from aether_os.orchestrator.stage_gate import final_run_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,17 +63,23 @@ async def create_completion_notification(
     duration: float,
     phases_to_run: List[str],
     project_name: Optional[str],
+    results: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Create an in-app notification for org members when the pipeline completes."""
+    """Create an in-app notification for org members when the pipeline completes.
+
+    "is ready" only when every required stage passed (KAN-247); otherwise it says the build needs review and why.
+    """
     try:
         from aether_os.core.db import get_session_factory as _gsf_n
         from aether_os.core.models import Notification as _Notif
         _pname = project_name or f"run-{run_id[:8]}"
+        _status, _why = final_run_status(results or {}, None)
         _notif = _Notif(
             org_id=org_id,
             type="pipeline_complete",
-            title=f"✅ {_pname} is ready",
-            message=f"Factory run completed in {round(duration, 1)}s across {len(phases_to_run)} phases.",
+            title=f"✅ {_pname} is ready" if _status == "completed" else f"{_pname} needs review",
+            message=(f"Factory run completed in {round(duration, 1)}s across {len(phases_to_run)} phases."
+                     if _status == "completed" else f"Factory run finished in {round(duration, 1)}s. {_why}"),
             link=f"/dashboard/runs/{run_id}",
         )
         async with _gsf_n()() as _s:
@@ -95,7 +103,7 @@ async def fire_completion_webhook(
             event_type="pipeline.complete",
             payload={
                 "run_id": run_id,
-                "status": "completed",
+                "status": final_run_status(results, None)[0],  # not "completed" when a required stage failed
                 "duration_s": round(duration, 1),
                 "phases": list(results.keys()),
             },
@@ -163,6 +171,7 @@ def schedule_completion_tasks(
             duration=duration,
             phases_to_run=phases_to_run,
             project_name=accumulated_context.get("project_name") or project_name,
+            results=results,
         ))
 
         # Webhook

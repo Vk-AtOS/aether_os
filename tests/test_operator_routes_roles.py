@@ -24,7 +24,8 @@ def test_cleanup_council_review_only_touches_the_callers_org(gw):
         gw.sql("INSERT INTO runs (id, org_id, command, status, started_at, cost, run_version) "
                "VALUES (?, ?, 'x', 'council_review', 0, 0, 1)", (rid, org.org_id))
     assert gw.client.post("/admin/runs/cleanup-council-review", headers=a.auth).json()["promoted"] == 1
-    assert gw.sql("SELECT status FROM runs WHERE id='stuck-a'")[0][0] == "completed"
+    # KAN-247: a run whose final verdict never got written is not reported as completed.
+    assert gw.sql("SELECT status FROM runs WHERE id='stuck-a'")[0][0] == "needs_review"
     assert gw.sql("SELECT status FROM runs WHERE id='stuck-b'")[0][0] == "council_review"
 
 
