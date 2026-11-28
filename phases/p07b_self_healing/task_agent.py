@@ -27,7 +27,7 @@ from aether_os.phases.p07b_self_healing.quality_helpers import (
     apply_deterministic_fallback,
 )
 from aether_os.core.error_registry import ErrorCategory
-from aether_os.phases.p07b_self_healing.patch_repair import heal_file
+from aether_os.phases.p07b_self_healing.patch_repair import heal_file, may_heal
 from aether_os.core.run_app.safe_fs import safe_read_text, safe_write_text
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
@@ -57,6 +57,9 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
     2. pytest ERROR collecting / FAILED markers
     3. ImportError in file
     """
+    # Only a file the repair may change (app source under src/, never tests): run da281716's traceback named the
+    # run's vendored dependency dir (.deps-<hash>/sqlalchemy/testing/warnings.py), so all 5 attempts went to it.
+    allowed = may_heal(project_dir)
     # Priority 1: Python traceback — last File "..." entry is the actual failing location
     traceback_matches = re.findall(r'File "([^"]+\.py)", line \d+', test_output)
     if traceback_matches:
@@ -69,7 +72,7 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
+            if candidate.exists() and allowed(candidate):
                 logger.debug("[p07b] Traceback identified failing file: %s", candidate)
                 return candidate
 
@@ -93,7 +96,7 @@ def _identify_failing_file(test_output: str, project_dir: Path) -> Optional[Path
                 candidate = (project_dir / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            if candidate.exists() and candidate.is_relative_to(project_dir.resolve()):
+            if candidate.exists() and allowed(candidate):
                 logger.debug("[p07b] Pattern matched failing file: %s", candidate)
                 return candidate
     return None
