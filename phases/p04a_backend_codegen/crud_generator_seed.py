@@ -12,6 +12,8 @@ import logging
 import textwrap
 from typing import Dict, List
 
+from aether_os.core.rulepacks.spec_rules import security_rules_for
+
 logger = logging.getLogger(__name__)
 
 
@@ -188,7 +190,8 @@ async def generate_llm_seed(
         "- Do NOT create any user: call `admin = await ensure_admin(db)` (from bootstrap import ensure_admin) and return if it is None.\n"
         "- Guard with: if the first entity table already has rows: return\n"
         "- Wrap each entity block in try/except Exception as _e: _logger.warning(..., _e)\n"
-        "- Return ONLY valid Python code — no markdown fences, no explanation.\n"
+        "- Return ONLY valid Python code — no markdown fences, no explanation.\n\n"
+        + security_rules_for({"raw_input": domain}, "backend")   # KAN-243: checked again before handoff
     )
 
     client = get_llm_client()

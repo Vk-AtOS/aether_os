@@ -21,6 +21,8 @@ from aether_os.phases.p04_backend.go_grpc_generator import generate_grpc_files
 from aether_os.phases.p04_backend.node_generator import generate_node_project
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.errors import PipelineBlockedError
+from aether_os.core.rulepacks.provenance import write_model_file
+from aether_os.core.rulepacks.spec_rules import security_rules_for
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
 logger = logging.getLogger(__name__)
@@ -65,14 +67,15 @@ async def _smoke_repair(main_py: Path, error: str, attempt: int) -> bool:  # noq
         "Import as 'from database import Base', 'from models import User', etc.\n"
         "- The @asynccontextmanager decorator must be on the line IMMEDIATELY before "
         "async def lifespan. Do NOT place any statements between the decorator and the function.\n"
-        "Do not change working API endpoints or business logic."
+        "Do not change working API endpoints or business logic.\n\n"
+        + security_rules_for({}, "backend")    # KAN-243: the platform stack's rules; the gate checks them before handoff
     )
     try:
         fixed = await client.call(prompt, task_type="code_fix")
         if fixed and len(fixed.strip()) > 100:
             try:
                 ast.parse(fixed)
-                main_py.write_text(fixed)
+                write_model_file(main_py, fixed)   # a model rewrote it: the KAN-243 gate repairs, not blames, it
                 return True
             except SyntaxError:
                 return False
