@@ -84,3 +84,16 @@ def test_dead_letters_of_other_organisations_are_not_shown():
         allq = asyncio.run(ops.dead_letters({"role": "superadmin", "org_id": "o0"}))
     assert [i["run_id"] for i in mine["items"]] == ["mine"] and mine["depth"] == 1
     assert allq["depth"] == 57 and len(allq["items"]) == 2
+
+
+def test_health_is_503_when_postgres_is_down_and_200_when_up(tmp_path):
+    """KAN-273: /health and /api/health were a constant 200 while the DB was down; smoke_test.sh calls /health."""
+    with gateway_env(tmp_path) as gw:
+        with patch.object(health, "check_postgres", return_value={"status": "ok"}):
+            for path in ("/health", "/api/health"):
+                assert gw.client.get(path).status_code == 200
+        with patch.object(health, "check_postgres", return_value={"status": "down", "error": "OperationalError"}):
+            for path in ("/health", "/api/health"):
+                r = gw.client.get(path)
+                assert r.status_code == 503 and r.json()["status"] == "unavailable"
+            assert gw.client.get("/healthz").status_code == 200      # liveness (compose healthcheck) unaffected
