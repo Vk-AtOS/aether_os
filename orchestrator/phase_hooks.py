@@ -224,10 +224,11 @@ async def _hook_p02_architecture(
     _arch_candidates = []
     _op = phase_result.get("output_path", "")
     if _op:
-        _arch_candidates.append(Path(_op))
+        # The stage's output_path is its directory, not the file ("Is a directory" on read_text, run e53e5f12).
+        _arch_candidates.append(Path(_op) / "architecture.json" if Path(_op).is_dir() else Path(_op))
     _arch_candidates.append(project_dir / "p02_architecture" / "architecture.json")
     for _cand in _arch_candidates:
-        if _cand.exists():
+        if _cand.is_file():
             try:
                 accumulated_context["architecture_json"] = json.loads(_cand.read_text())
                 accumulated_context["p02_architecture_path"] = str(_cand)
