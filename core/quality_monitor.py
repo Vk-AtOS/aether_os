@@ -3,8 +3,8 @@ QualityMonitor — multi-layer health check for generated apps.
 
 Layers (run in order, stop on first fatal failure):
   L1 startup  — GET /health returns 200
-  L2 auth     — POST /auth/login with seeded admin credentials returns access_token
-  L3 crud     — GET /<first_entity>/ with token returns list (200, list type)
+  L2 auth     — POST <prefix>/auth/login with seeded admin credentials returns access_token
+  L3 crud     — GET <prefix>/<first_entity>/ with token returns list (200, list type)
   L4 data     — list response has at least 1 record (seed ran)
 
 Usage::
@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -30,6 +31,38 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = 10.0  # seconds per probe call
+
+
+# Generated apps mount every router under /api (main.py: include_router(..., prefix="/api")); only /health is bare.
+DEFAULT_API_PREFIX = "/api"
+
+
+def _entity_slugs(entity: str) -> List[str]:
+    """Path segments a generated router may use for an entity: snake_case / lowercase, plain-s or -es plural."""
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", entity).lower()
+    out: List[str] = []
+    for base in (snake, entity.lower()):
+        for plural in (base + "s", base + "es", base):
+            if plural not in out:
+                out.append(plural)
+    return out
+
+
+def login_path_from_spec(paths: Dict[str, Any]) -> Optional[str]:
+    """The POST path ending in /auth/login in an OpenAPI `paths` table."""
+    for path, ops in paths.items():
+        if path.rstrip("/").endswith("/auth/login") and "post" in (ops or {}):
+            return path
+    return None
+
+
+def list_path_from_spec(paths: Dict[str, Any], entity: str) -> Optional[str]:
+    """The parameterless GET collection path for an entity, e.g. /api/tasks/."""
+    slugs = _entity_slugs(entity)
+    candidates = [p for p, ops in paths.items() if "get" in (ops or {}) and "{" not in p
+                  and p.rstrip("/").rsplit("/", 1)[-1] in slugs]
+    candidates.sort(key=lambda p: slugs.index(p.rstrip("/").rsplit("/", 1)[-1]))
+    return candidates[0] if candidates else None
 
 
 @dataclass
@@ -51,6 +84,7 @@ class QualityMonitor:
         admin_email: str,
         admin_password: str,  # no default: a baked-in password is how every app got the same one
         entities: Optional[List[str]] = None,
+        api_prefix: str = DEFAULT_API_PREFIX,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.admin_email = admin_email
@@ -59,17 +93,37 @@ class QualityMonitor:
         self.entities: List[str] = entities or []
         # Populated after run_full_check completes so to_dict() can read them
         self._results: List[HealthCheckResult] = []
+        self.api_prefix = "/" + api_prefix.strip("/") if api_prefix.strip("/") else ""
+        self._spec_paths: Optional[Dict[str, Any]] = None   # the app's real route table, once fetched
 
     # ── Helpers ──────────────────────────────────────────────────────────────────
 
+    async def load_route_table(self) -> None:
+        """Fetch the app's OpenAPI route table so probes hit the paths it really serves (KAN-277). If the docs are
+        switched off, the /api convention above is the fallback."""
+        if self._spec_paths is not None:
+            return
+        self._spec_paths = {}
+        for spec_url in (f"{self.base_url}/openapi.json", f"{self.base_url}{self.api_prefix}/openapi.json"):
+            try:
+                async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                    resp = await client.get(spec_url)
+                if resp.status_code == 200:
+                    self._spec_paths = dict(resp.json().get("paths") or {})
+                    return
+            except Exception as exc:
+                logger.warning("[quality_monitor] route table fetch %s failed: %s", spec_url, exc)
+
+    def _login_path(self) -> str:
+        return login_path_from_spec(self._spec_paths or {}) or f"{self.api_prefix}/auth/login"
+
     def _crud_path(self) -> Optional[str]:
-        """Return the GET list path for the first entity, or None if no entities."""
+        """Return the GET list path for the first entity (from the route table, else <prefix>/<plural>/)."""
         if not self.entities:
             return None
-        # "InvoiceItem" → "/invoiceitems/"  (lowercase + plural 's')
         entity = self.entities[0]
-        plural = entity.lower() + "s"
-        return f"/{plural}/"
+        from_spec = list_path_from_spec(self._spec_paths or {}, entity) if self._spec_paths else None
+        return from_spec or f"{self.api_prefix}/{_entity_slugs(entity)[0]}/"
 
     # ── Layer checks ─────────────────────────────────────────────────────────────
 
@@ -103,8 +157,9 @@ class QualityMonitor:
             )
 
     async def check_auth(self) -> HealthCheckResult:
-        """L2: POST /auth/login must return a JSON body containing access_token."""
-        url = f"{self.base_url}/auth/login"
+        """L2: POST <prefix>/auth/login must return a JSON body containing access_token."""
+        await self.load_route_table()
+        url = f"{self.base_url}{self._login_path()}"
         payload: Dict[str, Any] = {
             "email": self.admin_email,
             "password": self.admin_password,
@@ -332,7 +387,7 @@ class QualityMonitor:
 
     async def _fetch_token(self) -> str:
         """Re-issue the login request and return the raw token string."""
-        url = f"{self.base_url}/auth/login"
+        url = f"{self.base_url}{self._login_path()}"
         payload: Dict[str, Any] = {
             "email": self.admin_email,
             "password": self.admin_password,
