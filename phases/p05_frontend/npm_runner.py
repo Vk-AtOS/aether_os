@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from aether_os.core.sandbox import phase_exec
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
+logger = logging.getLogger(__name__)
 
 # ── npm build concurrency limiter ─────────────────────────────────────────────
 _NPM_SEMAPHORE: Optional[asyncio.Semaphore] = None
@@ -66,6 +70,30 @@ def node_modules_fresh(frontend_dir: Path, hash_val: str) -> bool:
 
 def stamp_node_modules(frontend_dir: Path, hash_val: str) -> None:
     _stamp_node_modules(frontend_dir, hash_val)
+
+
+async def install_frontend_deps(frontend_dir: Path, timeout: int = 300) -> str:
+    """npm install in the sandbox (install egress profile) unless node_modules matches package.json.
+
+    Returns "" on success, else the failure text the phase must report: run da281716's install timed out and p05
+    failed with no issue at all ("p05_frontend failed and recorded no error text"), so nobody could see why.
+    """
+    h = _pkg_hash(frontend_dir)
+    if _node_modules_fresh(frontend_dir, h):
+        return ""
+    try:
+        result = await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=timeout, network=True)
+    except SandboxUnavailable:
+        raise
+    except Exception as exc:
+        logger.error("p05: npm install raised: %s", exc)
+        return f"p05 error: npm install failed ({exc}); the frontend was not built or type-checked"
+    if result.returncode != 0:
+        logger.error("p05: npm install failed (exit %s)", result.returncode)
+        tail = " ".join(str(getattr(result, "stderr", "") or "").split())[-300:]
+        return f"p05 error: npm install failed (exit {result.returncode}): {tail}".rstrip(": ")
+    _stamp_node_modules(frontend_dir, h)
+    return ""
 
 
 async def run_npm_build(frontend_dir: Path) -> bool:
