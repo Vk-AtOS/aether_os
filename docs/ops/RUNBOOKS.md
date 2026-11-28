@@ -20,6 +20,9 @@ Who to call: the on-call contact and the owner's phone are kept in the secret ma
 **Symptoms:** `AetherOSApiDown`, `ErrorRateSpike`, `SlowRequests`; 5xx in the dashboard; `/healthz` fails.
 **Checks:** `docker compose ps api`; `docker compose logs --tail=200 api | grep -i error`; `curl -s localhost:8000/healthz`
 (process alive) vs `/readyz` (dependencies); memory: `docker stats --no-stream api`.
+**Logs survive a recreate:** `docker compose logs` is stored inside the container and is deleted when it is recreated. The API also writes
+a rotating file to the mounted state directory, `/home/aether/.aether_os/logs/api.log` on the host (20 MB x 10 files; `LOG_TO_FILE=0`
+disables, `LOG_FILE_MAX_BYTES` / `LOG_FILE_BACKUPS` tune it), and docker's own copy is capped at 5 x 50 MB.
 **Fix:** `/healthz` fails: `docker compose restart api` (stop grace is 60 s, in-flight requests finish). `/healthz` ok but
 `/readyz` 503: it is a dependency, go to Postgres or Redis. 5xx after a deploy: roll back (`git revert` the deploy commit,
 redeploy; migrations are forward-compatible by rule, see Postgres). OOM kills (`docker inspect api | grep OOMKilled`): lower
@@ -121,6 +124,11 @@ Nothing is auto-approved: never edit rows to unblock.
 **Fix:** provider returning 5xx: nothing to do, the breaker skips it for 30 s at a time and the fallback chain serves (`ROUTER_BREAKER_FAILURES`,
 `ROUTER_BREAKER_OPEN_SECONDS`). Bad key: the breaker opens for 10 minutes for that scope; fix the key in Settings. 80% budget: tell
 the organisation; the hard stop is at 100% by design; raising a cap is a plan decision for the owner. Kill switch: see `core/llm/budget.py`.
+The refusal text names the limit that was hit: "TOKEN limit" (tokens, whatever the model costs) or "SPEND limit" (USD). Token caps per plan:
+`LLM_PLAN_TOKEN_CAPS='{"trial": 4000000}'`; per organisation: `PUT /admin/llm/orgs/{org_id}/token-cap` (superadmin). The final error of an
+exhausted chain lists every provider tried and why it failed or was skipped (not configured, breaker open, Ollama down or model not pulled).
+Truncated replies (reasoning models spend max_tokens thinking) retry once with a doubled limit and reasoning off; `LLM_MAX_TOKENS_FLOOR` (default 4096)
+is the smallest limit sent to OpenRouter. `error_registry.json` is observational: it records failures with their run id and is not a source of fixes.
 **Escalate:** `ModelCallsRefused` / `ModelProvidersAllDown` (label `reason`: `no_model` = nothing configured or allowed for this data/plan, `chain_exhausted` = every provider failed, `admission` = kill switch, unknown org or plan, budget stop); every provider down; unexpected spend growth (`aether_llm_cost_usd_total`).
 
 ## Sandbox

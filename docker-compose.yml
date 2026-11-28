@@ -168,6 +168,14 @@ services:
       - docker_proxy_sock:/docker-proxy
       # Read-only view of the dump directory so /metrics can report aether_backup_age_seconds (alert BackupTooOld).
       - ${BACKUP_DIR:-/var/backups/aetheros}:${BACKUP_DIR:-/var/backups/aetheros}:ro
+    # Container logs live inside the container and are deleted when it is recreated (KAN-274 G13): the app also writes
+    # a rotating file to the mounted state directory (logs/api.log, core/logging_config.py), and docker's own copy is
+    # size-capped so it cannot fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     # SIGTERM -> uvicorn finishes in-flight requests; compose waits this long before SIGKILL.
     init: true
     stop_grace_period: 60s

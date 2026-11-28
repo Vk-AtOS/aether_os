@@ -94,8 +94,13 @@ async def update_phase_state(run_id: str, phase: str, status: str) -> None:
         async with _gsf_us()() as _sess_us:
             existing_pc = (await _sess_us.get(_PC_us, (run_id, phase)))
             if existing_pc:
+                now = time.time()
+                # The row's updated_at is when it went "running": the time to the next status is the phase's duration.
+                # Nothing ever set duration_s, so it was NULL on every row (KAN-274 G10).
+                if existing_pc.status == "running" and status != "running" and existing_pc.updated_at:
+                    existing_pc.duration_s = max(0.0, now - existing_pc.updated_at)
                 existing_pc.status = status
-                existing_pc.updated_at = time.time()
+                existing_pc.updated_at = now
             else:
                 _sess_us.add(_PC_us(
                     run_id=run_id,
