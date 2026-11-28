@@ -23,7 +23,6 @@ import logging
 import os
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,6 +32,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from aether_os.core.run_app import safe_fs
 from aether_os.core.run_app.preview_state import state_dir
 from aether_os.core.sandbox.runner import SandboxRunner, SandboxUnavailable
 
@@ -76,21 +76,15 @@ def _rebuild(req: Requirement) -> str:
 
 
 def read_requirements_file(path: Path, root: Path) -> str:
-    """Contents of a regular file inside the run dir `root`, never through a symlink; capped. One read, no second open."""
-    root_real = Path(os.path.realpath(root))
-    if os.path.islink(path) or not stat.S_ISREG(os.lstat(path).st_mode):
-        raise RequirementsRejected("requirements.txt is a symlink or not a regular file")
-    if root_real not in Path(os.path.realpath(path)).parents:
-        raise RequirementsRejected("requirements.txt resolves outside the run directory")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    """Contents of a regular file inside the run dir `root`, capped. Reuses run_app.safe_fs, which walks from a root
+    directory fd one component at a time (O_NOFOLLOW|O_DIRECTORY, dir_fd): no link anywhere on the path is followed,
+    so a symlinked intermediate directory cannot redirect the read, even if swapped after any earlier check."""
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise RequirementsRejected("requirements.txt is not a regular file")
-        data = os.read(fd, MAX_REQ_BYTES + 1)
-    finally:
-        os.close(fd)
-    if len(data) > MAX_REQ_BYTES:
-        raise RequirementsRejected(f"requirements.txt is larger than {MAX_REQ_BYTES} bytes")
+        data = safe_fs.read_bytes_or_none(root, path, MAX_REQ_BYTES)
+    except OSError:      # safe_fs lets fdopen fail on a directory
+        data = None
+    if data is None:
+        raise RequirementsRejected("requirements.txt is a link, not a regular file inside the run directory, or too large")
     return data.decode(errors="replace")
 
 
@@ -118,10 +112,10 @@ def parse_requirements(text: str) -> List[str]:
                     why = "not a package name"
                 else:
                     out.append(_rebuild(req))
-            except (InvalidRequirement, InvalidVersion, ValueError) as exc:
-                why = f"not an allowed requirement ({str(exc)[:60]})"
+            except (InvalidRequirement, InvalidVersion, ValueError):
+                why = "not an allowed requirement"
         if why:
-            raise RequirementsRejected(f"requirements.txt line {n} rejected ({why}): {raw.strip()[:80]!r}")
+            raise RequirementsRejected(f"requirements.txt line {n} rejected: {why}")   # never echo the line itself
     return out
 
 
@@ -143,13 +137,21 @@ def _marker(root: Path, key: str) -> Path:
 
 
 def find_requirements(cwd: Path, root: Path) -> Optional[Path]:
-    """requirements.txt in `cwd` or the nearest parent inside the run dir `root`."""
+    """requirements.txt in `cwd` or the nearest parent inside the run dir `root`. An entry that exists but is not a
+    plain regular file reached without links (a symlink, a directory) is rejected, not skipped."""
     cwd, root = Path(cwd).resolve(), Path(root).resolve()
     for d in (cwd, *cwd.parents):
         if d != root and root not in d.parents:
             break
-        if (d / "requirements.txt").is_file():
-            return d / "requirements.txt"
+        cand = d / "requirements.txt"
+        try:
+            found = safe_fs.stat_or_none(root, cand) is not None
+        except OSError:
+            found = False
+        if found:
+            return cand
+        if os.path.lexists(cand):
+            raise RequirementsRejected("requirements.txt is a link or not a regular file")
     return None
 
 

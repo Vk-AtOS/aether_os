@@ -193,12 +193,6 @@ def test_triple_equals_path_like_and_bad_versions_are_rejected(line):
         app_env.parse_requirements(line + "\n")
 
 
-def test_rejected_line_is_truncated_in_the_error():
-    with pytest.raises(app_env.RequirementsRejected) as e:
-        app_env.parse_requirements("-e " + "A" * 500)
-    assert len(str(e.value)) < 200
-
-
 def test_requirements_file_must_be_a_regular_file_inside_the_run_dir(tmp_path):
     root = tmp_path / "run"
     root.mkdir()
@@ -222,5 +216,28 @@ def test_requirements_file_must_be_a_regular_file_inside_the_run_dir(tmp_path):
         app_env.read_requirements_file(root / "d.txt", root)
     big = root / "big.txt"
     big.write_text("a\n" * app_env.MAX_REQ_BYTES)
-    with pytest.raises(app_env.RequirementsRejected, match="larger"):
+    with pytest.raises(app_env.RequirementsRejected, match="too large"):
         app_env.read_requirements_file(big, root)
+
+
+def test_symlinked_intermediate_directory_is_not_followed(tmp_path):
+    """The sandbox swaps backend/ for a symlink to a directory outside the run dir after the path was chosen."""
+    root = tmp_path / "run"
+    (root / "real").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "requirements.txt").write_text("TOPSECRET\n")
+    (root / "backend").symlink_to(outside)
+    with pytest.raises(app_env.RequirementsRejected) as e:
+        app_env.read_requirements_file(root / "backend" / "requirements.txt", root)
+    assert "TOPSECRET" not in str(e.value)
+    # and discovery: a requirements.txt symlink is refused, a symlinked dir is simply not entered
+    (root / "real" / "requirements.txt").symlink_to(outside / "requirements.txt")
+    with pytest.raises(app_env.RequirementsRejected):
+        app_env.find_requirements(root / "real", root)
+
+
+def test_rejection_errors_never_echo_line_content():
+    with pytest.raises(app_env.RequirementsRejected) as e:
+        app_env.parse_requirements("fastapi\nSECRETPAYLOAD==../../etc\n")
+    assert "line 2" in str(e.value) and "SECRETPAYLOAD" not in str(e.value)
