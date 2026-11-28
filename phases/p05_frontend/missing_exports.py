@@ -106,6 +106,23 @@ def _locally_declared(name: str, text: str) -> str | None:
     return "type" if m.group(1) in ("interface", "type") else "value"
 
 
+_IMPORT_CLAUSE = re.compile(r"^\s*import\s+(type\s+)?([^'\";]*?)\s+from\s+['\"]", re.M | re.S)
+
+
+def _imported(name: str, text: str) -> str | None:
+    """'type' / 'value' when the file imports `name` (it is then a local binding: declaring it again is TS2440)."""
+    for whole_type, clause in _IMPORT_CLAUSE.findall(text):
+        brace = re.search(r"\{(.*)\}", clause, re.S)
+        for part in (brace.group(1).split(",") if brace else []):
+            tokens = part.split()
+            is_type = bool(whole_type) or (len(tokens) > 1 and tokens[0] == "type")
+            if tokens and tokens[0] == "type":
+                tokens = tokens[1:]
+            if tokens and tokens[-1] == name:      # `a as b` binds b
+                return "type" if is_type else "value"
+    return None
+
+
 def render_patch(file_text: str, values: set[str], types: set[str], jsx: bool) -> tuple[str, list[str]]:
     """(text to append, names added) so every imported name is exported. Empty when nothing is missing or the module
     may export anything through `export *`."""
@@ -119,8 +136,10 @@ def render_patch(file_text: str, values: set[str], types: set[str], jsx: bool) -
     added: list[str] = []
     prim: dict[str, set[str]] = {}
     for n in missing_v + missing_t:
-        kind = _locally_declared(n, file_text)
-        if kind:  # declared but not exported: exporting it is the whole fix
+        # Declared or imported but not exported: re-exporting the binding is the whole fix. Run da281716 appended
+        # `export type Member = any` to an api.ts that imports Member from ../types: TS2440 broke the type-check.
+        kind = _locally_declared(n, file_text) or _imported(n, file_text)
+        if kind:
             parts.append(f"export {'type ' if kind == 'type' else ''}{{ {n} }}\n")
         elif jsx and n in _OWNER and n in values:
             prim.setdefault(_OWNER[n], set()).add(n)

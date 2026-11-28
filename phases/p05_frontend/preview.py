@@ -27,20 +27,11 @@ async def take_preview_screenshot(frontend_dir: Path, output_path: Path) -> bool
     host browser.
     """
     dist_dir = frontend_dir / "dist"
-    # 1. Try building it if not already built
+    # No dist/ means p05's own install/build step failed: there is nothing to show. This used to run a second
+    # npm install (240s) + build (180s) here, which in run da281716 spent 4.5 of s04's 20 minutes after the first
+    # install had already timed out.
     if not dist_dir.exists():
-        try:
-            logger.info("p05: Building frontend for screenshot...")
-            # Generated project: install (install egress profile) and build in the sandbox only.
-            await phase_exec.run(["npm", "install"], cwd=frontend_dir, timeout=240, network=True)
-            await phase_exec.run(["npm", "run", "build"], cwd=frontend_dir, timeout=180, env=PREVIEW_BUILD_ENV)
-        except SandboxUnavailable:
-            raise
-        except Exception as build_err:
-            logger.warning(f"p05: Build failed before screenshot: {build_err}")
-
-    if not dist_dir.exists():
-        logger.warning("p05: dist/ directory not found, cannot take real screenshot")
+        logger.warning("p05: dist/ directory not found (the build did not produce it), no screenshot")
         return False
 
     # 2. The preview build lives under a base path; the in-sandbox server serves dist/ under that name.

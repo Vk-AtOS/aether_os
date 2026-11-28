@@ -95,3 +95,19 @@ def test_non_tsx_module_gets_no_jsx(tmp_path):
     ensure_local_modules(root)
     text = (root / "src/lib/stuff.ts").read_text()
     assert "<div" not in text and "export const helper" in text and "export const TableRow" in text
+
+
+def test_a_name_the_module_imports_is_re_exported_not_redeclared(tmp_path):
+    # Run da281716: a page imported Member from lib/api; api.ts imports Member (a type) from ../types, and p05 appended
+    # `export type Member = any`, a second declaration of the imported binding (TS2440 failed the type-check).
+    root = _tree(tmp_path, {
+        "src/pages/MemberPage.tsx": "import { membersApi, Member } from '../lib/api'\nimport { cn } from '../lib/util'\n",
+        "src/lib/api.ts": "import axios from 'axios'\nimport type { Team, Member } from '../types'\nexport const membersApi = {}\n",
+        "src/lib/util.ts": "import { cn as join } from './cx'\nexport const x = 1\n",
+        "src/lib/cx.ts": "export const cn = 1\n",
+    })
+    ensure_local_modules(root)
+    api = (root / "src/lib/api.ts").read_text()
+    assert "export type { Member }" in api and "Member = any" not in api
+    util = (root / "src/lib/util.ts").read_text()
+    assert "export const cn" in util      # the file binds `join`, not `cn`: a stub is still needed

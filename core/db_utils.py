@@ -120,6 +120,20 @@ async def get_run_list(
     # next_cursor is the started_at float of the oldest item in this page.
     next_cursor: Optional[float] = runs[-1].started_at if has_more and runs else None
     return {"items": formatted, "total": total, "next_cursor": next_cursor}
+def _failure_fields(status: Optional[str], message: Optional[str], phases: Dict[str, Any]) -> Dict[str, Any]:
+    """error / failed_stage for a run that did not complete.
+
+    _abort_run stores the blocking stage's reason in Run.message (and returns it as "error"), but the run record
+    only served it as "message": run da281716 was reported "failed: no error recorded" while the reason ("s07_healing
+    ... healing did not get the unit tests passing") was in the table. The failed stage is the last one recorded as
+    failed (a timed-out non-critical stage does not end the run).
+    """
+    if status not in ("failed", "needs_review"):
+        return {"error": None, "failed_stage": None}
+    failed = [(p.get("updated_at") or 0, name) for name, p in phases.items() if p.get("status") == "failed"]
+    return {"error": message or None, "failed_stage": max(failed)[1] if failed else None}
+
+
 async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
     """Return full run detail with phase_completions and events."""
     session_factory = get_session_factory()
@@ -178,6 +192,7 @@ async def get_run_detail(run_id: str, org_id: Optional[str] = None) -> Dict[str,
         "raw_input":    run.raw_input,
         "requirement":  run.requirement,
         "message":      run.message,
+        **_failure_fields(run.status, run.message, phases),
         "self_test_report": run.self_test_report,
         "council_delivery": run.council_delivery,
     }

@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.domain_ir import DomainIR
-from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.base import TaskResult
@@ -40,9 +39,7 @@ from aether_os.phases.p05_frontend.scaffold import (
 )
 from aether_os.phases.p05_frontend.npm_runner import (
     get_npm_semaphore,
-    pkg_hash,
-    node_modules_fresh,
-    stamp_node_modules,
+    install_frontend_deps,
     run_npm_build,
 )
 from aether_os.phases.p05_frontend.code_writer import (
@@ -514,6 +511,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Runs before Gate-2 so the screenshot shows the compiled artifact.
     frontend_dir_final = project_dir / 'frontend'
     build_success = True
+    install_error = ""    # why npm install failed: reported as the phase's issue
     tsc_errors: int = 0
     _loop_result: dict = {"success": True, "tsc_errors": 0}
     if os.environ.get("ENVIRONMENT") != "test":
@@ -522,21 +520,13 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                 # Model-written pages import UI primitives/modules the generator never wrote; create them before the build.
                 ensure_local_modules(frontend_dir_final)
                 ensure_npm_deps(frontend_dir_final)  # model pages import packages package.json lacks
-                _hash = pkg_hash(frontend_dir_final)
-                if not node_modules_fresh(frontend_dir_final, _hash):
-                    # Install in the sandbox (install egress profile); build/tsc below have no network.
-                    install_result = await phase_exec.run(["npm", "install"], cwd=frontend_dir_final,
-                                                          timeout=300, network=True)
-                    if install_result.returncode != 0:
-                        logger.error("p05: npm install failed (exit %s)", install_result.returncode)
-                        build_success = False
-                    else:
-                        stamp_node_modules(frontend_dir_final, _hash)
+                install_error = await install_frontend_deps(frontend_dir_final)
             except SandboxUnavailable:
                 raise
             except Exception as exc:
-                logger.error("p05: npm install raised: %s", exc)
-                build_success = False
+                logger.error("p05: preparing the frontend for npm install raised: %s", exc)
+                install_error = f"p05 error: preparing the frontend build failed: {exc}"
+            build_success = not install_error
 
             if build_success:
                 _loop_result = await run_build_loop(frontend_dir_final, max_rounds=3)
@@ -587,6 +577,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # Policy: a bundled app succeeds; leftover tsc errors are a warning + a count in the run result, not a failure.
     _build_meta, _warnings = result_summary({**_loop_result, "success": build_success, "tsc_errors": tsc_errors})
     meta.update(_build_meta)
+    _warnings = [install_error] + _warnings if install_error else _warnings
     (output_dir / "frontend_meta.json").write_text(json.dumps(meta, indent=2))
     return TaskResult(output_path=str(frontend_dir_final), confidence=_confidence, success=build_success,
                       metadata=meta, issues=_warnings)

@@ -289,7 +289,7 @@ def ir_to_models(ir: DomainIR, domain: str = "", multi_tenancy: bool = False) ->
 _PYDANTIC_IMPORTS = """\
 from __future__ import annotations
 from datetime import date, datetime
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 """
 
@@ -331,6 +331,11 @@ def _pydantic_type(field: IRField, domain: str = "") -> str:
         or (atype == AetherType.STRING and field_lower in _MONEY_FIELDS)
     ):
         base = "Decimal"
+    elif atype == AetherType.ENUM and field.enum_values:
+        # The column carries CheckConstraint(status IN (...)) (_sa_column); a plain `str` let any value through to
+        # the database, which answered 409 (run da281716: every generated create test failed). Literal rejects it
+        # with a 422 and publishes the values in OpenAPI, so clients and the generated tests send a valid one.
+        base = "Literal[" + ", ".join(repr(str(v)) for v in field.enum_values) + "]"
     else:
         base = type_map.get(atype, "str")
 
@@ -417,7 +422,8 @@ def generate_schemas_py(ir: DomainIR, domain: str = "", multi_tenancy: bool = Fa
                 default = f" = {str(f.default).capitalize()}"
             else:
                 default = ""
-            optional_ptype = f"Optional[{ptype.replace('Optional[', '').rstrip(']')}]"
+            # (not rstrip(']'): that also ate the closing bracket of a nullable Literal[...])
+            optional_ptype = ptype if ptype.startswith("Optional[") else f"Optional[{ptype}]"
 
             # PHI comment for healthcare-domain sensitive fields
             phi_comment = (

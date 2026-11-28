@@ -103,7 +103,11 @@ async def heal_file(
             logger.warning("%s post-patch check of %s failed: %s", TAG, failing_file, exc)
         return True
 
-    # No patch applied: a whole-file rewrite only for a tiny file, and only behind the guards.
+    # No patch applied: a whole-file rewrite only for a tiny file the repair may change, and only behind the guards.
+    # The patches went through may_heal but this rewrite did not: run da281716 rewrote a vendored sqlalchemy file.
+    if not may_heal(project_dir)(failing_file.resolve()):
+        logger.warning("%s %s is not a file this repair may change; no whole-file rewrite", TAG, rel)
+        return False
     try:
         original = failing_file.read_text()
     except (OSError, UnicodeDecodeError) as exc:

@@ -31,6 +31,20 @@ SPECS = {
                                    F("project_id", "fk", ref_entity="project"), F("assignee_id", "fk", ref_entity="user"),
                                    F("due_date", "date"), F("estimate", "integer")]),
     ],
+    # Run da281716: the IR lists id (uuid string) and the timestamps as ordinary fields, and a member has a password
+    # hash; types/index.ts declared id/created_at/updated_at twice with conflicting types.
+    "team_tracker": [
+        IREntity("Team", "teams", [F("id", "string", nullable=False), F("name", "string", nullable=False),
+                                   F("created_at", "datetime", nullable=False), F("updated_at", "datetime", nullable=False)]),
+        IREntity("Member", "members", [F("id", "string", nullable=False), F("email", "email", nullable=False),
+                                       F("password_hash", "string", nullable=False), F("name", "string", nullable=False),
+                                       F("team_id", "fk", nullable=False, ref_entity="Team"),
+                                       F("created_at", "datetime", nullable=False)]),
+        IREntity("Task", "tasks", [F("id", "string", nullable=False), F("title", "string", nullable=False),
+                                   F("status", "enum", nullable=False, enum_values=["todo", "doing", "done"]),
+                                   F("assignee_id", "fk", ref_entity="Member"), F("due_date", "date"),
+                                   F("updated_at", "datetime", nullable=False)]),
+    ],
     "bakery": [
         IREntity("MenuItem", "menu_items", [F("name", "string"), F("description", "text"), F("price", "decimal"),
                                             F("category", "enum", enum_values=["bread", "cake"]), F("available", "boolean")]),
@@ -47,7 +61,7 @@ def _deps(root: Path) -> dict:
 
 def _generate(tmp_path: Path, monkeypatch, spec: str, mode: str) -> Path:
     ents = SPECS[spec]
-    arch = [{"table": e.table, "columns": ["id"] + [f.name for f in e.fields]} for e in ents]
+    arch = [{"table": e.table, "columns": ["id"] + [f.name for f in e.fields if f.name != "id"]} for e in ents]
     extra = {"architecture_json": {"database_schema": arch}}
     if mode == "ir":
         ir = DomainIR(domain="saas", app_name=spec)
