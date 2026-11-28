@@ -1,0 +1,22 @@
+# Re-applies the sandbox host firewall (core/sandbox/host_firewall.sh) on every boot and whenever Docker restarts.
+# Without it the rules are lost at reboot, the isolation probe fails and every run refuses generated code
+# ("sandbox unavailable"; prod outage after the reboot, KAN-245).
+# Install with deploy/scripts/install_sandbox_firewall.sh (renders the repo path, writes the EnvironmentFile).
+[Unit]
+Description=AetherOS sandbox host firewall
+Requires=docker.service
+After=docker.service network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# /etc/aether/sandbox-firewall.env holds AETHER_SANDBOX_PUBLISH_IP=<docker0 / bridge gateway address>
+EnvironmentFile=/etc/aether/sandbox-firewall.env
+# docker.service is "started" before the daemon answers: wait for it, then apply (the script is idempotent)
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=/bin/bash @REPO_DIR@/core/sandbox/host_firewall.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

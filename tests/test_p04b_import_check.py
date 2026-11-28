@@ -60,3 +60,18 @@ def test_both_model_written_modules_are_import_checked_before_they_are_written()
     assert 'import_error(workflow_engine_code, "workflow_engine"' in src
     assert 'import_error(business_rules_code, "business_rules"' in src
     assert "invent entities (no expense reports" in src          # the prompt no longer seeds foreign workflows
+
+
+def test_unavailable_sandbox_fails_loudly_instead_of_skipping_the_check(monkeypatch, tmp_path):
+    """KAN-245: with the host firewall not applied the sandbox is unavailable; the import check used to return None
+    (silently skipped) and the module shipped unchecked."""
+    from aether_os.core.sandbox import phase_exec
+    from aether_os.core.sandbox.runner import SandboxUnavailable
+
+    async def run(*a, **k):
+        raise SandboxUnavailable("generated code was not run: sandbox unavailable (host_firewall.sh is not applied)")
+
+    monkeypatch.setattr(phase_exec, "run", run)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    with pytest.raises(SandboxUnavailable, match="sandbox unavailable"):
+        asyncio.run(import_check.import_error("x = 1\n", "m", tmp_path))

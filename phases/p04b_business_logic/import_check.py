@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from aether_os.core.sandbox.runner import SandboxUnavailable
+
 logger = logging.getLogger(__name__)
 
 _CHECK = """\
@@ -32,7 +34,8 @@ except Exception as e:
 
 async def import_error(code: str, module: str, work_dir: Path) -> Optional[str]:
     """"<ExcType>: message" when importing `code` as `module` raises, else None (also None when it cannot be judged:
-    test env, sandbox unavailable, or only a missing third-party dependency)."""
+    test env, or only a missing third-party dependency). Raises SandboxUnavailable when the sandbox cannot run it: the
+    check used to be skipped silently, so modules shipped unchecked (KAN-245)."""
     if os.environ.get("ENVIRONMENT") == "test":
         return None
     from aether_os.core.sandbox import phase_exec
@@ -45,6 +48,8 @@ async def import_error(code: str, module: str, work_dir: Path) -> Optional[str]:
             line = next((ln for ln in out.splitlines() if ln.startswith("IMPORT_FAILED")), out.strip()[-300:])
             return line.replace("IMPORT_FAILED ", "", 1)
         return None
+    except SandboxUnavailable:
+        raise   # the generated code was not run: the phase fails loudly instead of skipping the check
     except Exception as e:
         logger.warning("p04b: import check for %s could not run: %s", module, e)
         return None

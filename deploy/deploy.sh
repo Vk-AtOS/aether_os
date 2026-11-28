@@ -80,6 +80,12 @@ else
     echo "→ Dashboard unchanged, skipping rebuild"
 fi
 
+# 6b. Sandbox host firewall must survive reboots (KAN-245): install/refresh the systemd unit when Docker is present
+if command -v docker >/dev/null 2>&1; then
+    bash "$INSTALL_DIR/deploy/scripts/install_sandbox_firewall.sh" "$INSTALL_DIR" \
+        || echo "⚠ sandbox firewall unit not installed — generated code will be refused until it is"
+fi
+
 # 7. Reload service (migrations ran first, minimising data-integrity window)
 echo "→ Reloading $SERVICE service..."
 # Use reload (SIGHUP) where uvicorn supports graceful reload; fall back to restart.
