@@ -97,7 +97,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             "}"
         )
         combined = await asyncio.wait_for(
-            llm.call_json(combined_prompt, task_type="analysis"),
+            llm.call_json(combined_prompt, task_type="analysis",
+                          org_id=data.get("org_id") or None, plan=data.get("plan"),
+                          run_id=getattr(phase_input, "run_id", None), phase="p01_intake_requirements"),
             timeout=90,
         )
         intake_record = combined.get("intake") or {}
