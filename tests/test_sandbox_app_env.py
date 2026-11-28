@@ -179,3 +179,48 @@ def test_marker_is_host_only_and_a_planted_deps_symlink_is_replaced_not_followed
     phase_exec.run_sync(["python3", "-m", "pytest"], cwd=backend, project=tmp_path)
     assert not deps.is_symlink() and (deps / "stripe").is_dir() and not list(victim.iterdir())
     assert marker.exists() and not list(tmp_path.glob(".reqs-*"))
+
+
+def test_argv_items_are_rebuilt_from_parsed_parts():
+    got = app_env.parse_requirements("Uvicorn[Standard,uvloop]>=0.29, <1 \nSome_Pkg==1.*\nfoo~=2.0; python_version >= '3.9'\n")
+    assert got == ["uvicorn[Standard,uvloop]<1,>=0.29", "some-pkg==1.*", "foo~=2.0; python_version >= \"3.9\""]
+
+
+@pytest.mark.parametrize("line", ["foo===1.0", "foo==../../x", "foo==1.0/evil", "foo>=1.*", "a\\b", "foo[a/b]", "foo==1.0 ; extra == 'x/y'",
+                                  "foo==not.a.version"])
+def test_triple_equals_path_like_and_bad_versions_are_rejected(line):
+    with pytest.raises(app_env.RequirementsRejected):
+        app_env.parse_requirements(line + "\n")
+
+
+def test_rejected_line_is_truncated_in_the_error():
+    with pytest.raises(app_env.RequirementsRejected) as e:
+        app_env.parse_requirements("-e " + "A" * 500)
+    assert len(str(e.value)) < 200
+
+
+def test_requirements_file_must_be_a_regular_file_inside_the_run_dir(tmp_path):
+    root = tmp_path / "run"
+    root.mkdir()
+    ok = root / "requirements.txt"
+    ok.write_text("fastapi\n")
+    assert app_env.read_requirements_file(ok, root) == "fastapi\n"
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET-line\n")
+    link = root / "link.txt"
+    link.symlink_to(secret)
+    with pytest.raises(app_env.RequirementsRejected) as e:
+        app_env.read_requirements_file(link, root)
+    assert "TOPSECRET" not in str(e.value)
+    outside_dir = tmp_path / "other"
+    outside_dir.mkdir()
+    (outside_dir / "r.txt").write_text("x\n")
+    with pytest.raises(app_env.RequirementsRejected):
+        app_env.read_requirements_file(outside_dir / "r.txt", root)
+    (root / "d.txt").mkdir()
+    with pytest.raises(app_env.RequirementsRejected):
+        app_env.read_requirements_file(root / "d.txt", root)
+    big = root / "big.txt"
+    big.write_text("a\n" * app_env.MAX_REQ_BYTES)
+    with pytest.raises(app_env.RequirementsRejected, match="larger"):
+        app_env.read_requirements_file(big, root)

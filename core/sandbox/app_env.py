@@ -23,12 +23,15 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Mapping, Optional
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from aether_os.core.run_app.preview_state import state_dir
 from aether_os.core.sandbox.runner import SandboxRunner, SandboxUnavailable
@@ -45,32 +48,80 @@ class RequirementsRejected(RuntimeError):
     """The generated requirements.txt is not a plain list of packages (or one has no wheel): the step fails."""
 
 
-def parse_requirements(text: str) -> List[str]:
-    """The validated requirement strings. Raises RequirementsRejected naming the first offending line.
+_EXTRA = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_OPS = ("==", "!=", "<=", ">=", "<", ">", "~=")
+MAX_REQ_BYTES = 64 * 1024
 
-    Rejected: options (-e -r -c --index-url ...), URLs and `name @ url`, VCS/local paths, wheel/sdist file names."""
+
+def _rebuild(req: Requirement) -> str:
+    """argv item from parsed parts only (never str(req)): PEP 503 name, checked extras, operators and versions."""
+    spec = []
+    for sp in sorted(req.specifier, key=str):
+        v = sp.version
+        if sp.operator not in _OPS:
+            raise ValueError(f"operator {sp.operator!r} is not allowed")
+        if v.endswith(".*"):
+            if sp.operator not in ("==", "!="):
+                raise ValueError("a wildcard version is only allowed with == and !=")
+            v = v[:-2]
+        Version(v)    # raises InvalidVersion: path-like or otherwise odd versions
+        spec.append(f"{sp.operator}{sp.version}")
+    extras = sorted(req.extras)
+    if not all(_EXTRA.match(e) for e in extras):
+        raise ValueError("bad extra name")
+    out = canonicalize_name(req.name) + (f"[{','.join(extras)}]" if extras else "") + ",".join(spec)
+    if req.marker is not None:
+        out += f"; {req.marker}"
+    return out
+
+
+def read_requirements_file(path: Path, root: Path) -> str:
+    """Contents of a regular file inside the run dir `root`, never through a symlink; capped. One read, no second open."""
+    root_real = Path(os.path.realpath(root))
+    if os.path.islink(path) or not stat.S_ISREG(os.lstat(path).st_mode):
+        raise RequirementsRejected("requirements.txt is a symlink or not a regular file")
+    if root_real not in Path(os.path.realpath(path)).parents:
+        raise RequirementsRejected("requirements.txt resolves outside the run directory")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise RequirementsRejected("requirements.txt is not a regular file")
+        data = os.read(fd, MAX_REQ_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(data) > MAX_REQ_BYTES:
+        raise RequirementsRejected(f"requirements.txt is larger than {MAX_REQ_BYTES} bytes")
+    return data.decode(errors="replace")
+
+
+def parse_requirements(text: str) -> List[str]:
+    """The rebuilt requirement strings. Raises RequirementsRejected naming the first offending line (truncated).
+
+    Rejected: options (-e -r -c --index-url ...), URLs and `name @ url`, any '/' or '\\', wheel/sdist file names,
+    ===, versions that are not PEP 440."""
     out: List[str] = []
     for n, raw in enumerate(text.splitlines(), 1):
         line = re.sub(r"(^|\s)#.*$", "", raw).strip()
         if not line:
             continue
         why = None
-        if line.startswith("-") or "://" in line:
-            why = "options and URLs are not allowed"
+        if line.startswith("-") or "://" in line or "/" in line or "\\" in line:
+            why = "options, URLs and paths are not allowed"
+        elif line.lower().endswith(_ARCHIVE_SUFFIXES):
+            why = "archive file names are not allowed"
         else:
             try:
                 req = Requirement(line)
-            except InvalidRequirement as exc:
-                why = f"not a valid requirement ({exc})"
-            else:
                 if req.url is not None:
                     why = "direct URL references are not allowed"
-                elif not _CANONICAL.match(req.name) or req.name.lower().endswith(_ARCHIVE_SUFFIXES):
+                elif not _CANONICAL.match(req.name):
                     why = "not a package name"
                 else:
-                    out.append(str(req))
+                    out.append(_rebuild(req))
+            except (InvalidRequirement, InvalidVersion, ValueError) as exc:
+                why = f"not an allowed requirement ({str(exc)[:60]})"
         if why:
-            raise RequirementsRejected(f"requirements.txt line {n} rejected ({why}): {raw.strip()!r}")
+            raise RequirementsRejected(f"requirements.txt line {n} rejected ({why}): {raw.strip()[:80]!r}")
     return out
 
 
@@ -116,7 +167,7 @@ def app_packages(runner: SandboxRunner, root: Path, cwd: Path, env: Mapping[str,
     if req is None:
         return None
     try:
-        reqs = parse_requirements(req.read_bytes().decode(errors="replace"))   # the one and only read
+        reqs = parse_requirements(read_requirements_file(req, root))   # the one and only read
         if not reqs:
             return None
         key = hashlib.sha256("\n".join(sorted(reqs)).encode()).hexdigest()[:16]
