@@ -1,0 +1,65 @@
+{
+  "_doc": "KAN-266 expectations. Endpoint names are model-generated, so endpoints are matched by regex against the generated app's own /openapi.json (never a fixed path). Check names: see scripts/acceptance/suite_checks.py CHECKS. A key that is absent means that check does not apply to the prompt.",
+  "defaults": {
+    "run_status": "completed",
+    "allow_skipped_stages": [],
+    "app_started": true,
+    "root_page": true,
+    "frontend_build": true,
+    "export_clean": true,
+    "rulepacks_zero_blocking": true,
+    "export_forbidden_patterns": []
+  },
+  "prompts": [
+    {
+      "id": "bakery_site",
+      "title": "Bakery website",
+      "prompt": "Build a website for Rosemary Lane Bakery, a neighbourhood bakery. Visitors without an account must see the menu (breads, pastries, cakes with name, description and price), opening hours and the address, and must be able to send a message through a contact form. The owner logs in to an admin area to add, edit and remove menu items. Use a warm, simple design.",
+      "public_endpoints": [{"name": "menu list", "path_regex": "menu|product|item|bread|pastr", "method": "GET"}],
+      "protected_endpoints": [{"name": "menu create needs login", "path_regex": "menu|product|item", "method": "POST"}],
+      "form_post": {"name": "contact form", "path_regex": "contact|message|inquir|enquir", "method": "POST", "public": true},
+      "auth_crud": {"name": "admin manages menu", "path_regex": "menu|product|item", "create_body_overrides": {"price": 4.5}}
+    },
+    {
+      "id": "consultancy_landing",
+      "title": "Marketing site for a consultancy (no accounts)",
+      "prompt": "Create a marketing website for Northwind Advisory, a small management consultancy. Sections: hero with a call to action, services, three case studies, team, client testimonials and a contact section. It is a purely informational site: no sign-up, no login, no admin area, no user accounts.",
+      "allow_skipped_stages": ["s03_backend", "s06_testing"],
+      "no_accounts": {"forbidden_path_regex": "login|register|signup|sign-up|/users|/auth"},
+      "protected_endpoints": []
+    },
+    {
+      "id": "clinic_booking",
+      "title": "Clinic appointment booking",
+      "prompt": "Build an appointment booking system for Lakeside Family Clinic. Patients without an account fill in a public booking form (name, phone, email, preferred doctor, date and time, reason) and get a confirmation. Clinic staff log in to see all appointments, confirm, reschedule or cancel them, and manage doctors' availability. Patient data must not be visible without staff login.",
+      "public_endpoints": [{"name": "doctors list", "path_regex": "doctor|provider|clinician|service", "method": "GET"}],
+      "protected_endpoints": [{"name": "appointments list needs staff login", "path_regex": "appointment|booking", "method": "GET"}],
+      "form_post": {"name": "public booking form", "path_regex": "appointment|booking", "method": "POST", "public": true},
+      "auth_crud": {"name": "staff manages appointments", "path_regex": "appointment|booking", "status_field": "status"}
+    },
+    {
+      "id": "support_agent",
+      "title": "Customer-support AI agent",
+      "prompt": "Build a customer-support AI agent for an online shoe store. Customers chat with it through a web chat widget and a chat API endpoint. It answers questions using the configured language model and the store's FAQ and may use only these tools: look up an order status by order number, and search the FAQ. It must never run code or shell commands, and must hand over to a human when it does not know. Support staff log in to read conversations.",
+      "chat": {"name": "chat answers", "path_regex": "chat|agent|message|ask", "method": "POST", "message": "What is your return policy for shoes?", "public": true},
+      "protected_endpoints": [{"name": "conversation log needs staff login", "path_regex": "conversation|ticket|session|history", "method": "GET"}],
+      "export_forbidden_patterns": ["subprocess\\.", "os\\.system\\(", "\\beval\\(", "\\bexec\\(", "shell\\s*=\\s*True"]
+    },
+    {
+      "id": "task_tracker",
+      "title": "Team task tracker (regression)",
+      "prompt": "A team task tracker. Team members log in, create tasks with a title, description, assignee and due date, and move each task from todo to doing to done. Everything is behind login; each user sees the team's tasks.",
+      "protected_endpoints": [{"name": "tasks list needs login", "path_regex": "task", "method": "GET"}, {"name": "tasks create needs login", "path_regex": "task", "method": "POST"}],
+      "auth_crud": {"name": "task lifecycle", "path_regex": "task", "status_field": "status", "transitions": ["todo", "doing", "done"]}
+    },
+    {
+      "id": "shop_orders",
+      "title": "Small e-commerce catalogue with orders",
+      "prompt": "A small online shop for handmade candles. Anyone can browse the product catalogue (name, description, price, stock, photo) and place an order as a guest with name, email, shipping address and a list of products with quantities. The shop owner logs in to manage products, see and update the status of all orders (new, paid, shipped, cancelled). Orders must not be readable without the owner's login.",
+      "public_endpoints": [{"name": "catalogue list", "path_regex": "product|catalog|item", "method": "GET"}],
+      "protected_endpoints": [{"name": "orders list needs owner login", "path_regex": "order", "method": "GET"}],
+      "form_post": {"name": "guest places an order", "path_regex": "order", "method": "POST", "public": true},
+      "auth_crud": {"name": "owner manages products", "path_regex": "product|item", "create_body_overrides": {"price": 12.0, "stock": 5}}
+    }
+  ]
+}
