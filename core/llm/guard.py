@@ -50,7 +50,7 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
     if enforce_local:
         return Admission(plan or "local", "sonnet", reasons)
 
-    cap = None
+    cap = token_cap = None
     if org_id:
         policy = await controls.org_policy(org_id)
         if policy is None or policy.deleted:
@@ -63,7 +63,7 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
         if plan and plan != policy.plan:
             logger.warning("LLM call for org %s passed plan %r but the organisation is on %r: using %r",
                            org_id, plan, policy.plan, policy.plan)
-        plan, cap = policy.plan, policy.effective_cap_usd()
+        plan, cap, token_cap = policy.plan, policy.effective_cap_usd(), policy.token_cap
     else:
         # Platform-owned call (no tenant): charged to the platform budget (PLATFORM_ORG row, plan "platform",
         # monthly cap PLATFORM_LLM_MONTHLY_CAP_USD or the plan default), so a runaway platform job stops too.
@@ -75,9 +75,11 @@ async def admit(org_id: Optional[str], plan: Optional[str], prompt: str, system:
             raise LLMUnavailable("PLATFORM_LLM_MONTHLY_CAP_USD is not a number") from None
     if not plan:
         raise LLMUnavailable(f"Cannot determine plan for org {org_id}")
+    # Only an org with its own token cap passes one: every other call keeps the plan default inside check_budget.
+    extra = {"token_cap": token_cap} if token_cap is not None else {}
     try:
         allowed, reason, hint = await get_budget_manager().check_budget(
-            org_id, plan, projected_cost_usd=worst_case_cost_usd(prompt, system, max_tokens), cap_usd=cap)
+            org_id, plan, projected_cost_usd=worst_case_cost_usd(prompt, system, max_tokens), cap_usd=cap, **extra)
     except Exception as exc:
         raise LLMUnavailable(f"Token budget check unavailable: {exc}") from exc
     if not allowed:

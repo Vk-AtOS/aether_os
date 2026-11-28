@@ -560,6 +560,7 @@ Tags: llm-controls. Routes: 5.
 |---|---|---|---|
 | POST | `/admin/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Global kill. |
 | PUT | `/admin/llm/orgs/{org_id}/cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Set org cap. |
+| PUT | `/admin/llm/orgs/{org_id}/token-cap` | `get_current_user`; floor: member+ (viewer denied); handler calls `_superadmin`; handler checks role inline | Set the org monthly token cap (null = plan default). |
 | GET | `/admin/llm/status` | `get_current_user`; floor: any role; handler calls `_superadmin`; handler checks role inline | Status for `/admin/llm/status`. |
 | PUT | `/settings/llm/cap` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org admin sets the org's own lower-only cap (`llm_org_cap_usd`); effective cap is the minimum with the platform cap. |
 | POST | `/settings/llm/kill-switch` | `get_current_user`; floor: member+ (viewer denied); handler checks role inline | Org kill. |

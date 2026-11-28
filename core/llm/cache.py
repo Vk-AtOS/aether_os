@@ -91,6 +91,7 @@ class LLMCache:
         system: Optional[str] = None,
         prompt_tokens: int = 0,
         org_id: Optional[str] = None,
+        replace: bool = False,
     ) -> None:
         if not self.is_cacheable(task_type):
             return
@@ -101,9 +102,13 @@ class LLMCache:
 
             sf = get_session_factory()
             async with sf() as session:
-                # Upsert — INSERT … ON CONFLICT DO NOTHING (keep first cached response)
+                # Keep the first cached response, unless the caller proved it bad and refreshed it (replace=True).
                 existing = await session.get(LLMCacheEntry, key)
-                if not existing:
+                if existing and replace:
+                    existing.response = response
+                    existing.created_at = time.time()
+                    await session.commit()
+                elif not existing:
                     session.add(LLMCacheEntry(
                         cache_key=key,
                         task_type=task_type,

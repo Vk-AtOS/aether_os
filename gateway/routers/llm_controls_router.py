@@ -3,6 +3,7 @@
   GET  /admin/llm/status                  superadmin  global kill-switch state
   POST /admin/llm/kill-switch             superadmin  {"on": bool}  stop/resume every model call, all workers
   PUT  /admin/llm/orgs/{org_id}/cap       superadmin  {"monthly_cap_usd": float|null}  override the plan default
+  PUT  /admin/llm/orgs/{org_id}/token-cap superadmin {"monthly_token_cap": int|null}  override the plan's token cap
   PUT  /settings/llm/cap                  org admin   {"monthly_cap_usd"} lower own cap, max = plan cap
   POST /settings/llm/kill-switch          org admin   {"on": bool}  stop/resume model calls for the caller's org
   GET  /settings/llm/usage                org member  spend, cap and percent used this month
@@ -20,7 +21,7 @@ from sqlalchemy import update
 from aether_os.core.db import get_session_factory
 from aether_os.core.llm import budget, controls
 from aether_os.core.llm.budget import get_budget_manager
-from aether_os.core.llm.plans import PLAN_LIMITS
+from aether_os.core.llm.plans import PLAN_LIMITS, token_cap_for
 from aether_os.core.models import Organisation
 from aether_os.gateway.dependencies import get_current_user
 
@@ -34,6 +35,10 @@ class KillBody(BaseModel):
 
 class CapBody(BaseModel):
     monthly_cap_usd: Optional[float] = None
+
+
+class TokenCapBody(BaseModel):
+    monthly_token_cap: Optional[int] = None
 
 
 def _superadmin(user: Dict[str, Any]) -> None:
@@ -85,6 +90,17 @@ async def set_org_cap(org_id: str, body: CapBody, user: Dict[str, Any] = Depends
     return {"org_id": org_id, "monthly_cap_usd": body.monthly_cap_usd}
 
 
+@router.put("/admin/llm/orgs/{org_id}/token-cap")
+async def set_org_token_cap(org_id: str, body: TokenCapBody, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Per-organisation monthly token cap (null = the plan's cap). Tokens are not money: a free model costs $0 but still uses tokens."""
+    _superadmin(user)
+    if body.monthly_token_cap is not None and body.monthly_token_cap <= 0:
+        raise HTTPException(status_code=422, detail="monthly_token_cap must be > 0 (or null for the plan default)")
+    await _set_org(org_id, llm_monthly_token_cap=body.monthly_token_cap)
+    await _ledger(user, "llm.token_cap.set", org_id, {"monthly_token_cap": body.monthly_token_cap})
+    return {"org_id": org_id, "monthly_token_cap": body.monthly_token_cap}
+
+
 @router.put("/settings/llm/cap")
 async def org_cap(body: CapBody, user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """An org admin may set its OWN cap, 0..plan cap (null clears only that own cap). It is stored apart from the
@@ -126,5 +142,6 @@ async def usage(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, A
     return {"plan": policy.plan, "month": time.strftime("%Y-%m"), "spent_usd": round(spent, 4),
             "cap_usd": cap, "plan_cap_usd": limit.usd if limit else None,
             "platform_cap_usd": policy.cap_usd, "org_cap_usd": policy.org_cap_usd, "percent_used": round(100 * spent / cap, 1) if cap else 100.0,
-            "llm_disabled": policy.disabled,
+            "llm_disabled": policy.disabled, "total_tokens": u["total_tokens"],
+            "token_cap": token_cap_for(policy.plan, policy.token_cap),
             "today_spent_usd": round(today, 4), "daily_cap_usd": round(budget.daily_cap_usd(cap), 2)}

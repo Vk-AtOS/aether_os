@@ -39,6 +39,7 @@ from typing import Optional
 
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
+from aether_os.core.llm.task_profiles import is_truncated, reasoning_floor, retry_without_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,8 @@ async def call_openrouter(
     """
     import httpx
     from aether_os.core.errors import LLMTruncated, LLMUnavailable
+    # A reasoning model spends part of the limit thinking, so a small explicit limit (council 150/512) is raised to the floor.
+    max_tokens = max(max_tokens, reasoning_floor())
     from aether_os.core.llm import controls
     from aether_os.core.llm.data_policy import effective_level, permits
 
@@ -169,6 +172,10 @@ async def call_openrouter(
     }
     # Provider switches never override what this call decided (model, messages, max_tokens).
     payload = {**extra_body(), **payload}
+    if retry_without_reasoning.get():
+        # The first attempt was cut off inside the model's reasoning: ask for the answer without it (OpenRouter's
+        # unified switch; providers that cannot turn reasoning off ignore it and only the larger limit helps).
+        payload["reasoning"] = {"enabled": False}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -191,10 +198,10 @@ async def call_openrouter(
             choice = data["choices"][0]
             # A reply cut off at max_tokens is not an answer: returning it made the council report "could not parse"
             # and strict mode reject a request the model had approved. Say what happened instead.
-            if choice.get("finish_reason") == "length":
+            if is_truncated(choice, data.get("usage")):
                 raise LLMTruncated(f"{chosen_model} reply truncated at max_tokens={max_tokens} "
                                    f"(reasoning tokens count too; see OPENROUTER_EXTRA_BODY, LLM_MAX_TOKENS_HEAVY)")
-            return choice["message"]["content"]
+            return choice["message"]["content"] or ""
         except LLMTruncated:
             raise   # the router retries once with a larger limit; wrapping it would hide the cause
         except httpx.HTTPStatusError as exc:

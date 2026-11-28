@@ -7,6 +7,7 @@ call produces a JSON line that log aggregators (Loki, CloudWatch, Datadog) can p
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import sys
 
@@ -41,17 +42,37 @@ def redact_event(_logger, _method, event_dict):
     return {k: (v if k in _KEEP else _clean(v)) for k, v in event_dict.items()}
 
 
+def file_handler(formatter: logging.Formatter) -> "logging.Handler | None":
+    """Rotating log file under the state directory (a mounted host volume in docker-compose), so the log survives the
+    container being recreated: `docker logs` is stored inside the container and was lost with it (KAN-274 G13).
+    LOG_TO_FILE=0 turns it off; an unwritable directory is logged and skipped, never fatal."""
+    if os.getenv("LOG_TO_FILE", "1").strip().lower() in ("0", "false", "no", "off"):
+        return None
+    from aether_os.core.state_paths import state_dir
+    path = state_dir() / "logs" / "api.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            path, maxBytes=int(os.getenv("LOG_FILE_MAX_BYTES", str(20 * 1024 * 1024))),
+            backupCount=int(os.getenv("LOG_FILE_BACKUPS", "10")), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        logging.getLogger(__name__).warning("Persistent log file %s unavailable, logging to stdout only: %s", path, exc)
+        return None
+    handler.setFormatter(formatter)
+    return handler
+
+
 def configure_logging() -> None:
     """Configure structlog for JSON output in production, pretty output in dev."""
     try:
         import structlog  # type: ignore
     except ImportError:
         # Structlog not installed — fall back to standard logging gracefully.
-        logging.basicConfig(
-            level=_log_level(),
-            format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
-            stream=sys.stdout,
-        )
+        plain = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s %(message)s")
+        stream = logging.StreamHandler(sys.stdout)
+        stream.setFormatter(plain)
+        handlers = [h for h in (stream, file_handler(plain)) if h]
+        logging.basicConfig(level=_log_level(), handlers=handlers, force=True)
         return
 
     env = os.getenv("ENVIRONMENT", "development")
@@ -90,6 +111,9 @@ def configure_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
+    persistent = file_handler(formatter)
+    if persistent:
+        root_logger.addHandler(persistent)
     root_logger.setLevel(_log_level())
 
     # Quiet noisy third-party loggers

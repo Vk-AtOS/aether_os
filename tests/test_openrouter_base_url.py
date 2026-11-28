@@ -60,6 +60,7 @@ def _fake_post(monkeypatch, response_json, seen):
 
 def test_extra_body_is_merged_but_never_overrides_the_call(monkeypatch):
     seen = {}
+    monkeypatch.setenv("LLM_MAX_TOKENS_FLOOR", "1")   # the reasoning floor (KAN-259) would otherwise raise 512
     _fake_post(monkeypatch, {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}, seen)
     monkeypatch.setenv("OPENROUTER_EXTRA_BODY", '{"chat_template_kwargs": {"enable_thinking": false}, "max_tokens": 1}')
     asyncio.run(orc.call_openrouter("hi", model="m", max_tokens=512, api_key="k"))
@@ -78,6 +79,7 @@ def test_a_truncated_reply_is_an_error_not_an_answer(monkeypatch):
     # Regression (AWS testbed, 21 Nov 2026): a council verdict cut off mid-JSON was returned as the answer, the parse
     # failed, and strict mode rejected a request the model had approved.
     import pytest
+    monkeypatch.setenv("LLM_MAX_TOKENS_FLOOR", "1")
     _fake_post(monkeypatch, {"choices": [{"message": {"content": '{"passed": true, "sugg'}, "finish_reason": "length"}]}, {})
     with pytest.raises(RuntimeError, match="truncated at max_tokens=512"):
         asyncio.run(orc.call_openrouter("hi", model="m", max_tokens=512, api_key="k"))

@@ -147,6 +147,7 @@ class LLMClient:
         phase: Optional[str] = None,
         attempt: int = 1,
         temperature: float = 0.4,
+        refresh_cache: bool = False,
     ) -> str:
         """
         Call the LLM via the multi-model router. (FIX 22 with tracing)
@@ -237,6 +238,8 @@ class LLMClient:
                 plan=plan,
                 primary_provider=_provider_override,
             )
+            if refresh_cache and "refresh_cache" in _router_sig.parameters:
+                _router_kwargs["refresh_cache"] = True
             if "temperature" in _router_sig.parameters:
                 _router_kwargs["temperature"] = temperature
             raw_response, provider = await _router.call(**_router_kwargs)
@@ -374,14 +377,24 @@ class LLMClient:
         prompt: str,
         task_type: str = "code_generation",
         context: Optional[Dict[str, Any]] = None,
+        org_id: Optional[str] = None,
+        plan: Optional[str] = None,
+        run_id: Optional[str] = None,
+        phase: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Call LLM and parse JSON response. Raises LLMCallError after 3 failures."""
+        """Call LLM and parse JSON response. Raises LLMCallError after 3 failures.
+
+        org_id/plan/run_id/phase attribute the call (budget, trace). A retry bypasses and refreshes the semantic cache:
+        retrying the same prompt otherwise returned the same cached bad reply instantly, three times (KAN-261 G9).
+        """
         for attempt in range(1, 4):
             try:
                 raw = await self.call(
                     prompt + "\n\nReturn ONLY valid JSON, no markdown fences.",
                     task_type=task_type,
                     context=context,
+                    org_id=org_id, plan=plan, run_id=run_id, phase=phase,
+                    attempt=attempt, refresh_cache=attempt > 1,
                 )
                 result = safe_parse_json(raw)
                 if not result.get("parse_error"):

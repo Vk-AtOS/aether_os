@@ -20,7 +20,7 @@ import time
 import uuid
 from typing import Dict, Optional, Tuple
 
-from aether_os.core.llm.plans import PLAN_LIMITS
+from aether_os.core.llm.plans import PLAN_LIMITS, token_cap_for
 from aether_os.core.telemetry.metrics import BUDGET_ALERTS, observe_cost
 
 logger = logging.getLogger(__name__)
@@ -195,7 +195,7 @@ class TokenBudgetManager:
                 "cache_misses": 0, "runs": 0, "estimated_cost_usd": 0.0, "total_tokens": 0}
 
     async def check_budget(self, org_id: str, plan: str, projected_cost_usd: float = 0.0,
-                           cap_usd: Optional[float] = None) -> Tuple[bool, str, str]:
+                           cap_usd: Optional[float] = None, token_cap: Optional[int] = None) -> Tuple[bool, str, str]:
         """(allowed, reason, model hint). Both the token and the USD allowance are hard stops; the
         USD side counts this call's worst case (`projected_cost_usd`) so the cap is not overshot
         by a large request. An unknown plan is refused, not given the trial allowance."""
@@ -207,10 +207,17 @@ class TokenBudgetManager:
         cap = limit.usd if cap_usd is None else cap_usd
         spent = usage["estimated_cost_usd"] or 0.0
         usd_fraction = (spent + projected_cost_usd) / cap if cap > 0 else 1.0
-        fraction = max(usage["total_tokens"] / max(limit.tokens, 1), usd_fraction)
-        if fraction >= _BLOCK_THRESHOLD:
-            return False, (f"Monthly AI allowance exhausted (${spent:,.2f} of ${cap:,.2f}, "
-                           f"{usage['total_tokens']:,}/{limit.tokens:,} tokens)"), "none"
+        tokens_cap = token_cap_for(plan, token_cap)
+        token_fraction = usage["total_tokens"] / max(tokens_cap, 1)
+        fraction = max(token_fraction, usd_fraction)
+        # Say WHICH limit stopped the call: "$0.00 of $200.00" next to a token count read as a money problem (KAN-261).
+        if token_fraction >= _BLOCK_THRESHOLD:
+            return False, (f"Monthly AI TOKEN limit exhausted ({usage['total_tokens']:,} of {tokens_cap:,} tokens used; "
+                           f"cost so far ${spent:,.2f} of the ${cap:,.2f} spend cap, which is not the limit that was hit). "
+                           "Ask an admin to raise the organisation's token limit."), "none"
+        if usd_fraction >= _BLOCK_THRESHOLD:
+            return False, (f"Monthly AI SPEND limit exhausted (${spent:,.2f} of ${cap:,.2f}; "
+                           f"{usage['total_tokens']:,} of {tokens_cap:,} tokens used)"), "none"
         daily_cap = daily_cap_usd(cap)
         from aether_os.core.db import get_session_factory
         async with get_session_factory()() as session:      # unreadable usage raises: the cap fails closed

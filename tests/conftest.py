@@ -112,10 +112,10 @@ def _platform_llm_budget_bypassed(request, monkeypatch):
     from aether_os.core.llm.plans import PLATFORM_ORG
     real = budget.TokenBudgetManager.check_budget
 
-    async def check(self, org_id, plan, projected_cost_usd=0.0, cap_usd=None):
+    async def check(self, org_id, plan, projected_cost_usd=0.0, cap_usd=None, token_cap=None):
         if org_id == PLATFORM_ORG:
             return True, "ok", "sonnet"
-        return await real(self, org_id, plan, projected_cost_usd, cap_usd)
+        return await real(self, org_id, plan, projected_cost_usd, cap_usd, token_cap)
     monkeypatch.setattr(budget.TokenBudgetManager, "check_budget", check)
 
 
@@ -152,3 +152,16 @@ def _llm_provider_health_isolated():
     _clear()
     yield
     _clear()
+
+
+@pytest.fixture(autouse=True)
+def _ollama_probe_bypassed(request, monkeypatch):
+    """The router skips an Ollama chain entry that is not reachable or lacks the model (KAN-260). Tests that patch the
+    Ollama call have no server, so the probe passes unless a test opts in with @pytest.mark.ollama_probe."""
+    if request.node.get_closest_marker("ollama_probe"):
+        return
+    from aether_os.core import model_router
+
+    async def available(model):
+        return ""
+    monkeypatch.setattr(model_router, "ollama_model_unavailable", available)

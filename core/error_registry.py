@@ -3,6 +3,11 @@
 Records every failure category seen during code generation so we can track
 whether old categories re-emerge or new ones appear over time.
 
+This registry is OBSERVATIONAL. Nothing marks an entry fixed automatically (fix_applied is True only for entries
+written by mark_fixed), and the pipeline does not look up a stored fix to apply: entries feed prompts only as counts per
+category (prompt_compiler error-prevention hints, retrieval_ranker) and the p10 quality report. Each entry carries the run_id
+of the run that hit it (taken from the pipeline context when the caller does not pass one) so a failure can be traced.
+
 Data is persisted to ``core/error_registry.json`` as a JSON array.  The file
 is created automatically on first write if it does not exist.
 
@@ -31,6 +36,7 @@ from typing import Dict, List, Optional
 # caller needs it they can run it in an executor.
 _registry_lock = threading.Lock()
 
+from aether_os.core.run_context import ACTIVE_RUN_ID
 from aether_os.core.state_paths import state_file
 
 logger = logging.getLogger(__name__)
@@ -88,6 +94,8 @@ class ErrorRegistry:
             Optional pipeline run identifier.  Existing entries without this
             field have an implicit run_id of "" (backwards compatible).
         """
+        # Callers never passed run_id, so all 48 entries had "": take it from the running pipeline's context (KAN-274 G11).
+        run_id = run_id or ACTIVE_RUN_ID.get() or ""
         entry = {
             "category": category.value,
             "phase": phase,
