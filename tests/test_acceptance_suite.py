@@ -139,8 +139,23 @@ def test_forbidden_patterns_and_zip_slip(tmp_path):
         X.safe_extract(make_zip({"../evil.txt": "x"}), tmp_path / "d")
 
 
-def test_rulepacks_is_skipped_when_the_scanner_is_absent():
-    assert X.check_rulepacks(make_zip(CLEAN)).status in (C.SKIP, C.PASS, C.FAIL)   # SKIP on main until core/rulepacks lands
+def test_rulepacks_uses_scan_project_and_skips_when_absent(monkeypatch):
+    import types
+    for k in [k for k in sys.modules if k.startswith("aether_os.core.rulepacks")]:
+        monkeypatch.delitem(sys.modules, k)
+    monkeypatch.setitem(sys.modules, "aether_os.core.rulepacks", None)       # import fails: module absent
+    assert X.check_rulepacks(make_zip(CLEAN)).status == C.SKIP
+
+    class Rep:
+        def __init__(self, blocking): self.blocking = blocking
+        def to_json(self): return '{"findings": ["sql-injection"]}'
+    for blocking, want in ((True, C.FAIL), (False, C.PASS)):
+        mod = types.ModuleType("aether_os.core.rulepacks.report")
+        mod.scan_project = lambda path, public_routes=None, b=blocking: Rep(b)
+        monkeypatch.setitem(sys.modules, "aether_os.core.rulepacks", types.ModuleType("aether_os.core.rulepacks"))
+        monkeypatch.setitem(sys.modules, "aether_os.core.rulepacks.report", mod)
+        r = X.check_rulepacks(make_zip(CLEAN))
+        assert r.status == want and (want == C.PASS or "sql-injection" in r.reason)
 
 
 # ---- the whole flow with a fake platform ---------------------------------------------------------------------------

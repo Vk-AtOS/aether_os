@@ -6,7 +6,6 @@ name is proven to stay inside the target folder (the zip is untrusted data).
 from __future__ import annotations
 
 import fnmatch
-import importlib
 import io
 import re
 import shutil
@@ -112,22 +111,14 @@ def local_frontend_build(data: bytes, timeout: int = 900) -> Dict[str, Any]:
 
 
 def check_rulepacks(data: bytes) -> CheckResult:
-    """Zero blocking findings from core/rulepacks/report.py, when that module exists (it may not be on main yet)."""
-    for modname in ("aether_os.core.rulepacks.report", "core.rulepacks.report"):
-        try:
-            mod = importlib.import_module(modname)
-            break
-        except ImportError:
-            mod = None
-    if mod is None:
+    """Zero blocking findings from core/rulepacks/report.py scan_project, when that module exists (optional import)."""
+    try:
+        from aether_os.core.rulepacks.report import scan_project
+    except ImportError:
         return skip("rulepacks_zero_blocking", "core/rulepacks/report.py is not present in this checkout")
-    fn = next((getattr(mod, n) for n in ("scan_tree", "scan_directory", "scan", "run") if callable(getattr(mod, n, None))), None)
-    if fn is None:
-        return skip("rulepacks_zero_blocking", f"{mod.__name__} has no scan_tree/scan_directory/scan/run function this suite knows")
     with tempfile.TemporaryDirectory(prefix="accept-rp-") as tmp:
         safe_extract(data, Path(tmp))
-        res = fn(Path(tmp))
-    findings = res.get("findings", []) if isinstance(res, dict) else getattr(res, "findings", res)
-    blocking = [f for f in (findings or []) if (f.get("blocking") if isinstance(f, dict) else getattr(f, "blocking", False))]
-    return fail("rulepacks_zero_blocking", f"{len(blocking)} blocking finding(s): " + "; ".join(str(f)[:120] for f in blocking[:4])) \
-        if blocking else ok("rulepacks_zero_blocking", "0 blocking findings")
+        report = scan_project(Path(tmp), public_routes=None)
+    if report.blocking:
+        return fail("rulepacks_zero_blocking", "blocking findings: " + report.to_json()[:600])
+    return ok("rulepacks_zero_blocking", "0 blocking findings")
