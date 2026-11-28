@@ -20,7 +20,8 @@ from aether_os.core.rulepacks.base import Finding, Project, call_name, const_str
 from aether_os.core.rulepacks.prodready_code import NON_PROD_PATH, check_code, check_health
 from aether_os.core.rulepacks.pyroutes import collect_routes
 from aether_os.core.rulepacks.security_py import PLACEHOLDER
-from aether_os.core.rulepacks.security_web import EXAMPLE_ENV, KEY_FORMATS
+from aether_os.core.rulepacks.secret_patterns import KEY_FORMATS
+from aether_os.core.rulepacks.security_web import EXAMPLE_ENV
 
 logger = logging.getLogger(__name__)
 PACK = "prodready"
@@ -93,7 +94,7 @@ def check_env_example(p: Project, out: list[Finding]) -> None:
                 real = _entropy(value) > 3.5
             if real:
                 out.append(make(PACK, p, "PRD-006", "high", rel, i, f"{key} in {rel} looks like a real secret",
-                                "replace it with a placeholder such as change-me and rotate the real value"))
+                                "replace it with a placeholder such as change-me and rotate the real value", secret=value))
     missing = sorted(set(reads) - documented)
     if missing:
         out.append(make(PACK, p, "PRD-006", "medium", examples[0], 1,

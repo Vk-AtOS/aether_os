@@ -86,12 +86,12 @@ def _secrets(p: Project, rel: str, tree: ast.AST, out: list[Finding]) -> None:
                 continue
             if SIGNING_NAME.search(name) and not isinstance(n, ast.Dict):
                 out.append(make(PACK, p, "SEC-002", "high", rel, line, f"signing secret {name} has a literal value",
-                                "load it from the environment with no default; fail at startup if it is unset or weak"))
+                                "load it from the environment with no default; fail at startup if it is unset or weak", secret=lit))
             elif SECRET_NAME.search(name) and _looks_secret(lit):
                 # Seed dicts and call keywords are often demo data; assignments and defaults ship as config.
                 sev = "medium" if isinstance(n, (ast.Dict, ast.Call)) else "high"
                 out.append(make(PACK, p, "SEC-001", sev, rel, line, f"hard-coded credential in {name}",
-                                "move the value to an environment variable and document it in .env.example"))
+                                "move the value to an environment variable and document it in .env.example", secret=lit))
 
 
 def _resolve_local(fn: ast.AST | None, name: str, before: int) -> ast.AST | None:

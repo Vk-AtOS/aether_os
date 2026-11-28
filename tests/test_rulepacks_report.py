@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from aether_os.core.rulepacks import repair_prompt, scan_project
-from aether_os.core.rulepacks.base import Finding, Project
+from aether_os.core.rulepacks.base import Finding, Project, redact
 from aether_os.tests import rulepacks_fixtures as F
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -89,3 +89,19 @@ def test_symlinks_and_oversized_files_are_never_read(tmp_path):
     assert not [f for f in p.files if "linked" in f or "linkdir" in f or "huge" in f]
     assert p.text("backend/app/linked.py") == "" and p.text("../outside/leak.py") == ""
     assert scan_project(proj).findings == []
+
+
+def test_redaction_masks_the_detected_span_even_without_a_key_value_shape(tmp_path):
+    # The secret is not after '=' or ':' and sits mid-line, where the key=value heuristic alone would miss it.
+    over = {"backend/app/notes.py": f"# rotated {F.FAKE_AWS} last week; old url postgresql://app:s3cretpw@db/app\n",
+            "frontend/src/lib/k.ts": f"call({F.FAKE_STRIPE_LIVE}); // {'x' * 170}\n"}
+    r = scan_project(F.write_project(tmp_path, over), packs=("security",))
+    hits = [f for f in r.findings if f.rule_id == "SEC-001"]
+    assert {f.file for f in hits} == {"backend/app/notes.py", "frontend/src/lib/k.ts"}
+    dumped = r.to_json() + "".join(repair_prompt(r.findings, f) for f in r.files())
+    for raw in (F.FAKE_AWS, F.FAKE_AWS[4:], "s3cretpw", F.FAKE_STRIPE_LIVE, F.FAKE_STRIPE_LIVE[4:]):
+        assert raw not in dumped
+    # Fallback without the detector's span: every known credential shape is still masked.
+    for line in (f"// {F.FAKE_AWS}", f"{F.FAKE_STRIPE_LIVE} = key", "see https://u:hunter2pw@host/x"):
+        out = redact(line)
+        assert F.FAKE_AWS not in out and F.FAKE_STRIPE_LIVE[4:] not in out and "hunter2pw" not in out, out

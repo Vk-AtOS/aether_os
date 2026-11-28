@@ -15,25 +15,12 @@ import re
 
 from aether_os.core.rulepacks.base import Finding, Project, is_test_path, line_of, make
 from aether_os.core.rulepacks.jsx import iter_tags, strip_comments
+from aether_os.core.rulepacks.secret_patterns import CRED_URL, KEY_FORMATS, PRIVATE_KEY
 from aether_os.core.rulepacks.security_py import PLACEHOLDER
 
 logger = logging.getLogger(__name__)
 PACK = "security"
 
-# (pattern, label, severity). Shapes of real provider credentials; test-mode keys are lower severity.
-KEY_FORMATS = (
-    (re.compile(r"(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])"), "AWS access key id", "critical"),
-    (re.compile(r"\b[rs]k_live_[0-9a-zA-Z]{16,}"), "Stripe live key", "critical"),
-    (re.compile(r"\bsk_test_[0-9a-zA-Z]{16,}"), "Stripe test key", "medium"),
-    (re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "Google API key", "high"),
-    (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})"), "GitHub token", "critical"),
-    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"), "Slack token", "high"),
-    (re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}"), "Anthropic API key", "critical"),
-    (re.compile(r"\bsk-(?!ant-)(?:proj-)?[A-Za-z0-9_\-]{32,}"), "OpenAI-style API key", "critical"),
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "JWT literal", "medium"),
-)
-CRED_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://([^/\s:@'\"]+):([^/\s:@'\"]+)@")
-PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----")
 EXAMPLE_ENV = re.compile(r"\.env\.(?:example|sample|template|dist|defaults)$|\.example$")
 SKIP_SECRET_SCAN = re.compile(r"(?:^|/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock)$|\.md$")
 
@@ -44,19 +31,21 @@ def _secret_formats(p: Project, out: list[Finding]) -> None:
             continue
         text = p.text(rel)
         if PRIVATE_KEY.search(text):
-            out.append(make(PACK, p, "SEC-003", "critical", rel, line_of(text, PRIVATE_KEY.search(text).start()),
-                            "private key committed in the project", "delete the file, rotate the key, mount it at runtime as a secret"))
+            pk = PRIVATE_KEY.search(text)
+            out.append(make(PACK, p, "SEC-003", "critical", rel, line_of(text, pk.start()),
+                            "private key committed in the project", "delete the file, rotate the key, mount it at runtime as a secret",
+                            secret=pk.group(0)))
         for rx, label, sev in KEY_FORMATS:
             for m in rx.finditer(text):
                 out.append(make(PACK, p, "SEC-001", sev, rel, line_of(text, m.start()), f"{label} in source",
-                                "revoke it, then read the value from an environment variable"))
+                                "revoke it, then read the value from an environment variable", secret=m.group(0)))
         for m in CRED_URL.finditer(text):
             pw = m.group(2)
             if pw.startswith(("$", "{", "<", "%")) or PLACEHOLDER.search(pw):
                 continue
             out.append(make(PACK, p, "SEC-001", "medium", rel, line_of(text, m.start()),
                             f"credentials embedded in a connection URL (user {m.group(1)})",
-                            "build the URL from environment variables; keep only placeholders in .env.example"))
+                            "build the URL from environment variables; keep only placeholders in .env.example", secret=pw))
 
 
 def _frontend(p: Project, out: list[Finding]) -> None:

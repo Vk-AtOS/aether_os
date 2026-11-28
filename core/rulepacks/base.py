@@ -13,6 +13,8 @@ import stat
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from aether_os.core.rulepacks.secret_patterns import CRED_URL, KEY_FORMATS, PRIVATE_KEY
+
 logger = logging.getLogger(__name__)
 
 SEVERITIES = ("info", "low", "medium", "high", "critical")
@@ -43,8 +45,19 @@ SECRET_RULES = {"SEC-001", "SEC-002", "SEC-003", "SEC-021", "PRD-006"}
 _VALUE_START = re.compile(r"""[=:]\s*['"`]?|['"`]""")
 
 
-def redact(line: str) -> str:
-    """Keep the key name and the first 4 characters of the value, then '***'."""
+def _mask(m: re.Match) -> str:
+    return m.group(0)[:4] + "***"
+
+
+def redact(line: str, secret: str | None = None) -> str:
+    """Mask the credential in a line: first the exact span the detector matched, then every known credential
+    shape (so a value the detector did not report is masked too), and last the key=value heuristic, which keeps
+    the key name and the first 4 characters of the value."""
+    if secret and len(secret) >= 4:
+        line = line.replace(secret, secret[:4] + "***")
+    for rx in [r for r, _, _ in KEY_FORMATS] + [PRIVATE_KEY]:
+        line = rx.sub(_mask, line)
+    line = CRED_URL.sub(lambda m: m.group(0).replace(":" + m.group(2) + "@", ":" + m.group(2)[:2] + "***@"), line)
     m = _VALUE_START.search(line)
     head, rest = (line[:m.end()], line[m.end():]) if m else ("", line)
     return f"{head}{rest[:4]}***" if rest else head + "***"
@@ -146,16 +159,20 @@ class Project:
         rx = re.compile(pattern)
         return [f for f in self.files if rx.search(f.rsplit("/", 1)[-1])]
 
-    def line(self, rel: str, lineno: int) -> str:
+    def line(self, rel: str, lineno: int, limit: int | None = 160) -> str:
         lines = self.text(rel).splitlines()
-        return lines[lineno - 1].strip()[:160] if 0 < lineno <= len(lines) else ""
+        return lines[lineno - 1].strip()[:limit] if 0 < lineno <= len(lines) else ""
 
 
 def make(pack: str, project: Project | None, rule_id: str, severity: str, rel: str, line: int, message: str,
-         fix_hint: str) -> Finding:
-    snippet = project.line(rel, line) if project is not None and line else ""
-    if snippet and rule_id in SECRET_RULES:
-        snippet = redact(snippet)
+         fix_hint: str, secret: str | None = None) -> Finding:
+    """secret: the exact value the detector matched; it is masked in the snippet (and anything credential-shaped
+    is masked for every secret-class rule) before the Finding exists."""
+    secret_class = rule_id in SECRET_RULES or secret is not None
+    # Redact the whole line before truncating, so a secret cut at the 160-char edge is not left half visible.
+    snippet = project.line(rel, line, None if secret_class else 160) if project is not None and line else ""
+    if snippet and secret_class:
+        snippet = redact(snippet, secret)[:160]
     return Finding(rule_id, pack, severity, rel, line, message, fix_hint, snippet)
 
 
