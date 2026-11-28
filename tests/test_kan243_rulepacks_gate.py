@@ -42,8 +42,8 @@ def _gate(ws, tmp_path, repair=_no_repair, routes=None):
 
 
 def test_tracker_template_set_has_no_blocking_finding(ws, tmp_path):
-    # Before KAN-243 the templates shipped 3: the demo seed ran at every production start (PRD-013), Alembic had no
-    # revision so `alembic upgrade head` created nothing (PRD-003), and the platform never declared POST /auth/logout
+    # Before KAN-243/KAN-267 the templates shipped 3: the demo seed ran at every production start (PRD-013), Alembic had
+    # no revision so `alembic upgrade head` created nothing (PRD-003), and the platform never declared POST /auth/logout
     # public (SEC-007).
     res = _gate(ws, tmp_path)
     blocking = [f for pack in res.report["findings"].values() for f in pack if f["severity"] in ("high", "critical")]

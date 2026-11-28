@@ -2,9 +2,11 @@
 backend (p04a) in p04_backend/backend_codegen and its frontend (p05) in frontend/. Shared by the rule-pack tests."""
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 
+from aether_os.phases.p04a_backend_codegen.templates_alembic import generate_initial_migration
 from aether_os.tests.test_p04a_generated_backend import generate
 from aether_os.tests.test_p05_template_typecheck import _generate
 
@@ -30,6 +32,10 @@ def build_tracker_workspace(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("ENVIRONMENT", "test")
     (tmp_path / "be").mkdir(parents=True, exist_ok=True)
     _, backend = generate(tmp_path / "be", domain="saas", monkeypatch=monkeypatch, ir_override=TRACKER_IR)
+    # p04a writes the initial migration in its sandboxed smoke step, which generate() stubs: run that step here, locally.
+    monkeypatch.setenv("AETHER_SANDBOX", "none")
+    monkeypatch.setenv("AETHER_SANDBOX_ALLOW_NONE", "1")
+    asyncio.run(generate_initial_migration(backend))
     frontend = _generate(tmp_path / "fe", monkeypatch, "tracker", "ir")
     ws = tmp_path / "ws"
     shutil.copytree(backend, ws / "p04_backend" / "backend_codegen")
