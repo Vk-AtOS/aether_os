@@ -73,7 +73,7 @@ async def _call_anthropic(
     `api_key`: the caller's key for this call; when omitted it is looked up for
     the org in the current context (falling back to the platform key).
     """
-    from core.config.loader import get_config
+    from aether_os.core.config.loader import get_config
     from aether_os.core.llm.model_registry import _select_model
     from aether_os.core.llm.token_counter import _cost_registry
 
@@ -177,7 +177,7 @@ async def _call_gemini(
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not configured for this org or system.")
 
-    from core.config.loader import get_config
+    from aether_os.core.config.loader import get_config
     from aether_os.core.llm.model_registry import _select_gemini_model
     from aether_os.core.llm.token_counter import _cost_registry
 
@@ -230,7 +230,7 @@ async def _call_gemini(
 async def _call_ollama_with_model(prompt: str, task_type: str, model: str) -> str:
     """Call Ollama via HTTP with a specific model. Streams tokens when a run is active."""
     import httpx  # type: ignore
-    from core.config.loader import get_config
+    from aether_os.core.config.loader import get_config
     cfg = get_config()
     base_url = cfg.get("llm.ollama_base_url", "http://localhost:11434")
     timeout = cfg.get("llm.timeout_seconds", 120)

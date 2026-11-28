@@ -34,7 +34,7 @@ def _select_model(task_type: str) -> str:
     (e.g. 'minimax/minimax-m2.5:free').  Fall back to env vars so the .env
     overrides take effect without requiring a config file.
     """
-    from core.config.loader import get_config
+    from aether_os.core.config.loader import get_config
     cfg = get_config()
     # Env-var overrides mirror Claude Code's settings.local.json naming
     if task_type in _LIGHT_TASKS:

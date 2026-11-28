@@ -194,7 +194,7 @@ class BackendStageSupervisor(PhaseBase):
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
         """Gate fails if backend_output_path is missing or core files are absent."""
-        from stages.s03_backend.helpers import validate_backend_output
+        from aether_os.stages.s03_backend.helpers import validate_backend_output
 
         backend_path = (result.metadata or {}).get("backend_output_path", "")
 
