@@ -16,6 +16,7 @@ import logging
 import re as _re_art
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
+from aether_os.core.project_export import ExportError, build_export_zip
 from aether_os.core.run_app import safe_fs
 from aether_os.gateway.dependencies import get_current_user
 from aether_os.core.audit.ledger import get_ledger
@@ -31,9 +32,7 @@ from sqlalchemy import select
 from types import SimpleNamespace
 import asyncio
 import asyncio as _aio
-import io
 import subprocess as _sp
-import zipfile
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 # ── Auth helper ────────────────────────────────────────────────────────────────
@@ -196,35 +195,12 @@ async def download_run_zip(
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project files not found")
-    _SKIP = {
-        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-        "node_modules", ".git", ".venv", "venv", ".aetheros",
-    }
-    _ALLOW_HIDDEN = {
-        ".env.example", ".gitignore", ".dockerignore", ".eslintrc",
-        ".prettierrc", ".editorconfig", ".nvmrc",
-    }
-    _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel in safe_fs.walk_files(project_dir, skip_dirs=_SKIP):
-            fpath = project_dir / rel
-            if rel.name == "run_preview.py":
-                continue
-            parts = rel.parts
-            if any(p in _SKIP for p in parts):
-                continue
-            if any(p.startswith(".") for p in parts):
-                if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
-                    continue
-            if fpath.suffix in {".pyc", ".pyo", ".db", ".db-shm", ".db-wal", ".log"}:
-                continue
-            data = safe_fs.read_bytes_or_none(project_dir, rel, max_bytes=5 * 1024 * 1024)
-            if data is None:   # link, special file, vanished or over 5 MB: left out
-                continue
-            zf.writestr(str(rel), data)
-    buf.seek(0)
     name = (run.project_name or run_id).replace(" ", "_")
+    # The clean export (KAN-268): backend/ frontend/ compose, CI, README, manifest; no keys, .env, stage folders.
+    try:
+        buf, _manifest = await _aio.to_thread(build_export_zip, project_dir, name)
+    except ExportError as e:
+        raise HTTPException(status_code=422, detail={"message": str(e), "findings": [str(f) for f in e.findings]}) from e
     return StreamingResponse(
         buf,
         media_type="application/zip",
