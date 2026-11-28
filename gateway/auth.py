@@ -47,7 +47,7 @@ def _load_rsa_keys() -> Tuple[Any, Any, str]:
     Tries three sources in order:
       1. AETHER_JWT_PRIVATE_KEY_B64 / AETHER_JWT_PUBLIC_KEY_B64 (base64-encoded PEM in env)
       2. AETHER_JWT_PRIVATE_KEY_PATH / AETHER_JWT_PUBLIC_KEY_PATH (PEM file paths)
-      3. AETHER_SECRET_KEY (HS256 symmetric — CI/test environments only)
+      3. AETHER_SECRET_KEY (HS256 symmetric — CI/test only; refused when ENVIRONMENT=production)
 
     Raises RuntimeError if none of the above are configured.
     """
@@ -84,6 +84,15 @@ def _load_rsa_keys() -> Tuple[Any, Any, str]:
                 f"JWT: AETHER_JWT_PRIVATE_KEY_PATH / AETHER_JWT_PUBLIC_KEY_PATH are set but "
                 f"could not be loaded: {exc}. Check file permissions and PEM format."
             ) from exc
+
+    # Production never signs with a shared HS256 secret. Compose passes the RS256 vars as empty strings when .env lacks
+    # them, which used to fall through to HS256 silently (KAN-272); refuse to start instead.
+    if os.environ.get("ENVIRONMENT", "").strip().lower() == "production":
+        raise RuntimeError(
+            "JWT: ENVIRONMENT=production requires RS256 keys, but AETHER_JWT_PRIVATE_KEY_B64 / "
+            "AETHER_JWT_PUBLIC_KEY_B64 (or the *_PATH pair) are empty or missing. HS256 is not allowed in production. "
+            "Generate them once with deploy/scripts/gen_jwt_keys.sh (appends to .env), then restart."
+        )
 
     # Priority 3: HS256 symmetric secret — acceptable for CI/testing, not production
     hs_secret = os.environ.get("AETHER_SECRET_KEY", "")
