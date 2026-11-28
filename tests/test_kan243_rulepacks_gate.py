@@ -132,8 +132,13 @@ def test_s11_gate_fails_when_the_rule_packs_block():
     assert not blocked.passed and "SEC-007 in backend/src/routers/x.py" in blocked.issues[0]
 
 
-def test_s11_gate_keeps_its_own_decision_when_the_rule_packs_pass():
-    assert _s11_gate({"rulepacks": {"blocking_reason": None, "passed": True}}).passed
+def test_s11_gate_keeps_its_own_decision_when_the_rule_packs_pass(tmp_path):
+    for name in ("export_manifest.json", "quality_report.json"):    # what s11's own gate (KAN-247) requires
+        (tmp_path / name).write_text("{}")
+    own = {"export_manifest_path": str(tmp_path / "export_manifest.json"),
+           "quality_report_path": str(tmp_path / "quality_report.json")}
+    assert _s11_gate({**own, "rulepacks": {"blocking_reason": None, "passed": True}}).passed
+    assert not _s11_gate({"rulepacks": {"blocking_reason": None, "passed": True}}).passed   # its own refusal stays
 
 
 def test_s11_runs_the_gate_and_records_it(ws, tmp_path):
