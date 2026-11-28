@@ -18,4 +18,7 @@ RUN pip install --no-cache-dir \
       "fastapi>=0.110" "uvicorn[standard]>=0.29" "sqlalchemy[asyncio]>=2" aiosqlite httpx alembic \
       pydantic pydantic-settings email-validator python-multipart \
       "pyjwt[crypto]" passlib bcrypt pytest pytest-asyncio pytest-timeout
+# Vetted common third-party imports of generated apps: a floor for when the per-run requirements install cannot run
+# (core/sandbox/app_env.py installs the app's own requirements.txt on top, over the install egress network).
+RUN pip install --no-cache-dir stripe boto3 requests python-dotenv redis pyyaml
 USER 10001:10001
