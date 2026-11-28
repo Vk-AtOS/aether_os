@@ -20,6 +20,7 @@ Behaviour is controlled by two env vars:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -27,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from aether_os.core.api_key_store import get_api_key
 from aether_os.core.llm._org_context import _current_org_id
+from aether_os.core.council.delivery_evidence import build_delivery_evidence
 from aether_os.core.llm.json_enforcer import extract_first_json
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,7 @@ Project: {project_name}
 Domain: {domain}
 Phases completed: {phases_completed}
 Phase results summary: {phases_summary}
+Evidence (failed checks, test counts, probe verdict, security findings): {evidence}
 
 Evaluate on these criteria:
 1. completeness — did all required phases complete successfully?
@@ -85,7 +88,8 @@ Return ONLY valid JSON (no markdown, no fences):
 }}
 
 criteria_failures must list only the criterion names (from the list above) that failed.
-Pass if score >= 0.5 and no critical phase failures.
+Pass if score >= 0.5 and no critical phase failures. A failed s07 probe, failing tests or a blocking security
+finding in the evidence is a critical failure.
 """
 
 _PASS_RESULT: Dict[str, Any] = {
@@ -97,10 +101,21 @@ _PASS_RESULT: Dict[str, Any] = {
 
 _ERROR_RESULT: Dict[str, Any] = {
     "passed": False,
+    "status": "needs_review",
     "score": 0.0,
     "reason": "Council evaluation failed (LLM error) — manual review recommended",
     "suggestions": ["Review pipeline output manually before delivery"],
 }
+
+
+_COUNCIL_TIMEOUT_S = 90.0   # below the caller's 120s wait_for
+
+
+def _unavailable_result(reason: str) -> Dict[str, Any]:
+    """A council that could not judge is never a pass: needs_review, with the reason (KAN-275)."""
+    result = _ERROR_RESULT.copy()
+    result.update({"status": "needs_review", "reason": f"Council could not review the delivery ({reason}) — manual review required"})
+    return result
 
 
 def _is_enabled() -> bool:
@@ -503,6 +518,7 @@ class DeliveryCouncil:
         domain: str,
         phases_results: Dict[str, Any],
         org_id: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if not _is_enabled():
             return _PASS_RESULT.copy()
@@ -523,15 +539,18 @@ class DeliveryCouncil:
             domain=domain,
             phases_completed=len(completed),
             phases_summary=summary[:8000],
+            evidence=build_delivery_evidence(phases_results, context),
         )
         try:
-            raw = await client.call(
+            # The council times itself out (shorter than the caller's 120s) so a hang is a needs_review verdict from
+            # here, not a TimeoutError the caller records as a completed run (KAN-275).
+            raw = await asyncio.wait_for(client.call(
                 prompt,
                 task_type="classify",
                 system=_COUNCIL_SYSTEM,
                 max_tokens=512,
                 org_id=org_id,
-            )
+            ), timeout=_COUNCIL_TIMEOUT_S)
             result = _parse_council_response(raw)
             logger.info(
                 "DeliveryCouncil: passed=%s score=%.2f reason=%s",
@@ -540,6 +559,9 @@ class DeliveryCouncil:
                 result.get("reason", ""),
             )
             return result
+        except asyncio.TimeoutError:
+            logger.warning("DeliveryCouncil: LLM call timed out after %ss", _COUNCIL_TIMEOUT_S)
+            return _unavailable_result(f"council timed out after {_COUNCIL_TIMEOUT_S:.0f}s")
         except Exception as exc:
             logger.warning("DeliveryCouncil: LLM call failed — %s", exc)
-            return _ERROR_RESULT.copy()
+            return _unavailable_result(f"council LLM error: {type(exc).__name__}")
