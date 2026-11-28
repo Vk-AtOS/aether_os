@@ -7,7 +7,6 @@ These checkers are imported by Z3Encoder.verify_all() in z3_encoder.py.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)

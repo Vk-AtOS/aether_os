@@ -227,14 +227,12 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # ── Z3 availability check ─────────────────────────────────────────────────
     z3_available = False
     z3_version = "unavailable"
-    partial_reason = ""
     try:
         import z3  # noqa: PLC0415
         z3_available = True
         z3_version = z3.get_version_string()
     except ImportError as exc:
-        partial_reason = f"z3-solver not installed: {exc}"
-        logger.warning("[p06b] Z3 unavailable — returning PARTIAL: %s", exc)
+        logger.warning("[p06b] Z3 unavailable: static checks still run, the permission proof falls back to enumeration: %s", exc)
 
     if project_dir is None or not project_dir.is_dir():
         # Best-effort: scan output_dir itself (e.g., if called standalone)
