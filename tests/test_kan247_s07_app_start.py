@@ -169,3 +169,41 @@ def test_s07_gate_passes_but_discloses_live_tests_that_did_not_run(monkeypatch, 
 
 def test_s07_does_not_retry_its_whole_repair_loop():
     assert s07.HealingStageSupervisor.max_retries == 1
+
+
+# ── the probe never follows the generated app's redirects off the app (SSRF) ──
+
+def _send_via(handler, url="http://app:8000/api/tasks"):
+    import httpx
+    return asyncio.run(rv.httpx_sender("GET", url, None, {"Authorization": "Bearer t"},
+                                       transport=httpx.MockTransport(handler)))
+
+
+def test_probe_follows_only_same_origin_redirects():
+    import httpx
+    hosts = []
+
+    def handler(req):
+        hosts.append(str(req.url))
+        if req.url.path == "/api/tasks":
+            return httpx.Response(307, headers={"location": "/api/tasks/"})
+        return httpx.Response(200, json=[])
+    assert _send_via(handler)[0] == 200
+    assert hosts == ["http://app:8000/api/tasks", "http://app:8000/api/tasks/"]
+
+
+def test_probe_does_not_follow_a_redirect_to_another_host():
+    import httpx
+    hosts = []
+
+    def handler(req):
+        hosts.append(req.url.host)
+        return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
+    assert _send_via(handler)[0] == 302
+    assert hosts == ["app"]                          # the metadata address was never requested
+    hosts.clear()
+
+    def other_port(req):
+        hosts.append(f"{req.url.host}:{req.url.port}")
+        return httpx.Response(307, headers={"location": "http://app:9999/x"})
+    assert _send_via(other_port)[0] == 307 and hosts == ["app:8000"]

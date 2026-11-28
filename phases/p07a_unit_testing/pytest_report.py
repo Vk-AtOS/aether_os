@@ -36,13 +36,13 @@ def first_error(text: str) -> str:
     return (tail[-1] if tail else "no output")[:300]
 
 
-_MAX_REPORT = 5_000_000
+MAX_REPORT = 5_000_000  # callers read at most this many bytes (safe_fs.read_text_or_none)
 
 
 def _from_junit(xml_text: str) -> Optional[Dict[str, Any]]:
     # Generated code runs in the same run dir and could rewrite the report: pytest never writes a DTD, so one (the
     # carrier of entity-expansion and external-entity attacks) or an oversized file means "do not trust it".
-    if len(xml_text) > _MAX_REPORT or "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
+    if len(xml_text) > MAX_REPORT or "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
         logger.warning("[p07a] junit report refused (DTD or oversized); reading the pytest output instead")
         return None
     try:

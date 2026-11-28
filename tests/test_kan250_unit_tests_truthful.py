@@ -133,3 +133,44 @@ def test_first_error_prefers_the_named_exception():
     text = "E   in <module>\nE   NameError: name 'schemas' is not defined\n"
     assert pytest_report.first_error(text) == "NameError: name 'schemas' is not defined"
     assert re.match(r"no output", pytest_report.first_error(""))
+
+
+# ── the report lives in a sandbox-writable dir: no link following, bounded read ──
+
+def _run_with_planted_report(monkeypatch, tmp_path, plant):
+    src = _project(tmp_path)
+
+    async def run(argv, *, cwd, project=None, env=None, timeout=None, network=False, text=False):
+        if "-c" in argv:
+            return subprocess.CompletedProcess(argv, 0, "IMPORT_OK", "")
+        plant(Path(next(a.split("=", 1)[1] for a in argv if a.startswith("--junitxml="))))
+        return subprocess.CompletedProcess(argv, 0, "collected 1 item\n1 passed", "")
+    monkeypatch.setattr(p07a.phase_exec, "run", run)
+    pi = SimpleNamespace(input_data={"canonical_src_dir": str(src), "entities": []})
+    return asyncio.run(p07a.run(pi, [], tmp_path / "out"))
+
+
+def test_a_junit_symlink_to_a_host_file_is_not_read(monkeypatch, tmp_path):
+    host = tmp_path / "host_secret.xml"
+    host.write_text('<testsuite><testcase name="a"/><testcase name="b"/><testcase name="c"/></testsuite>')
+    res = _run_with_planted_report(monkeypatch, tmp_path, lambda j: j.symlink_to(host))
+    assert res.metadata["passed"] == 1          # from the pytest output, not the 3 tests of the linked file
+
+
+def test_an_oversized_junit_report_is_not_read(monkeypatch, tmp_path, caplog):
+    big = '<testsuite>' + '<testcase name="t"/>' * (pytest_report.MAX_REPORT // 20 + 10) + '</testsuite>'
+    res = _run_with_planted_report(monkeypatch, tmp_path, lambda j: j.write_text(big))
+    assert res.metadata["passed"] == 1 and "larger than" in caplog.text
+
+
+def test_summary_write_does_not_follow_a_planted_link(monkeypatch, tmp_path):
+    host = tmp_path / "host_file"
+    host.write_text("keep")
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "pytest_output.txt").symlink_to(host)
+    import pytest
+
+    from aether_os.core.errors import SandboxViolation
+    with pytest.raises(SandboxViolation):         # refused: s06 then reports the unit layer as failed
+        _run_with_planted_report(monkeypatch, tmp_path, lambda j: None)
+    assert host.read_text() == "keep"

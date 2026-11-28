@@ -42,6 +42,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.run_app import safe_fs
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 from aether_os.stages.s07_healing.run_verdict import decide, httpx_sender, probe_endpoints
 
@@ -156,7 +157,8 @@ async def _probe_only(phase_input: Any, output_dir: Path, live_hook) -> Dict[str
     names = [e.get("name", "") if isinstance(e, dict) else str(e) for e in raw or [] if e]
     probe = await heal._quality_probe(project_dir, names, output_dir, live_hook)
     meta = {"success": True, "attempts": 0, "status": "probe_only_after_static_gate", "quality_probe": probe}
-    (output_dir / "self_healing.json").write_text(json.dumps(meta, indent=2, default=str))
+    # The probe app ran in this run dir: never follow a link it may have planted.
+    safe_fs.safe_write_text(output_dir, output_dir / "self_healing.json", json.dumps(meta, indent=2, default=str))
     return meta
 
 

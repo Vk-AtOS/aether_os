@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urljoin, urlsplit
 
 from aether_os.core.codegen.entities import normalise_entities
 
@@ -33,13 +34,36 @@ LIVE_LAYERS = {
 _PROBE_EMAIL = "s07-probe@example.com"
 
 
+_MAX_REDIRECTS = 3
+
+
+def _same_origin(a: str, b: str) -> bool:
+    ua, ub = urlsplit(a), urlsplit(b)
+    return (ua.scheme, ua.hostname, ua.port) == (ub.scheme, ub.hostname, ub.port)
+
+
 async def httpx_sender(method: str, url: str, body: Optional[Any] = None,
-                       headers: Optional[Dict[str, str]] = None) -> Tuple[int, Any]:
-    """The real sender: one HTTP request with httpx, following the /api/x -> /api/x/ redirect."""
+                       headers: Optional[Dict[str, str]] = None, transport: Any = None) -> Tuple[int, Any]:
+    """The real sender: one HTTP request with httpx.
+
+    Redirects are followed by hand and only to the probed app itself (same scheme, host and port), for the
+    /api/x -> /api/x/ 307 the backend sends. The app is generated code: httpx's follow_redirects would let it send
+    the platform's probe (with its bearer token) to any host, e.g. a cloud metadata address. Any other redirect is
+    returned as the 3xx response.
+    """
     import httpx
 
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False, transport=transport) as client:
         resp = await client.request(method, url, json=body, headers=headers or {})
+        for _ in range(_MAX_REDIRECTS):
+            location = resp.headers.get("location")
+            if not (resp.is_redirect and location):
+                break
+            target = urljoin(str(resp.request.url), location)
+            if not _same_origin(target, url):
+                logger.warning("[s07] probe not following a redirect off the app: %s -> %s", url, target)
+                break
+            resp = await client.request(method, target, json=body, headers=headers or {})
     try:
         return resp.status_code, resp.json()
     except ValueError:

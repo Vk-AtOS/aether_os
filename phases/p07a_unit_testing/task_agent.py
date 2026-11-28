@@ -11,6 +11,7 @@ from aether_os.core.codegen.entities import entity_from_label as _entity_from_la
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p07a_unit_testing import pytest_report
 from aether_os.phases.p07a_unit_testing.crud_repair import repair_crud
+from aether_os.core.run_app import safe_fs
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
@@ -411,7 +412,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         **test_results,
         "exec_validation": exec_result,
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    safe_fs.safe_write_text(output_dir, output_dir / "summary.json", json.dumps(summary, indent=2))
 
     ran = test_results["passed"] + test_results["failed"]
     return TaskResult(
@@ -449,9 +450,11 @@ async def _run_pytest(test_file: Path, run_dir: Path, output_dir: Path) -> dict:
         logger.warning("[p07a] pytest run failed: %s", exc)
         return {"collection_error": f"pytest did not run: {exc}", "errors": [str(exc)]}
     output_text = done.stdout + done.stderr
-    (output_dir / "pytest_output.txt").write_text(output_text)
+    # output_dir is writable by the sandboxed tests: never follow a link they planted (host file read/write) and
+    # never read an unbounded file. A refused report is treated as missing (the output summary is parsed instead).
+    safe_fs.safe_write_text(output_dir, output_dir / "pytest_output.txt", output_text)
     report = pytest_report.parse_run(done.returncode, output_text,
-                                     junit.read_text(errors="replace") if junit.exists() else None)
+                                     safe_fs.read_text_or_none(output_dir, junit, max_bytes=pytest_report.MAX_REPORT))
     if done.returncode not in (0, 1):
         errors.append(output_text[-500:])
     logger.info("[p07a] pytest done: %s passed, %s failed, collection error: %s",
