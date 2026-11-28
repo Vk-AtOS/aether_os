@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,9 +41,11 @@ from aether_os.core.model_router_providers import (
     FALLBACK_CHAIN,  # noqa: F401
 )
 from aether_os.core.api_key_store import get_api_key
+from aether_os.core.llm.provider_probe import ollama_model_unavailable
+from aether_os.core.model_router_usage import record_billing
 from aether_os.core.llm._org_context import _current_org_id
 from aether_os.core.llm.ahm import default_ahm as _ahm
-from aether_os.core.run_context import ACTIVE_PHASE, ACTIVE_RUN_ID, ACTIVE_ORG_ID
+from aether_os.core.run_context import ACTIVE_PHASE, ACTIVE_RUN_ID
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,7 @@ class ModelRouter:
         plan: Optional[str] = None,
         primary_provider: Optional[str] = None,
         data_level: Optional[str] = None,
+        refresh_cache: bool = False,
     ) -> Tuple[str, str]:
         """
         Execute the fallback chain and return (text, provider).
@@ -162,7 +164,7 @@ class ModelRouter:
         plan = admission.plan
 
         # ── 1. Semantic cache check ───────────────────────────────────────────
-        if not enforce_local:
+        if not enforce_local and not refresh_cache:   # refresh: the caller found the cached reply unusable (KAN-261 G9)
             try:
                 from aether_os.core.llm.cache import get_llm_cache
                 _llm_cache = get_llm_cache()
@@ -206,6 +208,7 @@ class ModelRouter:
                 trace_name = f"llm_{task_type}"
 
         errors: List[str] = []
+        skipped: List[str] = []   # chain entries never attempted, with the reason (KAN-260)
         models_tried = 0
 
         chain = tiered_chain(get_fallback_chain(), task_type)
@@ -275,12 +278,21 @@ class ModelRouter:
             _api_key = await _provider_key(spec.provider, org_id)
             if not _api_key and not _is_provider_configured(spec):
                 logger.debug("Router: skipping %s — not configured", spec.provider)
+                skipped.append(f"{spec.provider}/{spec.model}: skipped, not configured (no key or credentials)")
                 continue
             _scope = await _breaker_scope(spec.provider, org_id, _api_key)
             if _is_provider_dead(spec.provider, spec.model, _scope):
                 logger.debug("Router: skipping %s/%s — circuit-breaker open (scope=%s)",
                              spec.provider, spec.model, _scope[:8] or "platform")
+                skipped.append(f"{spec.provider}/{spec.model}: skipped, circuit breaker open after earlier failures")
                 continue
+            if spec.provider == "ollama":
+                # "Configured" is always true for Ollama; probe it so a server without Ollama never lists it as tried.
+                _unavailable = await ollama_model_unavailable(spec.model)
+                if _unavailable:
+                    logger.info("Router: skipping ollama/%s — %s", spec.model, _unavailable)
+                    skipped.append(f"ollama/{spec.model}: skipped, {_unavailable}")
+                    continue
 
             # Every model after the first one is a fallback
             if models_tried > 0:
@@ -332,17 +344,6 @@ class ModelRouter:
                         spec.provider, spec.model,
                         attempt + 1, spec.retry_count, task_type,
                     )
-                    # Store in semantic cache (background, non-blocking)
-                    if not enforce_local:
-                        try:
-                            from aether_os.core.llm.cache import get_llm_cache
-                            _ct = asyncio.create_task(
-                                get_llm_cache().set(prompt, task_type, result, system, org_id=org_id)
-                            )
-                            _background_tasks.add(_ct)
-                            _ct.add_done_callback(_background_tasks.discard)
-                        except Exception as exc:
-                            logger.debug("LLM semantic cache set failed (non-fatal): %s", exc)
                     # Record token usage for budget tracking (approximate)
                     _est_input = len(_active_prompt) // 4
                     _est_output = len(result) // 4
@@ -362,67 +363,7 @@ class ModelRouter:
                             _ct2.add_done_callback(_background_tasks.discard)
                         except Exception as exc:
                             logger.debug("Budget token record failed (non-fatal): %s", exc)
-                    # Record cost to billing ledger using active run context vars
-                    try:
-                        _run_id = ACTIVE_RUN_ID.get(None)
-                        _phase = ACTIVE_PHASE.get("unknown")
-                        if _run_id:
-                            _COST_PER_1M = {
-                                "anthropic":  (3.0, 15.0),
-                                "gemini":     (0.35, 1.05),
-                                "ollama":     (0.0, 0.0),
-                                "openrouter": (0.5, 1.5),
-                            }
-                            _in_rate, _out_rate = _COST_PER_1M.get(spec.provider, (0.5, 1.5))
-                            _cost_usd = (_est_input * _in_rate + _est_output * _out_rate) / 1_000_000
-                            from aether_os.core.billing import get_billing_tracker
-                            _org_id = ACTIVE_ORG_ID.get("") or os.environ.get("ACTIVE_ORG_ID", "-")
-                            _ct3 = asyncio.create_task(
-                                get_billing_tracker()._async_record_llm_call(
-                                    org_id=_org_id,
-                                    project_id=_run_id,
-                                    phase=_phase,
-                                    model=f"{spec.provider}/{spec.model}",
-                                    input_tokens=_est_input,
-                                    output_tokens=_est_output,
-                                    cost_usd=_cost_usd,
-                                )
-                            )
-                            _background_tasks.add(_ct3)
-                            _ct3.add_done_callback(_background_tasks.discard)
-                            # Also write to TokenBudgetRecord (org-level dashboard stats)
-                            if not org_id:
-                                try:
-                                    from aether_os.core.db import get_session_factory as _gsf_mr
-                                    from aether_os.core.models import Run as _Run_mr
-                                    from sqlalchemy import select as _sel_mr
-
-                                    async def _get_org():
-                                        async with _gsf_mr()() as _s:
-                                            r = await _s.execute(_sel_mr(_Run_mr.org_id).where(_Run_mr.id == _run_id))
-                                            return r.scalar_one_or_none()
-
-                                    _resolved_org = await _get_org()
-                                except Exception as exc:
-                                    logger.debug("Org ID resolve from run failed: %s", exc)
-                                    _resolved_org = None
-                            else:
-                                _resolved_org = org_id
-                            if _resolved_org:
-                                from aether_os.core.llm.budget import get_budget_manager
-                                _ct4 = asyncio.create_task(
-                                    get_budget_manager().record_usage(
-                                        org_id=_resolved_org,
-                                        input_tokens=_est_input,
-                                        output_tokens=_est_output,
-                                        model=spec.model,
-                                        cache_hit=False,
-                                    )
-                                )
-                                _background_tasks.add(_ct4)
-                                _ct4.add_done_callback(_background_tasks.discard)
-                    except Exception as exc:
-                        logger.debug("Billing ledger record failed (non-fatal): %s", exc)
+                    await record_billing(spec, org_id, _est_input, _est_output, _background_tasks)
 
                     # ── Placeholder guard ────────────────────────────────────
                     # Reject only outputs that look like the model gave up
@@ -459,6 +400,18 @@ class ModelRouter:
                             )
                             await asyncio.sleep(1.5 ** attempt)
                         continue
+                    # Store in semantic cache (background, non-blocking) ONLY once the reply passed the placeholder guard: an
+                    # empty or stub reply cached here was served again, in ~50 ms, to every retry and later run (KAN-261 G9).
+                    if not enforce_local:
+                        try:
+                            from aether_os.core.llm.cache import get_llm_cache
+                            _ct = asyncio.create_task(
+                                get_llm_cache().set(prompt, task_type, result, system, org_id=org_id, replace=refresh_cache)
+                            )
+                            _background_tasks.add(_ct)
+                            _ct.add_done_callback(_background_tasks.discard)
+                        except Exception as exc:
+                            logger.debug("LLM semantic cache set failed (non-fatal): %s", exc)
                     # ── AHM: record success ───────────────────────────────────
                     _ahm_record(spec.provider, None)
                     _note_provider_result(spec.provider, _scope, False)
@@ -507,9 +460,10 @@ class ModelRouter:
                 _note_provider_result(spec.provider, _scope, True)
 
         LLM_REFUSED.labels(reason="chain_exhausted").inc()
+        _report = [e[:300] for e in errors] + skipped
         raise LLMUnavailable(
-            "All models in the fallback chain exhausted. "
-            f"Last errors: {'; '.join(errors[-3:])}"
+            f"All models in the fallback chain failed ({models_tried} tried, {len(skipped)} skipped). "
+            f"Per provider: {'; '.join(_report) or 'the chain was empty'}"
         )
 
     async def _call_provider(
