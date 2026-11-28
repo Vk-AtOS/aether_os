@@ -15,6 +15,7 @@ Everything is overridable by environment so model ids, limits and timeouts stay 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import os
 from dataclasses import dataclass
@@ -105,6 +106,28 @@ def tiered_chain(chain: list, task_type: str) -> list:
     return out
 
 
+# Set for the single growth retry: the provider client then also switches reasoning off (KAN-259).
+retry_without_reasoning: contextvars.ContextVar[bool] = contextvars.ContextVar("retry_without_reasoning", default=False)
+
+
+def reasoning_floor() -> int:
+    """Smallest max_tokens sent to a reasoning-capable provider; LLM_MAX_TOKENS_FLOOR overrides."""
+    return _env_int("LLM_MAX_TOKENS_FLOOR", 4096)
+
+
+def is_truncated(choice: dict, usage: Optional[dict]) -> bool:
+    """True when the reply was cut off: finish_reason=length, or NO visible content while the model spent tokens
+    reasoning (reasoning_tokens>0 or a reasoning field). The second case is what a 2000-token limit produced
+    on Nemotron: finish_reason 'stop' or None, content empty, every token spent thinking."""
+    if choice.get("finish_reason") == "length":
+        return True
+    message = choice.get("message") or {}
+    if (message.get("content") or "").strip():
+        return False
+    details = (usage or {}).get("completion_tokens_details") or {}
+    return bool(details.get("reasoning_tokens") or message.get("reasoning") or message.get("reasoning_content"))
+
+
 def grown_max_tokens(current: int) -> int:
     """Limit for the single retry after a truncated reply: double, capped at LLM_MAX_TOKENS_CEILING."""
     return min(current * 2, max(_env_int("LLM_MAX_TOKENS_CEILING", 32768), current))
@@ -145,6 +168,7 @@ async def call_with_growth(call: Callable[[int], Awaitable[str]], max_tokens: in
                 raise LLMTruncated(f"{label}: reply truncated at max_tokens={max_tokens} and the retry at {bigger} "
                                    f"was refused by the budget check ({refused})") from first
         logger.warning("%s truncated at max_tokens=%d, retrying once at %d", label, max_tokens, bigger)
+        token = retry_without_reasoning.set(True)
         try:
             return await asyncio.wait_for(call(bigger), timeout=timeout)
         except LLMTruncated as second:
@@ -152,3 +176,5 @@ async def call_with_growth(call: Callable[[int], Awaitable[str]], max_tokens: in
                 await record(bigger)
             raise LLMTruncated(f"{label}: reply truncated at max_tokens={max_tokens} and again at {bigger}; "
                                f"raise LLM_MAX_TOKENS_* / LLM_MAX_TOKENS_CEILING or shrink the request ({second})") from first
+        finally:
+            retry_without_reasoning.reset(token)
