@@ -12,12 +12,22 @@ all. In run 27 a model-written customer/Home.tsx had a JSX syntax slip, so tsc n
 undefined <AlertDialogFooter>, the gate saw nothing and the page crashed. per_file_diagnostics() asks the TypeScript
 compiler for each file's own diagnostics, which it reports regardless of other files. The gate also runs after
 s04's repair loop (which re-ran p05 and rebuilt without it).
+
+KAN-255 / KAN-251: the gate covered only *Page files and DomainWidget, so a model-written Dashboard.tsx (run 909708e8:
+syntax error) or customer Home.tsx shipped broken. Every model-written surface with a template twin (entity pages,
+Dashboard, customer Home, DomainWidget) is now replaced when it has a syntax error or, in the final pass
+(`all_errors=True`), any type error left after the repair rounds: the template is known to type-check. Any other file
+with errors is not replaced; tsc still lists it, which fails the build instead of shipping it.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import re
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,31 +37,82 @@ logger = logging.getLogger(__name__)
 # TS2349 expression is not callable.
 CRASH_CODES = frozenset({"TS2304", "TS2552", "TS2339", "TS2551", "TS2741", "TS2349"})
 _TSC_LINE = re.compile(r"^(src/[^\s(]+\.tsx?)\(\d+,\d+\): error (TS\d+): (.*)$")
+_SYNTAX_CODE = re.compile(r"^TS(?:1\d{3}|17\d{3})$")   # TS1xxx / TS17xxx: the file does not parse
+_REPLACEABLE_FILES = ("src/components/DomainWidget.tsx", "src/pages/Dashboard.tsx", "src/pages/customer/Home.tsx")
 
 
 def _replaceable(rel: str) -> bool:
-    """Model-written surfaces that have a template twin: admin entity pages and the dashboard widget."""
+    """Model-written surfaces that have a template twin: admin entity pages, the dashboard, its widget, customer home."""
     p = Path(rel)
     return (p.parent.as_posix() == "src/pages" and p.stem.endswith("Page") and p.stem != "Page") or (
-        rel == "src/components/DomainWidget.tsx")
+        rel in _REPLACEABLE_FILES)
 
 
-def crashing_files(tsc_lines: List[str]) -> Dict[str, List[str]]:
-    """{relative path: messages} for replaceable files with at least one crash-class tsc error."""
+def crashing_files(tsc_lines: List[str], all_errors: bool = False) -> Dict[str, List[str]]:
+    """{relative path: messages} for replaceable files with a syntax error or crash-class tsc error (any tsc error
+    with all_errors)."""
     out: Dict[str, List[str]] = {}
     for line in tsc_lines:
         m = _TSC_LINE.match(line.strip())
-        if m and m.group(2) in CRASH_CODES and _replaceable(m.group(1)):
+        if m and (all_errors or m.group(2) in CRASH_CODES or _SYNTAX_CODE.match(m.group(2))) and _replaceable(m.group(1)):
             out.setdefault(m.group(1), []).append(f"{m.group(2)}: {m.group(3)[:160]}")
     return out
 
 
+def _admin_prefix(frontend_dir: Path) -> str:
+    """"/admin" in the dual-portal layout (App.tsx has an adminLayoutRoute), where every admin route lives under it."""
+    try:
+        return "/admin" if "adminLayoutRoute" in (frontend_dir / "src" / "App.tsx").read_text() else ""
+    except OSError as e:
+        logger.warning("p05 crash gate: cannot read App.tsx to find the route prefix: %s", e)
+        return ""
+
+
+def _project_name(frontend_dir: Path) -> str:
+    """The run's project name from frontend_meta.json (beside the shipped copy), else a neutral title."""
+    for meta in (frontend_dir.parent / "p05_frontend" / "frontend_meta.json", frontend_dir.parent / "frontend_meta.json"):
+        try:
+            return str(json.loads(meta.read_text()).get("project_name") or "Dashboard")
+        except (OSError, ValueError) as e:
+            logger.debug("p05 crash gate: no project name in %s: %s", meta, e)
+    return "Dashboard"
+
+
+def _dashboard_twin(frontend_dir: Path, entities: List[dict], domain: str) -> str:
+    """The stats Dashboard (every number from /stats), with the DomainWidget wired back in when that file exists."""
+    from aether_os.phases.p05_frontend.dashboard_stats import stats_dashboard_tsx
+    code = stats_dashboard_tsx(entities, _project_name(frontend_dir), _admin_prefix(frontend_dir))
+    if (frontend_dir / "src" / "components" / "DomainWidget.tsx").is_file():
+        code = code.replace("import { useQuery }", "import DomainWidget from '../components/DomainWidget'\n"
+                            "import { ErrorBoundary } from '../components/ErrorBoundary'\nimport { useQuery }", 1)
+        code = code.replace("{/* DOMAIN_WIDGET_SLOT */}", '<div className="mt-8"><ErrorBoundary fallback={<></>}>'
+                            '<DomainWidget /></ErrorBoundary></div>', 1)
+    return code
+
+
+def _home_twin(frontend_dir: Path, domain: str) -> str:
+    """The customer portal Home the generator writes before the model gets a chance to replace it."""
+    from aether_os.phases.p05_frontend.helpers import _generate_customer_portal
+    with tempfile.TemporaryDirectory() as tmp:
+        # The generator is `async` but never awaits; a worker thread gives it its own loop while the gate's runs.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, _generate_customer_portal(
+                domain, {}, {}, Path(tmp), project_name=_project_name(frontend_dir))).result()
+        return (Path(tmp) / "customer" / "Home.tsx").read_text()
+
+
 def _template_for(rel: str, *, domain_ir: Any, entities: List[dict], route_map: Dict[str, str],
-                  domain: str) -> Optional[str]:
+                  domain: str, frontend_dir: Optional[Path] = None) -> Optional[str]:
     stem = Path(rel).stem
     if stem == "DomainWidget":
         from aether_os.phases.p05_frontend.dashboard_stats import fallback_widget
         return fallback_widget(domain, entities)[1]
+    if rel == "src/pages/Dashboard.tsx" and frontend_dir is not None:
+        return _dashboard_twin(frontend_dir, entities, domain)
+    if rel == "src/pages/customer/Home.tsx" and frontend_dir is not None:
+        return _home_twin(frontend_dir, domain)
+    if stem == "Dashboard" or stem == "Home":
+        return None
     name = stem[: -len("Page")]
     if domain_ir is not None and getattr(domain_ir, "entities", None):
         from aether_os.phases.p05_frontend.ir_generators import generate_ir_entity_page
@@ -68,22 +129,29 @@ def _template_for(rel: str, *, domain_ir: Any, entities: List[dict], route_map: 
 
 def replace_crashing_pages(frontend_dir: Path, tsc_lines: List[str], *, domain_ir: Any = None,
                            entities: Optional[List[dict]] = None, route_map: Optional[Dict[str, str]] = None,
-                           domain: str = "") -> List[str]:
-    """Rewrite each crashing model-written page from its template. Returns the replaced relative paths."""
+                           domain: str = "", all_errors: bool = False) -> List[str]:
+    """Rewrite each crashing model-written file from its template. Returns the replaced relative paths."""
     replaced: List[str] = []
-    for rel, msgs in crashing_files(tsc_lines).items():
+    for rel, msgs in crashing_files(tsc_lines, all_errors).items():
         try:
             code = _template_for(rel, domain_ir=domain_ir, entities=entities or [], route_map=route_map or {},
-                                 domain=domain)
+                                 domain=domain, frontend_dir=frontend_dir)
         except Exception as e:
             logger.warning("p05 crash gate: no template for %s: %s", rel, e)
             continue
         if not code:
             logger.warning("p05 crash gate: %s would crash (%s) but has no template twin", rel, msgs[0])
             continue
-        (frontend_dir / rel).write_text(code)
+        target = frontend_dir / rel
+        if not target.is_file():
+            logger.warning("p05 crash gate: %s is reported by tsc but is not on disk", rel)
+            continue
+        if target.read_text() == code:
+            logger.warning("p05 crash gate: %s is already its template and still fails (%s)", rel, msgs[0])
+            continue   # not model output: replacing it again would change nothing
+        target.write_text(code)
         replaced.append(rel)
-        logger.warning("p05 crash gate: replaced %s with its template (%d crash-class error(s); first: %s)",
+        logger.warning("p05 crash gate: replaced %s with its template (%d error(s); first: %s)",
                        rel, len(msgs), msgs[0])
     return replaced
 
@@ -145,7 +213,7 @@ def load_project_ir(frontend_dir: Path) -> Any:
 
 async def run_crash_gate(frontend_dir: Path, tsc_lines: List[str], *, domain_ir: Any = None,
                          entities: Optional[List[dict]] = None, route_map: Optional[Dict[str, str]] = None,
-                         domain: str = "") -> List[str]:
+                         domain: str = "", all_errors: bool = True) -> List[str]:
     """Collect plain tsc lines + per-file diagnostics and replace every crashing model-written page. Callers outside
     p05 (s04 repair) pass nothing else: the IR, entities and domain are loaded from the project."""
     lines = list(dict.fromkeys([*tsc_lines, *await per_file_diagnostics(frontend_dir)]))
@@ -156,4 +224,4 @@ async def run_crash_gate(frontend_dir: Path, tsc_lines: List[str], *, domain_ir:
         entities = ir_to_p05_entities(domain_ir)
     domain = domain or getattr(domain_ir, "domain", "") or ""
     return replace_crashing_pages(frontend_dir, lines, domain_ir=domain_ir, entities=entities or [],
-                                  route_map=route_map or {}, domain=domain)
+                                  route_map=route_map or {}, domain=domain, all_errors=all_errors)

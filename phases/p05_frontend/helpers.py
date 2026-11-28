@@ -301,7 +301,7 @@ export default function Home() {{
                 {hero_sub}
               </p>
               <div className="mt-10 flex justify-center gap-x-6">
-                <Link to="/browse" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
+                <Link to="/login" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
                   {_cta_label} <ArrowRight size={{16}} />
                 </Link>
               </div>

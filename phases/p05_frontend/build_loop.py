@@ -128,7 +128,9 @@ def _build_error_lines(output: str, limit: int = 1500) -> str:
 
 def _outcome(built: bool, tsc_lines: list[str], rounds: int, build_errors: str = "") -> dict:
     # build_errors: why the bundle failed, so the stage gate can name the files (KAN-210)
-    out = {"success": built, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
+    # success needs a clean type-check as well as a bundle: `vite build` does not type-check, so a build that only
+    # bundled shipped ~10 type errors in every product (KAN-251). `built` stays the bundle result.
+    out = {"success": built and not tsc_lines, "built": built, "tsc_errors": len(tsc_lines), "tsc_messages": tsc_lines[:MAX_TSC_MESSAGES],
            "tsc_all": tsc_lines, "rounds": rounds}   # tsc_all: the crash gate needs every error, not the first few
     return {**out, "build_errors": build_errors} if build_errors else out
 
@@ -137,12 +139,12 @@ def result_summary(loop: dict) -> tuple[dict, list[str]]:
     """(metadata, issues) the phase reports for a build_loop outcome: the tsc count and first messages are visible in
     the run result, and a bundled app with leftover type errors carries a warning instead of a failure."""
     n = int(loop.get("tsc_errors", 0))
-    meta = {"build_ok": bool(loop.get("built", loop.get("success"))), "tsc_errors": n,
+    meta = {"build_ok": bool(loop.get("built", loop.get("success"))), "tsc_errors": n, "type_check_ok": n == 0,
             "tsc_messages": list(loop.get("tsc_messages", [])),
             "build_errors": str(loop.get("build_errors", ""))}
     issues = []
     if n and meta["build_ok"]:
-        issues.append(f"p05 warning: vite build succeeded but {n} TypeScript error(s) remain. First: "
+        issues.append(f"p05 error: vite build succeeded but {n} TypeScript error(s) remain, so the build fails. First: "
                       + " | ".join(meta["tsc_messages"][:3]))
     return meta, issues
 
@@ -150,9 +152,9 @@ def result_summary(loop: dict) -> tuple[dict, list[str]]:
 async def run_build_loop(frontend_dir: Path, max_rounds: int = 3, org_id: str | None = None) -> dict:
     """tsc --noEmit + vite build -> parse errors -> LLM fix per round -> max_rounds.
 
-    Policy: the phase SUCCEEDS when `vite build` exits 0 and produced dist/index.html (the app bundles and can be
-    previewed). tsc errors never fail it: they are returned as a count plus the first MAX_TSC_MESSAGES messages (they
-    lower the confidence and are reported as warnings) while the loop keeps asking the model to fix them.
+    Policy (KAN-251): the phase SUCCEEDS when `vite build` exits 0, produced dist/index.html AND `tsc --noEmit` is
+    clean. `vite build` does not type-check, so type errors used to ship. While errors remain the loop asks the model to
+    fix them; what is left is returned as a count plus the first MAX_TSC_MESSAGES messages and fails the build.
 
     Returns: {"success", "built", "tsc_errors", "tsc_messages", "rounds"}
     """

@@ -397,6 +397,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
     _llm_count = (_page_stats or {}).get("llm_count", 0)
     _template_count = (_page_stats or {}).get("template_count", 0)
+    _page_fallbacks: Dict[str, str] = dict((_page_stats or {}).get("fallbacks", {}))
     # ── Phase 7: Optional LLM Component (DomainWidget) ──
     # Delegated to domain_assembler.generate_domain_widget to reduce task_agent lines.
     domain_widget_generated = await generate_domain_widget(
@@ -431,6 +432,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             project_name=project_name,
             raw_input=data.get("raw_input", ""),
             design_tokens=_get_tokens(domain),
+            fallbacks=_page_fallbacks,
         )
         if _portal_home_llm:
             (src_dir / "pages" / "customer" / "Home.tsx").write_text(_portal_home_llm)
@@ -502,6 +504,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "files_generated": generated_files,
         "template_debt_pct": compute_template_debt(_llm_count, _template_count),
         "template_surfaces": _template_surfaces,
+        # KAN-252: why each model-eligible page fell back to its template. template_debt_pct also counts the fixed
+        # surfaces (router, login, layouts) that never go to the model, so it cannot fall below ~0.4; this one can.
+        "page_fallbacks": _page_fallbacks,
+        "model_page_fallback_pct": compute_template_debt(_llm_count, len(_page_fallbacks)) if _llm_count + len(_page_fallbacks) else None,
         "design_brief_source": brief_source,
         "model_used": _model_used,
         "degraded": _degraded,

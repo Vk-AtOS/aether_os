@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List
-from aether_os.phases.p05_frontend.scaffold import to_pascal_case, to_label, entity_icon
+from aether_os.phases.p05_frontend.scaffold import CUSTOMER_ENTITY_KEYWORDS, to_pascal_case, to_label, entity_icon
 
 
 def _generate_app(entities: List[dict], dual_portal: bool = False) -> str:
@@ -100,11 +100,7 @@ def _generate_dual_app(entities: List[dict]) -> str:
     customer_children: List[str] = []
 
     # Customer-facing entities: product-like browsable items and member-self-service entities
-    _customer_kws = ("product", "item", "listing", "service", "book", "course", "event",
-                     "article", "post", "property", "menu", "catalog",
-                     "class", "schedule", "trainer", "workout", "session", "plan",
-                     "member", "booking", "reservation", "room", "team", "player",
-                     "match", "fixture", "table", "dish")
+    _customer_kws = CUSTOMER_ENTITY_KEYWORDS
 
     for ent in entities:
         table = ent["table"]

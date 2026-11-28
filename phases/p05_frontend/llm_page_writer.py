@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 from aether_os.phases.p05_frontend.api_contract import enforce_list_contract
 from aether_os.phases.p05_frontend.page_concurrency import call_with_backoff
+from aether_os.phases.p05_frontend.ui_catalog import ui_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,16 @@ except ImportError:
             "text_primary": "text-slate-900",
             "gradient": "from-indigo-600 to-violet-600",
         }
+
+
+async def _recorded(checked: Any, key: str, args: tuple, kwargs: dict) -> Optional[str]:
+    """Run a *_checked writer; when it refuses, store its reason under `key` in the caller's `fallbacks` dict (the
+    per-page fallback reasons that frontend_meta.json records, KAN-252)."""
+    fallbacks = kwargs.pop("fallbacks", None)
+    code, reason = await checked(*args, **kwargs)
+    if code is None and fallbacks is not None:
+        fallbacks[key] = reason
+    return code
 
 
 def compute_template_debt(llm_count: int, template_count: int) -> float:
@@ -76,16 +87,16 @@ def _relationship_hints(entity: dict, domain_ir: Any) -> str:
     return ""
 
 
-async def write_portal_home_llm(
+async def write_portal_home_checked(
     domain: str,
     project_name: str,
     raw_input: str,
     design_tokens: dict,
     timeout: float = 120.0,
-) -> Optional[str]:
-    """Generate a customer portal homepage via one LLM call. Returns None on failure."""
+) -> tuple[Optional[str], str]:
+    """Generate a customer portal homepage via one LLM call. (code, "") when usable, (None, reason) otherwise (the reason goes to frontend_meta.json)."""
     if os.environ.get("ENVIRONMENT") == "test":
-        return None
+        return None, "test_env"
 
     from aether_os.core.llm.client import get_llm_client
 
@@ -118,25 +129,30 @@ async def write_portal_home_llm(
         )
     except asyncio.TimeoutError:
         logger.warning("p05: LLM portal home for %s timed out after %.0fs", project_name, timeout)
-        return None
+        return None, f"timeout_{timeout:.0f}s"
     except Exception as exc:
         logger.warning("p05: LLM portal home for %s failed: %s", project_name, exc)
-        return None
+        return None, f"llm_error: {str(exc)[:120]}"
 
     if not result:
-        return None
+        return None, "empty_reply"
 
     cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", result.strip())
     cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
 
     if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
         logger.warning("p05: LLM portal home missing required tokens — falling back to template")
-        return None
+        return None, "missing_export_default_or_return"
 
-    return cleaned
+    return cleaned, ""
 
 
-async def write_dashboard_llm(
+async def write_portal_home_llm(*args: Any, **kwargs: Any) -> Optional[str]:
+    """The portal home code, or None when the template must be used (why: kwarg `fallbacks`, see _recorded)."""
+    return await _recorded(write_portal_home_checked, "pages/customer/Home.tsx", args, kwargs)
+
+
+async def write_dashboard_checked(
     domain: str,
     entities: list,
     project_name: str,
@@ -144,10 +160,10 @@ async def write_dashboard_llm(
     domain_ir: Any,
     design_tokens: dict,
     timeout: float = 120.0,
-) -> Optional[str]:
-    """Generate a domain-specific admin dashboard via one LLM call. Returns None on failure."""
+) -> tuple[Optional[str], str]:
+    """Generate a domain-specific admin dashboard via one LLM call. (code, "") when usable, (None, reason) otherwise (the reason goes to frontend_meta.json)."""
     if os.environ.get("ENVIRONMENT") == "test":
-        return None
+        return None, "test_env"
 
     from aether_os.core.llm.client import get_llm_client
 
@@ -185,22 +201,27 @@ async def write_dashboard_llm(
         )
     except asyncio.TimeoutError:
         logger.warning("p05: LLM dashboard for %s timed out after %.0fs", project_name, timeout)
-        return None
+        return None, f"timeout_{timeout:.0f}s"
     except Exception as exc:
         logger.warning("p05: LLM dashboard for %s failed: %s", project_name, exc)
-        return None
+        return None, f"llm_error: {str(exc)[:120]}"
 
     if not result:
-        return None
+        return None, "empty_reply"
 
     cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", result.strip())
     cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
 
     if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
         logger.warning("p05: LLM dashboard missing required tokens — falling back to template")
-        return None
+        return None, "missing_export_default_or_return"
 
-    return cleaned
+    return cleaned, ""
+
+
+async def write_dashboard_llm(*args: Any, **kwargs: Any) -> Optional[str]:
+    """The dashboard code, or None when the template must be used (why: kwarg `fallbacks`, see _recorded)."""
+    return await _recorded(write_dashboard_checked, "pages/Dashboard.tsx", args, kwargs)
 
 
 _FORM_ATTR = re.compile(r"""\bform=["']([\w-]+)["']""")
@@ -234,7 +255,7 @@ def mutations_without_error_handler(code: str) -> int:
     return missing
 
 
-async def write_entity_page_llm(
+async def write_entity_page_checked(
     entity: dict,
     route_map: dict,
     project_name: str,
@@ -243,11 +264,13 @@ async def write_entity_page_llm(
     domain_ir: Any,
     design_tokens: dict,
     timeout: float = 120.0,
-) -> Optional[str]:
-    """Generate a full entity CRUD page via one LLM call. Returns None on failure."""
+) -> tuple[Optional[str], str]:
+    """One LLM call for a full entity CRUD page: (code, "") when accepted, (None, reason) when the template page
+    must be used. The reason is recorded in frontend_meta.json (KAN-252: 0.67-0.75 template debt could not be
+    diagnosed because every rejection looked the same)."""
     # ponytail: test env skips the network round-trip; template fallback handles it.
     if os.environ.get("ENVIRONMENT") == "test":
-        return None
+        return None, "test_env"
 
     from aether_os.core.llm.client import get_llm_client
 
@@ -292,7 +315,8 @@ async def write_entity_page_llm(
         "- Every useMutation has an onError that shows the server's reason: import { apiErrorMessage } from '@/lib/api' and show "
         "apiErrorMessage(err, 'Could not save') in the open dialog (role=\"alert\") or a toast. A rejected save keeps the dialog "
         "open with the user's input; never swallow an error\n"
-        "- Use shadcn/ui components imported from '@/components/ui/*' (Button, Card, Input, Table, Modal)\n"
+        f"- Use only these shadcn/ui components, each imported from its file '@/components/ui/<File>' (file: exports): {ui_catalog()}. "
+        "Nothing else exists there; anything more you need, write inline\n"
         "- No hardcoded data — all rows come from the API\n"
         "- Export: export default function {name}Page()\n"
         f"- Design tokens: accent={tokens.get('accent')}, page bg={tokens.get('bg_page')}, "
@@ -310,13 +334,13 @@ async def write_entity_page_llm(
         )
     except asyncio.TimeoutError:
         logger.warning("p05: LLM entity page for %s timed out after %.0fs", name, timeout)
-        return None
+        return None, f"timeout_{timeout:.0f}s"
     except Exception as exc:
         logger.warning("p05: LLM entity page for %s failed: %s", name, exc)
-        return None
+        return None, f"llm_error: {str(exc)[:120]}"
 
     if not result:
-        return None
+        return None, "empty_reply"
 
     # Strip markdown fences
     cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", result.strip())
@@ -324,16 +348,23 @@ async def write_entity_page_llm(
 
     if not ("export default" in cleaned and "function" in cleaned and "return" in cleaned):
         logger.warning("p05: LLM entity page for %s missing required tokens — falling back", name)
-        return None
+        return None, "missing_export_default_or_return"
 
     defects = page_defects(cleaned)
     if defects:
         logger.warning("p05: LLM entity page for %s refused (%s) — falling back", name, "; ".join(defects))
-        return None
+        return None, "defect: " + "; ".join(defects)
 
     silent = mutations_without_error_handler(cleaned)
     if silent:
         logger.warning("p05: LLM entity page for %s has %d mutation(s) without onError — falling back", name, silent)
-        return None
+        return None, f"{silent}_mutation_without_onError"
 
-    return enforce_list_contract(cleaned, f"{name}Page")
+    return enforce_list_contract(cleaned, f"{name}Page"), ""
+
+
+async def write_entity_page_llm(*args: Any, **kwargs: Any) -> Optional[str]:
+    """The page code, or None when the template must be used (why: kwarg `fallbacks`, see _recorded)."""
+    ent = kwargs.get("entity") or {}
+    key = f"pages/{ent.get('name') or str(ent.get('table', 'items')).title().replace('_', '')}Page.tsx"
+    return await _recorded(write_entity_page_checked, key, args, kwargs)

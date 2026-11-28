@@ -365,8 +365,10 @@ async def assemble_domain_pages(
     logger.info("p05: Generating entity CRUD pages...")
     llm_count = 0
     template_count = 0
+    fallbacks: Dict[str, str] = {}    # page -> why the model page was not used (frontend_meta.json page_fallbacks)
     _tokens = get_design_tokens(domain)
     _raw_input = (data or {}).get("raw_input", "")
+    _admin_prefix = "/admin" if layout_mode == "dual" else ""    # where the admin routes live (App.tsx)
 
     if domain_ir and domain_ir.entities:
         from aether_os.phases.p05_frontend.ir_generators import (
@@ -376,15 +378,17 @@ async def assemble_domain_pages(
         )
         _dash_llm = await write_dashboard_llm(
             domain=domain, entities=entities, project_name=project_name,
-            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
+            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens, fallbacks=fallbacks,
         )
-        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name) if _dash_llm else (None, False)
+        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name, _admin_prefix) if _dash_llm else (None, False)
+        if _refused:
+            fallbacks["pages/Dashboard.tsx"] = "post_check: hard-coded counts or mock data"
         if _dash_llm and not _refused:
             (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
             llm_count += 1
         else:
             (src_dir / "pages" / "Dashboard.tsx").write_text(
-                _dash_llm or _gen_dash(domain_ir, entities, project_name, domain=domain)
+                _dash_llm or _gen_dash(domain_ir, entities, project_name, domain=domain, route_prefix=_admin_prefix)
             )
             template_count += 1
         _ir_sem = page_semaphore()
@@ -415,7 +419,7 @@ async def assemble_domain_pages(
                     entity=_ir_ent_dict, route_map=route_map,
                     project_name=project_name, domain=domain,
                     raw_input=_raw_input, domain_ir=domain_ir,
-                    design_tokens=_tokens,
+                    design_tokens=_tokens, fallbacks=fallbacks,
                 )
             if _llm_code:
                 write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _llm_code)
@@ -432,9 +436,11 @@ async def assemble_domain_pages(
         # Non-IR path: LLM dashboard first, template fallback
         _dash_llm = await write_dashboard_llm(
             domain=domain, entities=entities, project_name=project_name,
-            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens,
+            raw_input=_raw_input, domain_ir=domain_ir, design_tokens=_tokens, fallbacks=fallbacks,
         )
-        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name) if _dash_llm else (None, False)
+        _dash_llm, _refused = ensure_real_stats(_dash_llm, entities, project_name, _admin_prefix) if _dash_llm else (None, False)
+        if _refused:
+            fallbacks["pages/Dashboard.tsx"] = "post_check: hard-coded counts or mock data"
         if _dash_llm and not _refused:
             (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
             llm_count += 1
@@ -479,7 +485,7 @@ async def assemble_domain_pages(
                     entity=ent, route_map=route_map,
                     project_name=project_name, domain=domain,
                     raw_input=_raw_input, domain_ir=domain_ir,
-                    design_tokens=_tokens,
+                    design_tokens=_tokens, fallbacks=fallbacks,
                 )
             code = _llm_code if _llm_code else generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
             write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", code)
@@ -496,4 +502,4 @@ async def assemble_domain_pages(
         output_dir,
     )
     write_domain_pages_fn(src_dir, domain, build_types)
-    return {"llm_count": llm_count, "template_count": template_count}
+    return {"llm_count": llm_count, "template_count": template_count, "fallbacks": fallbacks}

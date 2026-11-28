@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from aether_os.phases.p05_frontend.scaffold import to_label, entity_icon
+from aether_os.phases.p05_frontend.scaffold import is_customer_entity, to_label, entity_icon
 
 
 def _generate_customer_home(
@@ -45,7 +45,9 @@ def _generate_customer_home(
     primary_table = primary["table"]
     primary_label = to_label(primary_table)
     primary_endpoint = route_map.get(primary_table, f"/{primary_table}")
-    primary_route = f"/{primary_table.replace('_', '-')}"
+    # Only entities with a customer route (part03) can be linked from here; any other lands on its admin page, which
+    # the router sends to /login: a link to a route that is not registered does not type-check.
+    primary_route = ("/" if is_customer_entity(primary_table) else "/admin/") + primary_table.replace('_', '-')
 
     # Domain-specific hero copy
     _hero_copy = {

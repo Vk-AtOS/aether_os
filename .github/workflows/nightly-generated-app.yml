@@ -36,4 +36,6 @@ jobs:
           echo "PYTHONPATH=$RUNNER_TEMP/pkg" >> "$GITHUB_ENV"
       - name: Generated backend, frontend imports, tsc and real npm build
         working-directory: ${{ runner.temp }}/pkg/aether_os
-        run: pytest tests/test_r3_e2e_generated_output.py tests/test_p05_generated_frontend.py tests/test_p04a_generated_backend.py --timeout=1200 -q
+        env:
+          AETHER_TSC_E2E: "1"    # tests/test_p05_template_typecheck.py: npm install + tsc --noEmit on generated frontends (KAN-251)
+        run: pytest tests/test_r3_e2e_generated_output.py tests/test_p05_generated_frontend.py tests/test_p05_template_typecheck.py tests/test_p04a_generated_backend.py --timeout=1800 -q

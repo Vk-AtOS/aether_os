@@ -45,12 +45,15 @@ def stat_cards(entities: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
     return cards[:MAX_CARDS]
 
 
-def stats_dashboard_tsx(entities: List[Dict[str, Any]], project_name: str) -> str:
-    """The admin Dashboard: stat cards from /stats with loading, error and empty states, plus links and the widget slot."""
+def stats_dashboard_tsx(entities: List[Dict[str, Any]], project_name: str, route_prefix: str = "") -> str:
+    """The admin Dashboard: stat cards from /stats with loading, error and empty states, plus links and the widget slot.
+
+    route_prefix is "/admin" in the dual-portal layout, where every admin route lives under it (a link to "/projects"
+    is not a registered route there: TS2322 in every dual-portal build)."""
     cards = stat_cards(entities)
     card_rows = ",\n".join(f"  {{ label: {l!r}, key: {k!r}, tone: {_COLORS[i % 6]!r} }}" for i, (l, k) in enumerate(cards))
     links = "\n".join(
-        f"          <Link to='/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-white rounded-xl "
+        f"          <Link to='{route_prefix}/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-white rounded-xl "
         f"border border-gray-100 hover:shadow-sm transition-all'><span className='font-semibold text-gray-900'>"
         f"{_label(e['table'])}</span><span aria-hidden>→</span></Link>"
         for e in entities if not _is_user(e) and e.get("table"))
@@ -150,13 +153,14 @@ def hardcoded_counts_reason(code: str, entities: Optional[List[Dict[str, Any]]] 
     return None
 
 
-def ensure_real_stats(code: str, entities: List[Dict[str, Any]], project_name: str) -> Tuple[str, bool]:
+def ensure_real_stats(code: str, entities: List[Dict[str, Any]], project_name: str,
+                      route_prefix: str = "") -> Tuple[str, bool]:
     """(dashboard, replaced): the model's dashboard when it passes the post-check, else the deterministic template."""
     reason = hardcoded_counts_reason(code, entities)
     if reason is None:
         return code, False
     logger.warning("p05: Dashboard.tsx refused (%s); using the /stats template", reason)
-    return stats_dashboard_tsx(entities, project_name), True
+    return stats_dashboard_tsx(entities, project_name, route_prefix), True
 
 
 # --- DomainWidget fallback --------------------------------------------------------------------------------------
