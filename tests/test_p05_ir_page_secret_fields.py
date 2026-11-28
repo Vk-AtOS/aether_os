@@ -25,3 +25,12 @@ def test_server_set_columns_are_shown_but_never_inputs_or_payload():
 def test_entities_without_secrets_get_no_password_field():
     page = generate_ir_entity_page(IREntity(name="Project", table="projects", fields=[IRField(name="name", type="string")]))
     assert 'name="password"' not in page
+
+
+def test_the_password_payload_type_allows_the_password_key():
+    # Nightly tsc (team_tracker spec, run da281716's IR): `password` in a `Partial<Member>` literal is TS2353, since
+    # the stored hash never reaches the client type. The payload type now admits the typed password.
+    page = generate_ir_entity_page(USER)
+    assert page.count("Partial<User> & { password?: string }") == 2      # mutationFn + the payload literal
+    project = generate_ir_entity_page(IREntity(name="Project", table="projects", fields=[IRField(name="name", type="string")]))
+    assert "password?: string" not in project

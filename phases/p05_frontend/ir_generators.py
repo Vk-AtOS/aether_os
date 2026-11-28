@@ -384,6 +384,9 @@ def generate_ir_entity_page(entity: IREntity) -> str:
     if has_secret:   # blank on edit = keep the current password (the key is left out)
         payload_fields.append("      password: fd.get('password') as string || undefined,")
     payload_jsx = "\n".join(payload_fields)
+    # The typed password is not a field of the entity type (the stored hash never reaches the client), so the
+    # payload type must allow it: `password` in a Partial<Member> literal is TS2353 (nightly tsc, team_tracker spec).
+    payload_type = f"Partial<{name}> & {{ password?: string }}" if has_secret else f"Partial<{name}>"
 
     plural_label = label + ("s" if not label.endswith("s") else "")
 
@@ -405,7 +408,7 @@ export default function {name}Page() {{
   }});{fk_hooks}{fk_lookups}
 
   const save = useMutation({{
-    mutationFn: (payload: Partial<{name}>) =>
+    mutationFn: (payload: {payload_type}) =>
       editing === 'new'
         ? api.post('/{table}', payload)
         : api.patch(`/{table}/${{(editing as {name}).id}}`, payload),
@@ -425,7 +428,7 @@ export default function {name}Page() {{
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {{
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const payload: Partial<{name}> = {{
+    const payload: {payload_type} = {{
 {payload_jsx}
     }};
     setSaveError(null);
