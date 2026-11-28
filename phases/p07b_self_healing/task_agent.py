@@ -236,12 +236,15 @@ async def _run_inner(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,
 
     # Problem 45 fix: Max attempts reached — tests still failing → report failure accurately
     # Do NOT propagate a false success=True; set gate_result accordingly
+    # Still start + probe the app: whether it boots and its endpoints answer is the diagnosis the run report needs
+    # (run da281716 said only "the probe never ran"). The verdict still fails on the exhausted healing.
     result = {
         "success": False,                   # Problem 45: was incorrectly True
         "self_healing_exhausted": True,     # Problem 45: signal for orchestrator
         "attempts": attempt,
         "status": "max_attempts_reached",
         "last_output": last_output[:500],
+        "quality_probe": await _quality_probe(project_dir, _entity_names, output_dir, live_hook),
     }
     msg = f"[p07b_self_healing] Max attempts ({MAX_ATTEMPTS}) reached — tests still failing"
     logger.warning(msg)
