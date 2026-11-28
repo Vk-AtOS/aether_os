@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from aether_os.phases.base import TaskResult
 from aether_os.core.llm.client import get_llm_client
@@ -25,6 +25,19 @@ from .helpers import (
 from .prompts import build_arch_prompt, extract_spec_nouns
 
 logger = logging.getLogger(__name__)
+
+
+def _write_cache(cache_path: Optional[Path], doc: Dict[str, Any]) -> None:
+    """Best-effort cache of the architecture. ~/.aether_os/spec_cache is created lazily by core.spec_cache.put, so on a
+    fresh host (run e53e5f12) write_text raised "No such file" and failed the whole phase for a mere cache."""
+    if not cache_path:
+        return
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(doc, indent=2))
+        logger.info("[p02] architecture.json cached to %s", cache_path)
+    except OSError as exc:
+        logger.warning("[p02] could not cache architecture to %s: %s", cache_path, exc)
 
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
@@ -67,7 +80,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     # IMP-1: Check for existing architecture.json in spec_cache
     if cache_path and cache_path.exists():
         logger.info("[p02] Cache hit for run_id=%s", run_id)
-        doc = json.loads(cache_path.read_text())
+        try:
+            doc = json.loads(cache_path.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("[p02] unreadable cache %s (%s) - regenerating", cache_path, exc)
 
     if not doc:
         logger.info("[p02] Cache miss, generating architecture...")
@@ -200,9 +216,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         used_fallback = True
 
     # Cache the final doc
-    if cache_path:
-        cache_path.write_text(json.dumps(doc, indent=2))
-        logger.info("[p02] architecture.json cached to %s", cache_path)
+    _write_cache(cache_path, doc)
 
     doc = fix_tech_stack(doc)
 
@@ -269,9 +283,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
 
     # ── Always write architecture.json ───────────────────────────────────────
     out_json.write_text(json.dumps(doc, indent=2))
-    if cache_path:
-        cache_path.write_text(json.dumps(doc, indent=2))
-        logger.info("[p02] architecture.json cached to %s", cache_path)
+    _write_cache(cache_path, doc)
     logger.info("[p02] architecture.json written (%d endpoints, fallback=%s)",
                 len(doc.get("api_endpoints", [])), used_fallback)
 

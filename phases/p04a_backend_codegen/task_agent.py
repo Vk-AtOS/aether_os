@@ -63,7 +63,13 @@ from aether_os.phases.p04a_backend_codegen.helpers import (
 )
 from aether_os.phases.p04a_backend_codegen.helpers_cache import _generate_cache_service
 from aether_os.phases.p04a_backend_codegen.pre_gen_validator import fix_relative_imports, safe_project_name
-from aether_os.phases.p04a_backend_codegen.pattern_injector import detect_active_patterns, inject_patterns
+from aether_os.phases.p04a_backend_codegen.pattern_injector import (
+    append_requirements,
+    detect_active_patterns,
+    inject_patterns,
+    mount_agent_router,
+)
+from aether_os.phases.patterns.agentic_ai import AGENTIC_AI_ENV_EXAMPLE
 
 logger = logging.getLogger(__name__)
 
@@ -311,12 +317,15 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         inject_marketplace=_inject_marketplace_router,
         inject_erp_approval=_inject_erp_approval_router,
     )
+    if "agentic_ai" in _step_results["_active_patterns"]:
+        main_py = mount_agent_router(main_py)       # KAN-264: agent.py was written but its router never mounted
     (src_dir / "main.py").write_text(main_py)
 
     # ── Step 6: Supporting files ──────────────────────────────────────────────
     import secrets as _sec
     _secret = _sec.token_hex(32)
     (output_dir / "requirements.txt").write_text(_REQUIREMENTS_TXT)
+    append_requirements(output_dir, _step_results["_pattern_requirements"])
     (output_dir / "Dockerfile").write_text(_DOCKERFILE)
     _admin_pw = _sec.token_urlsafe(16)
     _env_lines = (
@@ -335,7 +344,10 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     )
     # .env holds this app's own random secrets; .env.example is the committed copy and holds placeholders only.
     (output_dir / ".env").write_text(_env_lines.format(secret=_secret, admin=_admin_pw))
-    (output_dir / ".env.example").write_text(_env_lines.format(secret="change-me", admin="change-me"))
+    _example = _env_lines.format(secret="change-me", admin="change-me")
+    if "agentic_ai" in _step_results["_active_patterns"]:
+        _example += "\n" + AGENTIC_AI_ENV_EXAMPLE
+    (output_dir / ".env.example").write_text(_example)
     (output_dir / ".gitignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n")
     (output_dir / ".dockerignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n.git\n")
     (output_dir / "Makefile").write_text(_generate_makefile(project_name))

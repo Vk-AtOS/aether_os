@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from aether_os.core.domain_ir import DomainIR
+from aether_os.phases.p04a_backend_codegen.pre_gen_validator import coerce_enum_values
 from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.core.error_registry import ErrorCategory, get_registry
 from aether_os.core.repair_learning import load_validators
@@ -181,7 +182,7 @@ def run_pipeline_and_seed_steps(
     _inject_stripe_router = "stripe" in _active_patterns
     _inject_marketplace_router = "marketplace" in _active_patterns
     _inject_erp_approval_router = "erp_approval" in _active_patterns
-    inject_patterns_fn(_active_patterns, src_dir, output_dir)
+    _pattern_requirements = inject_patterns_fn(_active_patterns, src_dir, output_dir) or []
 
     # Step 4b: Audit infrastructure
     try:
@@ -212,6 +213,8 @@ def run_pipeline_and_seed_steps(
         "_inject_stripe_router": _inject_stripe_router,
         "_inject_marketplace_router": _inject_marketplace_router,
         "_inject_erp_approval_router": _inject_erp_approval_router,
+        "_active_patterns": _active_patterns,
+        "_pattern_requirements": _pattern_requirements,
     }
 
 
@@ -299,6 +302,10 @@ def run_ir_fastpath(
     models_code = schemas_code = crud_code = seed_code = ""
     try:
         _ir = DomainIR.load(Path(ir_path_str))
+        for _e in _ir.entities:
+            for _f in _e.fields:
+                # KAN-253: int enum values (0-6) must reach models/seed/crud as the text the String column stores
+                _f.enum_values = coerce_enum_values(_f.enum_values)
         if not _ir.entities:
             return models_code, schemas_code, crud_code, seed_code, entities
 

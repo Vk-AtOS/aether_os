@@ -12,7 +12,7 @@ D2  No circular FK references — detected via DFS; circular = error.
 D3  Required fields on every entity: id-field present, at least one string/text
     field, and the entity must have a non-empty name (warning on missing).
 D4  Reserved SQLAlchemy names must not be used as entity names (error).
-D5  At least one entity with "user" in the name (warning if missing).
+D5  (removed) the platform generates the users table itself, so a spec needs no User entity.
 D6  Email/username fields should be marked unique=True (warning if not).
 D7  All FK ref_entity values must resolve to a known entity (error).
 """
@@ -269,14 +269,9 @@ def validate_domain_ir(ir: dict) -> IRValidationReport:
                 "to display in list views."
             )
 
-    # D5 — At least one user-like entity (warning)
-    has_user_entity = any("user" in n.lower() for n in entity_names_raw)
-    if not has_user_entity and count > 0:
-        report.add_warning(
-            "D5: No entity with 'user' in its name found. "
-            "Auth endpoints (login/register) will generate but have no User "
-            "model to bind to — registration may fail at runtime."
-        )
+    # D5 (a "no User entity" warning) was removed: the generated app always has its own users table, login and
+    # register (p04a templates_auth / schema_builder), so a spec without a User entity is normal, and the warning
+    # told every such run that "registration may fail at runtime" when it cannot.
 
     # D6 — Unique field hints
     for entity in entities:

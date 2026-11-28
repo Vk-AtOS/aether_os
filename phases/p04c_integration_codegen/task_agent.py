@@ -153,6 +153,26 @@ class {name.replace(" ", "")}Client:
 '''
 
 
+_MANAGER_IMPORT = (
+    "\n\n# p04c: load the generated integration clients (services/*.py). They were written but imported by nothing.\n"
+    "try:\n"
+    "    import services.integration_manager  # noqa: F401\n"
+    "except Exception as _integration_exc:\n"
+    "    import logging as _l; _l.getLogger(__name__).warning('integration clients unavailable: %s', _integration_exc)\n"
+)
+
+
+def _mount_integration_manager(src_dir: Path) -> None:
+    """Import services.integration_manager from the generated main.py so the clients p04c wrote are part of the app."""
+    main_py = src_dir / "main.py"
+    if not main_py.is_file():
+        logger.warning("p04c: %s has no main.py - integration clients are not imported by the app", src_dir)
+        return
+    text = main_py.read_text()
+    if "services.integration_manager" not in text:
+        main_py.write_text(text.rstrip("\n") + _MANAGER_IMPORT)
+
+
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     """Generate integration clients for each discovered integration."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -299,6 +319,7 @@ __all__ = {json.dumps(clients_generated)}
 '''
     (services_dir / "integration_manager.py").write_text(manager_py)
     clients_generated.append("integration_manager")
+    _mount_integration_manager(src_dir)
 
     # Write summary
     summary = {
