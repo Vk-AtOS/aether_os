@@ -387,6 +387,20 @@ def to_type_name(table: str) -> str:
     return pascal
 
 
+# Entities that get a public route in the customer portal (App.tsx) -- and so the only ones a customer page may link to.
+# part03 (routes) and part04 (CustomerHome links) each kept their own list; the home page linked to routes that
+# were never registered (TS2322 on every <Link to="/projects">).
+CUSTOMER_ENTITY_KEYWORDS = ("product", "item", "listing", "service", "book", "course", "event",
+                            "article", "post", "property", "menu", "catalog",
+                            "class", "schedule", "trainer", "workout", "session", "plan",
+                            "member", "booking", "reservation", "room", "team", "player",
+                            "match", "fixture", "table", "dish")
+
+
+def is_customer_entity(table: str) -> bool:
+    return any(k in table.lower() for k in CUSTOMER_ENTITY_KEYWORDS)
+
+
 def to_label(s: str) -> str:
     """'lead_contacts' → 'Lead Contacts'"""
     return " ".join(p.capitalize() for p in re.split(r'[_\-\s]+', s) if p)

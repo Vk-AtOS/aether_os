@@ -7,6 +7,7 @@ task_agent.py after entity CRUD pages are generated.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import List
 
@@ -263,12 +264,12 @@ def write_domain_pages(src_dir: Path, domain: str, build_types: List[str]) -> No
     # Wire the Command Palette as a global component into App.tsx for all domains.
     # It's a no-op (renders null) until Cmd+K is pressed, so safe for every domain.
     try:
-        # Collect entity names from pages already written (any *Page.tsx files)
-        entity_pages = sorted(
-            p.stem.replace("Page", "").lower()
-            for p in pages_dir.glob("*Page.tsx")
-            if not p.stem.startswith(("Dashboard", "Login", "NotFound", "Error"))
-        )
+        # The palette imports `<camel>Api` for each entity, so the keys come from the clients lib/api.ts really exports.
+        # They were guessed from the page file names (MenuItemsPage -> "menuitems" -> menuitemsApi, which does not
+        # exist: TS2724 in every product whose table name has an underscore, and a kanban page became "taskskanban").
+        api_ts = src_dir / "lib" / "api.ts"
+        api_text = api_ts.read_text(encoding="utf-8", errors="replace") if api_ts.is_file() else ""
+        entity_pages = [k for k in re.findall(r"^export const (\w+)Api = \{", api_text, re.M) if k != "auth"]
         if entity_pages:
             from aether_os.phases.p05_frontend.code_writer import (  # noqa: PLC0415
                 generate_command_palette,
