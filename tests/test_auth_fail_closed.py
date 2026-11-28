@@ -123,3 +123,40 @@ async def test_oauth_state_is_redis_backed_single_use_and_provider_bound(monkeyp
     await refresh.oauth_state_set(state, "google")
     assert await refresh.oauth_state_pop(state, "google") is True
     assert await refresh.oauth_state_pop(state, "google") is False
+
+
+@pytest.mark.parametrize("priv,pub", [("", ""), ("x", "")])
+def test_production_refuses_hs256_when_rs_keys_are_empty(monkeypatch, priv, pub):
+    """KAN-272: compose passes empty AETHER_JWT_*_B64; production used to fall back to HS256 silently."""
+    import aether_os.gateway.auth as auth
+
+    for k in ("AETHER_JWT_PRIVATE_KEY_PATH", "AETHER_JWT_PUBLIC_KEY_PATH"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("AETHER_JWT_PRIVATE_KEY_B64", priv)
+    monkeypatch.setenv("AETHER_JWT_PUBLIC_KEY_B64", pub)
+    monkeypatch.setenv("AETHER_SECRET_KEY", "present-but-must-not-be-used")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="gen_jwt_keys.sh"):
+        auth._load_rsa_keys()
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    assert auth._load_rsa_keys()[2] == "HS256"                  # CI/dev behaviour unchanged
+
+
+def test_gen_jwt_keys_script_produces_loadable_keys_and_is_idempotent(tmp_path, monkeypatch):
+    import subprocess
+    from pathlib import Path
+
+    import aether_os.gateway.auth as auth
+
+    script = Path(auth.__file__).parents[1] / "deploy" / "scripts" / "gen_jwt_keys.sh"
+    env = tmp_path / ".env"
+    env.write_text("FOO=1\nAETHER_JWT_PRIVATE_KEY_B64=\nAETHER_JWT_PUBLIC_KEY_B64=\n")
+    subprocess.run(["bash", str(script), str(env)], check=True, capture_output=True)
+    first = env.read_text()
+    subprocess.run(["bash", str(script), str(env)], check=True, capture_output=True)
+    assert env.read_text() == first and first.startswith("FOO=1\n")
+    vals = dict(line.split("=", 1) for line in first.splitlines())
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("AETHER_JWT_PRIVATE_KEY_B64", vals["AETHER_JWT_PRIVATE_KEY_B64"])
+    monkeypatch.setenv("AETHER_JWT_PUBLIC_KEY_B64", vals["AETHER_JWT_PUBLIC_KEY_B64"])
+    assert auth._load_rsa_keys()[2] == "RS256"

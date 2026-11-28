@@ -18,6 +18,7 @@ from typing import Any, Dict
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
+from aether_os.core.resilience import health as resilience_health
 from aether_os.core.resilience.health import snapshot
 
 logger = logging.getLogger(__name__)
@@ -33,14 +34,23 @@ _PUBLIC_DIR = os.path.abspath(
 
 @router.get("/health")
 @router.get("/api/health")
-async def health() -> Dict[str, Any]:
-    """Health check endpoint."""
-    return {
-        "status": "ok",
+async def health():
+    """Health check used by scripts/smoke_test.sh and uptime monitors: 503 when the database is unreachable.
+
+    It used to return a constant 200, so a dead Postgres (28 Nov 2026 RDS rotation outage) looked healthy (KAN-273).
+    Redis is not checked here (its outage degrades, not breaks, the API: see /readyz). The container healthcheck uses
+    /healthz (pure liveness) so a DB blip never restarts a healthy API.
+    """
+    pg = await resilience_health.check_postgres()
+    ok = pg["status"] == "ok"
+    body = {
+        "status": "ok" if ok else "unavailable",
+        "database": pg["status"],
         "timestamp": time.time(),
         "service": "AetherOS API",
         "version": "1.0.0",
     }
+    return JSONResponse(body, status_code=200 if ok else 503)
 
 
 @router.get("/healthz")

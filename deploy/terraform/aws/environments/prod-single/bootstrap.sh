@@ -69,6 +69,8 @@ PY
 chmod 600 .env
 echo ".env created"
 fi
+# RS256 JWT keys: the gateway refuses to start in production without them (KAN-272). Idempotent.
+bash deploy/scripts/gen_jwt_keys.sh .env
 
 # ── database: RDS (managed backups, 7-day point-in-time restore) instead of the compose db container ──
 DBP=$(aws secretsmanager get-secret-value --secret-id '__DBSECRET__' --query SecretString --output text \
@@ -87,7 +89,8 @@ chmod 600 docker-compose.override.yml
 unset DBP
 
 # ── sandbox network isolation, images, stack ──
-AETHER_SANDBOX_PUBLISH_IP=$GW bash core/sandbox/host_firewall.sh >/srv/logs/fw.log 2>&1 && echo "host firewall applied" || { echo "firewall FAILED"; tail -5 /srv/logs/fw.log; }
+# Persistent across reboots (systemd oneshot after docker.service); it also applies the rules now (KAN-245).
+AETHER_SANDBOX_PUBLISH_IP=$GW bash deploy/scripts/install_sandbox_firewall.sh "$PWD" >/srv/logs/fw.log 2>&1 && echo "host firewall applied + persistent" || { echo "firewall FAILED"; tail -5 /srv/logs/fw.log; }
 docker build -q -t aether-sandbox:1 -f core/sandbox/Dockerfile core/sandbox >/dev/null && echo "sandbox image ok"
 # The browser image (screenshots of the generated frontend, s04) builds FROM aether-sandbox:1. Without it every run
 # logs "browser sandbox unavailable" and ships without a screenshot (production acceptance run 11, 22 Nov 2026).

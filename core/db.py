@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-from . import schema_ddl
+from . import db_secret, schema_ddl
 from .resilience.breaker import CircuitBreaker, CircuitOpen, get_breaker
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,8 @@ def _build_db_url() -> str:
             db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        if db_secret.enabled() and db_url.startswith("postgresql"):
+            db_url = db_secret.apply_to_url(db_url)     # rotated RDS password: the secret wins over the URL's (KAN-244)
         return db_url
 
     # Default: SQLite with aiosqlite
@@ -125,8 +127,18 @@ def install_postgres_breaker(engine: AsyncEngine, breaker: CircuitBreaker | None
         # Connect ourselves so a refused/timed-out connect is counted even when it is a raw OSError (not a DBAPI error,
         # so no handle_error event fires for it).
         breaker.before_call()          # raises CircuitOpen while open; in half-open exactly one caller probes
+        if db_secret.enabled():
+            cparams["user"], cparams["password"] = db_secret.credentials()   # never the stale value baked into the URL
         try:
-            conn = dialect.connect(*cargs, **cparams)
+            try:
+                conn = dialect.connect(*cargs, **cparams)
+            except Exception as auth_exc:
+                if not (db_secret.enabled() and db_secret.is_auth_failure(auth_exc)):
+                    raise
+                # The password was rotated since we read the secret: re-read it and reconnect once (KAN-244).
+                logger.warning("database authentication failed; re-reading the secret and reconnecting once")
+                cparams["user"], cparams["password"] = db_secret.credentials(refresh=True)
+                conn = dialect.connect(*cargs, **cparams)
         except OSError as exc:
             breaker.record_failure(exc)
             if isinstance(exc, ConnectionError):

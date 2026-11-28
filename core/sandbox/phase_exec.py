@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from aether_os.core.projects import get_project_manager
 from aether_os.core.run_app.child_env import child_env
+from aether_os.core.sandbox import app_env
 from aether_os.core.sandbox.endpoints import app_host, app_url  # noqa: F401  (the one way callers address a started app)
 from aether_os.core.sandbox.runner import SandboxRunner, SandboxUnavailable, get_runner, sandbox_dirs
 
@@ -78,8 +80,13 @@ def run_sync(argv: Sequence[str], *, cwd: Path, project: Optional[Path] = None,
     root = project_root(project or cwd)
     full_env = child_env(PIP_DISABLE_PIP_VERSION_CHECK="1", **sandbox_dirs(root))
     full_env.update(env or {})
-    done = runner.run(_resolve(runner, argv), run_dir=root, cwd=Path(cwd), env=full_env,
-                      timeout=timeout, network=network)
+    resolved = _resolve(runner, argv)
+    if not network and app_env.is_pytest(argv):
+        # Tests import what the app's requirements.txt lists (stripe, boto3...): run them in the run's venv (KAN-256).
+        deps = app_env.app_packages(runner, root, Path(cwd), full_env)
+        if deps:
+            full_env["PYTHONPATH"] = os.pathsep.join(p for p in (full_env.get("PYTHONPATH"), deps) if p)
+    done = runner.run(resolved, run_dir=root, cwd=Path(cwd), env=full_env, timeout=timeout, network=network)
     if text:
         return subprocess.CompletedProcess(done.args, done.returncode,
                                            (done.stdout or b"").decode(errors="replace"),

@@ -17,6 +17,7 @@ This file was checked against the code at commit `e5c23fd`. Commands that depend
 11. [Velaris public app](#11-velaris-public-app-careers-scheduling-interview-participant-e-sign---kan-128)
 12. [Prime learning: consent, data rights, retention](#12-prime-learning-consent-data-rights-retention---kan-228)
 13. [Prime learning loop](#13-prime-learning-loop---kan-229)
+14. [Platform security and sandbox host (KAN-272, 244, 245, 256)](#14-platform-security-and-sandbox-host)
 
 ---
 
@@ -47,7 +48,7 @@ curl -s http://localhost:8000/readyz        # 503 with "degraded" listing the co
 curl -s http://localhost:8000/healthz       # liveness only: does not touch the database
 systemctl status postgresql                 # host-specific unit name
 ```
-`/readyz` is not ready when Postgres is down (`core/resilience/health.py:3-4`). `/health` always returns `{"status": "ok", ...}` and does not check the database (`gateway/routers/health_router.py:34-42`).
+`/readyz` is not ready when Postgres is down (`core/resilience/health.py:3-4`). `/health` and `/api/health` (used by `scripts/smoke_test.sh`) probe Postgres and return 503 `{"status": "unavailable", "database": "down"}` when it is unreachable (KAN-273); `/healthz` stays pure liveness and is what the compose healthcheck calls, so a database blip never restarts a healthy API.
 
 ### Recovery steps (host-specific)
 1. Check that the Postgres process runs: `ps aux | grep postgres`.
@@ -328,3 +329,33 @@ as `learning: ... not recorded` and the build or approval goes on.
 - How outcomes are matched: a correction helped when the next request of the same proposer and action type was
   approved without an edit (pending uses older than 7 days are not settled); golden examples by the run's first frontend
   build; a replayed fix by whether its error is gone after the rebuild.
+
+---
+
+## 14. Platform security and sandbox host
+
+### 14.1 JWT keys (KAN-272)
+With `ENVIRONMENT=production` the gateway refuses to start unless `AETHER_JWT_PRIVATE_KEY_B64` and `AETHER_JWT_PUBLIC_KEY_B64` (or the `*_PATH` pair) hold a valid RS256 keypair; it no longer falls back to HS256. `docker-compose.yml` passes them as empty strings when `.env` lacks them, so empty = missing. Generate once on the host (idempotent, appends to `.env`, then restart; this logs every user out once):
+```bash
+cd /srv/aether_os && bash deploy/scripts/gen_jwt_keys.sh .env && docker compose up -d api
+```
+`deploy/terraform/aws/environments/prod-single/bootstrap.sh` runs it for new hosts.
+
+### 14.2 Database password rotation (KAN-244)
+RDS rotates the master password every 7 days (Secrets Manager managed secret). A static `DATABASE_URL` then goes stale. Set on the API (and `migrate`) service:
+```
+DATABASE_SECRET_ARN=<ARN or name of the RDS managed secret>
+AWS_REGION=<region of the secret>
+```
+The URL still supplies host, port and database name; username and password come from the secret (`core/db_secret.py`). On a password-authentication failure the secret is re-read and the connection retried once, so a rotation is picked up without a restart. Unset = `DATABASE_URL` used unchanged. The instance role needs `secretsmanager:GetSecretValue` on that secret (and `kms:Decrypt` if it uses a customer-managed key). The compose service needs to reach the instance role (IMDS hop limit 2 for containers) or `AWS_*` credentials.
+
+### 14.3 Sandbox host firewall (KAN-245)
+`core/sandbox/host_firewall.sh` is applied at boot and after every Docker restart by the unit `deploy/systemd/aether-sandbox-firewall.service`. Install or refresh (root, on the Docker host; done by `bootstrap.sh` and `deploy/deploy.sh`):
+```bash
+sudo AETHER_SANDBOX_PUBLISH_IP=<same value as in .env> bash deploy/scripts/install_sandbox_firewall.sh /srv/aether_os
+systemctl status aether-sandbox-firewall
+```
+When the firewall is not applied the sandbox is unavailable and runs fail with `generated code was not run: sandbox unavailable (<reason>)`; checks are no longer skipped silently.
+
+### 14.4 Generated app tests (KAN-256)
+`pytest` of a generated app runs in the run's venv with its `requirements.txt` installed over the install egress network (`core/sandbox/app_env.py`: requirements validated with packaging and passed to base-python `pip --target`, wheels only); the sandbox image (`aether-sandbox:1`) also has pytest-timeout and a common third-party floor (stripe, boto3, requests, redis). Rebuild the image after changes to `core/sandbox/Dockerfile`: `docker build -t aether-sandbox:1 -f core/sandbox/Dockerfile core/sandbox`.
