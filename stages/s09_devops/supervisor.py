@@ -33,7 +33,8 @@ SUB-STEPS:
 NOTE: p08_cicd_deployment is a thin wrapper around p08_cicd. We call
       p08_cicd_deployment directly — it resolves the CICDAgent indirection internally.
 
-CRITICAL: No — DevOps failures don't block handoff
+CRITICAL: No — a crash does not end the run.
+GATE: blocks when no Dockerfile was generated or the attempted deploy failed (KAN-247).
 """
 from __future__ import annotations
 
@@ -124,6 +125,23 @@ def _find_k8s_manifests(output_dir: Path) -> List[str]:
         if any(kw in yml_file.name.lower() for kw in k8s_keywords):
             manifests.append(str(yml_file))
     return manifests
+
+
+def _deploy_status(p11_result: TaskResult, live_url: str) -> Dict[str, Any]:
+    """{"state": "deployed" | "failed" | "not_deployed", "reason", "live_url"} from p11's result.
+
+    p11 reports success+skipped when Docker is not available (nothing was attempted) and success=False when the
+    build, the run or the /health wait failed or there was nothing to deploy.
+    """
+    meta = p11_result.metadata or {}
+    if not p11_result.success:
+        reason = meta.get("error") or meta.get("failure_reason") or "; ".join(
+            str(i) for i in (p11_result.issues or [])[:1]) or "p11_deployment reported failure"
+        return {"state": "failed", "reason": str(reason)[:500], "live_url": None}
+    if meta.get("skipped") or not live_url:
+        return {"state": "not_deployed", "reason": str(meta.get("message") or "no live URL was produced")[:300],
+                "live_url": None}
+    return {"state": "deployed", "reason": "", "live_url": live_url}
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +286,7 @@ class DevOpsStageSupervisor(PhaseBase):
 
         project_name = data.get("project_name", "App")
         healing_passed = data.get("healing_passed", True)
+        deploy = _deploy_status(p11_result, live_url)
 
         logger.info(
             "[s09] complete: dockerfile=%s ci=%s helm=%s terraform=%s "
@@ -295,6 +314,8 @@ class DevOpsStageSupervisor(PhaseBase):
                 "k8s_manifests": k8s_manifests,
                 "healing_passed": healing_passed,
                 "enterprise_deployed": run_enterprise,
+                "deploy": deploy,
+                "not_verified": ([f"deploy: not run: {deploy['reason']}"] if deploy["state"] == "not_deployed" else []),
                 "project_name": project_name,
                 "sub_steps": {
                     "p08_cicd_deployment": p08_result.success,
@@ -305,44 +326,35 @@ class DevOpsStageSupervisor(PhaseBase):
                 },
             },
             issues=issues,
-            # DevOps failures never block handoff (spec: CRITICAL: No)
+            # A crash is not critical (the stage is non-critical); a failed deploy is decided by the gate.
             success=True,
         )
 
     async def validate_gate(self, result: TaskResult, phase_input: Any) -> GateOutcome:
         """
-        Gate: passes if a Dockerfile was generated.
-        Warn if CI workflow or K8s manifests are missing, but never block.
+        Gate: blocks when no Dockerfile was generated or the deploy was attempted and the app did not come up
+        (docker build/run failed or /health never answered). This gate used to pass in every case, so a run whose
+        container never started still reached "completed" (KAN-247). A deploy that could not be attempted (no
+        Docker here) does not block; it is listed in metadata["not_verified"]. A missing CI workflow is a warning.
         """
-        dockerfile_path = result.metadata.get("dockerfile_path", "")
-        ci_workflow_path = result.metadata.get("ci_workflow_path", "")
-        gate_issues: List[str] = []
-
+        meta = result.metadata or {}
+        dockerfile_path = meta.get("dockerfile_path", "")
+        blocking: List[str] = []
         if not dockerfile_path or not Path(dockerfile_path).exists():
-            gate_issues.append(
-                "s09_devops: Dockerfile was not generated — "
-                "Docker build/run will not be possible"
-            )
+            blocking.append("s09_devops: Dockerfile was not generated — Docker build/run will not be possible")
+        deploy = meta.get("deploy") or {}
+        if deploy.get("state") == "failed":
+            blocking.append(f"s09_devops: deploy failed: {deploy.get('reason') or 'no reason given'}")
+        if blocking:
+            return GateOutcome(passed=False, issues=blocking, confidence=result.confidence)
 
+        warnings: List[str] = list(meta.get("not_verified") or [])
+        ci_workflow_path = meta.get("ci_workflow_path", "")
         if not ci_workflow_path or not Path(ci_workflow_path).exists():
-            gate_issues.append(
-                "s09_devops: GitHub Actions CI workflow was not generated"
-            )
-
-        if gate_issues:
-            for issue in gate_issues:
-                logger.warning("[s09] gate warning: %s", issue)
-            # Non-blocking: DevOps failures don't stop the pipeline
-            return GateOutcome(
-                passed=True,
-                issues=gate_issues,
-                confidence=0.6,
-            )
-
-        return GateOutcome(
-            passed=True,
-            confidence=result.confidence,
-        )
+            warnings.append("s09_devops: GitHub Actions CI workflow was not generated")
+        for issue in warnings:
+            logger.warning("[s09] gate warning: %s", issue)
+        return GateOutcome(passed=True, issues=warnings, confidence=0.6 if warnings else result.confidence)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
