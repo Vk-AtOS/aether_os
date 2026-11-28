@@ -13,6 +13,7 @@ paths = [
   '''tests/conftest\.py''',
   '''tests/gateway_env\.py''',
   '''tests/test_billing_webhook\.py''',
+  '''tests/test_project_export\.py''',
   '''tests/test_model_router\.py''',
   '''tests/test_plugin_security\.py''',
   '''tests/test_prime_detail\.py''',
