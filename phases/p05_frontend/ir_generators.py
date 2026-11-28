@@ -13,6 +13,7 @@ LLM is still called for the DomainWidget (copy/UX wording).
 """
 from __future__ import annotations
 
+from aether_os.phases.p04a_backend_codegen.ir_client_fields import client_fields
 from aether_os.phases.p05_frontend.dashboard_stats import stats_dashboard_tsx
 from aether_os.core.domain_ir import AetherType, DomainIR, IREntity, IRField, TS_TYPE_MAP, ZOD_TYPE_MAP
 
@@ -148,8 +149,19 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
 # TypeScript types from IR
 # ---------------------------------------------------------------------------
 
+def _pascal(name: str) -> str:
+    return "".join(part[:1].upper() + part[1:] for part in name.split("_") if part)
+
+
 def generate_ir_types_ts(ir: DomainIR) -> str:
-    """Generate types/index.ts with TypeScript interfaces and Zod schemas from IR."""
+    """Generate types/index.ts with TypeScript interfaces and Zod schemas from IR.
+
+    The interface mirrors what the backend's <Entity>Response serves: the client fields p04a exposes (client_fields:
+    no credentials, each name once) plus id: number / created_at / updated_at, which p04a always generates itself
+    (Integer primary key) whatever the IR says. Model-written IRs list id/created_at/updated_at as ordinary fields
+    (run da281716: id as a uuid string), and emitting both made every interface declare them twice with conflicting
+    types (TS2300/TS2717). The Zod create schema holds only what a client sends: no server-set columns.
+    """
     lines = [
         "import { z } from 'zod';",
         "",
@@ -157,11 +169,18 @@ def generate_ir_types_ts(ir: DomainIR) -> str:
 
     for entity in ir.entities:
         name = entity.name
+        fields = [f for f in client_fields(entity) if f.name.lower() not in _SERVER_SET_COLUMNS]
+
+        # One named union per enum field (TaskStatus): model-written pages import these names.
+        for f in fields:
+            if f.type == AetherType.ENUM and f.enum_values:
+                union = " | ".join(f"'{v}'" for v in f.enum_values)
+                lines.append(f"export type {name}{_pascal(f.name)} = {union};")
 
         # TypeScript interface
         lines.append(f"export interface {name} {{")
         lines.append("  id: number;")
-        for f in entity.fields:
+        for f in fields:
             ts_type = TS_TYPE_MAP.get(f.type, "string")
             optional = "?" if f.nullable else ""
             lines.append(f"  {f.name}{optional}: {ts_type};")
@@ -172,7 +191,7 @@ def generate_ir_types_ts(ir: DomainIR) -> str:
 
         # Zod schema for create/update
         lines.append(f"export const {name}Schema = z.object({{")
-        for f in entity.fields:
+        for f in fields:
             zod = ZOD_TYPE_MAP.get(f.type, "z.string()")
             if f.type == AetherType.ENUM and f.enum_values:
                 vals = ", ".join(f"'{v}'" for v in f.enum_values)
