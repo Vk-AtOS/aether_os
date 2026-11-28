@@ -79,7 +79,9 @@ def macos_profile(run_dir: Path, readable: Iterable[Path] = ()) -> str:
 def _toolchain_dirs() -> List[Path]:
     """Install dirs of the interpreters generated code needs, when they live under a denied tree
     (e.g. Node from nvm in ~/.nvm). Everything else (Homebrew, /usr) is readable anyway."""
-    candidates = [Path(sys.base_prefix), *map(Path, site.getsitepackages())]
+    # sys.prefix is the venv root: Python reads its pyvenv.cfg at startup, so a venv under a denied tree
+    # (~/.venv, /tmp) died with 'Failed to import the site module' when only base_prefix was allowed.
+    candidates = [Path(sys.base_prefix), Path(sys.prefix), *map(Path, site.getsitepackages())]
     node = shutil.which("node")
     if node:
         candidates.append(Path(node).resolve().parent.parent)
