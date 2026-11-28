@@ -49,12 +49,82 @@ def gate_block_reason(stage: str, result: Dict[str, Any],
     return None
 
 
+def _reason(r: Dict[str, Any]) -> str:
+    return str(r.get("error") or "; ".join(str(i) for i in (r.get("issues") or [])[:3] if i) or "no reason given")
+
+
+def _frontend_blockers(meta: Dict[str, Any]) -> List[str]:
+    """The frontend ships only when its production build AND its type-check passed.
+
+    vite does not type-check, and s04 lets a bundle with TypeScript errors through as a warning: the run must still
+    not read as completed (completed runs 324a16b7, dca90bef shipped ~10 TS errors each).
+    """
+    if "build_ok" not in meta and "tsc_errors" not in meta:
+        return ["s04_frontend: the production build / type-check result was not recorded"]
+    out = []
+    if meta.get("build_ok") is False:
+        out.append("s04_frontend: the production build failed")
+    tsc = int(meta.get("tsc_errors") or 0)
+    if tsc:
+        first = " | ".join(str(m) for m in (meta.get("tsc_messages") or [])[:2])
+        out.append(f"s04_frontend: type-check failed with {tsc} TypeScript error(s)" + (f": {first}" if first else ""))
+    return out
+
+
+def release_blockers(results: Dict[str, Dict[str, Any]]) -> List[str]:
+    """Why this run must not be reported "completed"; empty when every required stage really passed (KAN-247).
+
+    A required stage (MANDATORY_STAGES) that is in this run must have passed, and what it says it did not verify
+    (metadata["not_verified"]: live tests not run, deploy not attempted, a handoff sub-step failed) counts too.
+    The frontend needs a passing build and type-check; failing unit tests that s06 let through need s07 to have
+    healed them. A frontend skipped because none was requested is not a blocker.
+    """
+    out: List[str] = []
+    s06_gate = ((results.get("s06_testing") or {}).get("metadata") or {}).get("gate") or {}
+    s07_ok = ((results.get("s07_healing") or {}).get("metadata") or {}).get("healing_passed") is True
+    for stage in MANDATORY_STAGES:
+        r = results.get(stage)
+        if r is None:
+            continue
+        meta = r.get("metadata") or {}
+        if stage == "s04_frontend" and meta.get("skipped_reason") == "no_frontend_selected":
+            continue
+        if stage == "s06_testing" and s06_gate.get("passed") and s07_ok:
+            continue  # tests ran; the failures s06 reported are the ones s07 then healed (its pytest passed)
+        if r.get("status") != "passed":
+            out.append(f"{stage} {r.get('status') or 'did not finish'}: {_reason(r)}")
+            continue
+        out.extend(f"{stage}: {n}" for n in meta.get("not_verified") or [])
+        if stage == "s04_frontend":
+            out.extend(_frontend_blockers(meta))
+        if stage == "s07_healing" and meta.get("healing_passed") is not True:
+            out.append("s07_healing: the app was not verified running")
+    if s06_gate.get("tests_failed_but_did_not_block") and not s07_ok:
+        out.append(f"s06_testing: {s06_gate.get('tests_failed')} unit test(s) failed and were not healed")
+    return out
+
+
+def final_run_status(results: Dict[str, Dict[str, Any]],
+                     council_passed: Optional[bool]) -> Tuple[str, Optional[str]]:
+    """(status, message) to store when a run ends: "completed" only if every required stage passed.
+
+    council_passed None = the advisory council produced no verdict (it never upgrades or downgrades by itself).
+    """
+    blockers = release_blockers(results)
+    if blockers:
+        more = f" (+{len(blockers) - 5} more)" if len(blockers) > 5 else ""
+        return "needs_review", redact_secrets("Not every required stage passed: " + "; ".join(blockers[:5]) + more)
+    if council_passed is False:
+        return "needs_review", None
+    return "completed", None
+
+
 def summarize_stage_outcomes(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """Run-level summary of the stages that did not complete cleanly.
 
     Non-critical stages may fail or be skipped without ending the run; this lists
     them so the run result (and the dashboard) never reads as a clean success when
-    s06 failed or a stage was switched off.
+    s06 failed, a stage was switched off, or a stage did not verify what it is for.
     """
     failed: List[Dict[str, str]] = []
     skipped: List[Dict[str, str]] = []
@@ -62,13 +132,15 @@ def summarize_stage_outcomes(results: Dict[str, Dict[str, Any]]) -> Dict[str, An
         status = r.get("status")
         meta = r.get("metadata") or {}
         if status in ("failed", "timeout", "escalated"):
-            reason = r.get("error") or "; ".join(str(i) for i in (r.get("issues") or [])[:3] if i)
-            failed.append({"stage": stage, "status": status, "reason": str(reason or "no reason given")})
+            failed.append({"stage": stage, "status": status, "reason": _reason(r)})
         elif status == "skipped" or meta.get("skipped") is True:
             skipped.append({"stage": stage, "reason": str(meta.get("skipped_reason") or "skipped")})
     # s06's gate lets failing unit tests through (healing repairs them): say so at run level.
     s06_gate = ((results.get("s06_testing") or {}).get("metadata") or {}).get("gate") or {}
-    return {"failed_stages": failed, "skipped_stages": skipped, "all_stages_ok": not failed and not skipped,
+    blockers = release_blockers(results)
+    return {"failed_stages": failed, "skipped_stages": skipped,
+            "all_stages_ok": not failed and not skipped and not blockers,
+            "release_blockers": blockers,
             "tests_failed_but_did_not_block": bool(s06_gate.get("tests_failed_but_did_not_block")),
             "tests_not_checked": list(s06_gate.get("not_checked") or [])}
 

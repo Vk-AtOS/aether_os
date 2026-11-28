@@ -331,8 +331,10 @@ async def get_council_review(
 async def cleanup_stuck_council_review(
     user: Dict[str, Any] = _current_user(),
 ) -> Dict[str, Any]:
-    """Promote runs stuck in 'council_review' for > 10 minutes to 'completed'.
+    """Move runs stuck in 'council_review' for > 10 minutes to 'needs_review'.
 
+    Their final verdict (council + required stages) was never written, so they are not reported as
+    'completed' (KAN-247: a run must not read as completed without its stages having passed).
     Intended for admin use or automated scheduling.
     """
     if user.get("role") not in ("owner", "admin"):
@@ -351,14 +353,15 @@ async def cleanup_stuck_council_review(
             .where(_Run.org_id == user["org_id"])  # an org admin touches their own org's runs only
             .where(_Run.status == "council_review")
             .where(_Run.started_at < cutoff)
-            .values(status="completed")
+            .values(status="needs_review",
+                    message="The final review never finished: the run was not verified, so it is not marked completed")
         )
         await session.commit()
     promoted = result.rowcount
     logger.info(
-        "cleanup_stuck_council_review: promoted %d run(s) to completed", promoted
+        "cleanup_stuck_council_review: moved %d run(s) to needs_review", promoted
     )
     return {
         "promoted": promoted,
-        "message": f"Promoted {promoted} stuck run(s) from council_review to completed",
+        "message": f"Moved {promoted} stuck run(s) from council_review to needs_review",
     }

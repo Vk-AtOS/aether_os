@@ -213,6 +213,23 @@ def test_p07a_find_src_dir(tmp_path):
     assert result == src
 
 
+def _fake_sandbox_pytest():
+    """The sandbox runs the import check and pytest (passing); p07a reads pytest from its JUnit report (KAN-250).
+
+    The tests below used to pass whether or not pytest ran: p07a reported success unconditionally.
+    """
+    import subprocess
+    from pathlib import Path as _P
+    from unittest.mock import patch
+
+    async def fake_run(argv, **kw):
+        junit = next((a.split("=", 1)[1] for a in argv if a.startswith("--junitxml=")), None)
+        if junit:
+            _P(junit).write_text('<testsuite><testcase name="test_health"/></testsuite>')
+        return subprocess.CompletedProcess(argv, 0, "IMPORT_OK\ncollected 1 item", "")
+    return patch("aether_os.phases.p07a_unit_testing.task_agent.phase_exec.run", fake_run)
+
+
 @pytest.mark.asyncio
 async def test_p07a_full_run_no_source(tmp_path):
     """Full run with no source files writes placeholder test and returns success."""
@@ -224,10 +241,10 @@ async def test_p07a_full_run_no_source(tmp_path):
 
     mock_llm = AsyncMock()
     with patch("aether_os.core.llm.client.get_llm_client",
-               return_value=mock_llm):
+               return_value=mock_llm), _fake_sandbox_pytest():
         result = await run(PhaseInput(), [], tmp_path / "out")
 
-    assert result.success is True
+    assert result.success is True  # the sandbox (faked) ran the tests and they passed: KAN-250
     # Placeholder test must exist
     tests = list((tmp_path / "out" / "tests").glob("*.py"))
     assert len(tests) >= 1
@@ -254,7 +271,7 @@ async def test_p07a_full_run_with_source_uses_fallback_on_bad_llm(tmp_path):
     mock_llm.call = AsyncMock(return_value="this is !!! not valid python ???")
 
     with patch("aether_os.core.llm.client.get_llm_client",
-               return_value=mock_llm):
+               return_value=mock_llm), _fake_sandbox_pytest():
         result = await run(PhaseInput(), [], tmp_path / "out")
 
     assert result.success is True

@@ -3,14 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aether_os.core.codegen.entities import entity_from_label as _entity_from_label
 from aether_os.phases.base import TaskResult
+from aether_os.phases.p07a_unit_testing import pytest_report
 from aether_os.phases.p07a_unit_testing.crud_repair import repair_crud
+from aether_os.core.run_app import safe_fs
 from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.runner import SandboxUnavailable
 
@@ -363,7 +364,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     src_dir = _find_src_dir(data)
 
     tests_written = 0
-    test_results: dict = {"passed": 0, "failed": 0, "errors": []}
+    test_results: dict = {"passed": 0, "failed": 0, "collected": 0, "collection_error": None, "errors": []}
 
     # ── Generate test file deterministically (no LLM) ───────────────────────
     # LLMs consistently get API URLs wrong (e.g. /api/ instead of /api/products/).
@@ -381,51 +382,29 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     test_file.write_text(test_code)
     tests_written = 1
 
-    # ── Run pytest ────────────────────────────────────────────────────────────
-    run_dir = src_dir if src_dir else output_dir
-    try:
-        _test_env = {
-            "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
-            "SECRET_KEY": "test-secret-key-not-for-production",
-            "PYTHONPATH": str(run_dir),
-        }
-        done = await phase_exec.run(
-            ["python3", "-m", "pytest", str(test_file), "-v", "--tb=short",
-             "-p", "no:cacheprovider", "--timeout=30"],
-            cwd=run_dir, project=output_dir, env=_test_env, timeout=60, text=True)
-        output_text = done.stdout + done.stderr
-        (output_dir / "pytest_output.txt").write_text(output_text)
-
-        if "passed" in output_text:
-            m = re.search(r"(\d+) passed", output_text)
-            test_results["passed"] = int(m.group(1)) if m else 1
-        if "failed" in output_text:
-            m = re.search(r"(\d+) failed", output_text)
-            test_results["failed"] = int(m.group(1)) if m else 0
-        if done.returncode not in (0, 1):
-            test_results["errors"].append(output_text[-500:])
-        logger.info("[p07a] pytest done: %s passed, %s failed", test_results["passed"], test_results["failed"])
-    except asyncio.TimeoutError:
-        test_results["errors"].append("pytest timed out after 60s")
-        logger.warning("[p07a] pytest timed out")
-    except SandboxUnavailable:
-        raise  # generated tests were NOT run (never on the host): the phase fails with this message
-    except Exception as exc:
-        test_results["errors"].append(str(exc))
-        logger.warning("[p07a] pytest run failed: %s", exc)
-
-    # Exec validation — catch import errors the static syntax check misses
+    # ── Import check FIRST, then pytest (KAN-250) ─────────────────────────────
+    # The check may repair routers/crud.py; it ran after pytest, so the run reported pytest on the broken file while
+    # the shipped file was the patched one and no test ever ran against it. Now pytest always sees the repaired code.
     exec_result = {"passed": True, "error": None, "fixed": False}
     try:
         exec_result = await _exec_validate_startup(src_dir, output_dir)
         if not exec_result["passed"]:
-            logger.warning("[p07a] exec validation failed: %s", exec_result.get("error", "")[:200])
+            logger.warning("[p07a] exec validation failed: %s", (exec_result.get("error") or "")[:200])
         elif exec_result.get("fixed"):
             logger.info("[p07a] exec validation: LLM auto-fixed import error")
     except SandboxUnavailable:
         raise
     except Exception as _ev_exc:
-        logger.debug("[p07a] exec validation error (non-fatal): %s", _ev_exc)
+        logger.warning("[p07a] exec validation error (non-fatal): %s", _ev_exc)
+
+    test_results.update(await _run_pytest(test_file, src_dir if src_dir else output_dir, output_dir))
+    if not exec_result["passed"]:
+        # The app does not import: whatever pytest reported, no test exercised it.
+        test_results["collection_error"] = (
+            f"app import failed: {pytest_report.first_error(exec_result.get('error') or '')}")
+        test_results["passed"] = test_results["failed"] = 0
+    if test_results.get("collection_error"):
+        test_results["errors"].append(f"collection error: {test_results['collection_error']}")
 
     summary = {
         "tests_written": tests_written,
@@ -433,12 +412,51 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         **test_results,
         "exec_validation": exec_result,
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    safe_fs.safe_write_text(output_dir, output_dir / "summary.json", json.dumps(summary, indent=2))
 
+    ran = test_results["passed"] + test_results["failed"]
     return TaskResult(
         output_path=str(test_file),
-        confidence=0.75,
+        confidence=0.75 if ran and not test_results["collection_error"] else 0.2,
         metadata=summary,
-        success=True,
+        # A collection error or an app that does not import is a failed phase, not "0 tests".
+        success=bool(ran) and not test_results["collection_error"],
         issues=test_results["errors"],
     )
+
+
+async def _run_pytest(test_file: Path, run_dir: Path, output_dir: Path) -> dict:
+    """Run the tests in the sandbox and read the result from pytest's JUnit report + exit code."""
+    junit = output_dir / "junit.xml"
+    if junit.exists():
+        junit.unlink()  # a report from an earlier attempt must not stand in for this one
+    env = {
+        "DATABASE_URL": "sqlite+aiosqlite:///./test.db",
+        "SECRET_KEY": "test-secret-key-not-for-production",
+        "PYTHONPATH": str(run_dir),
+    }
+    errors: list = []
+    try:
+        done = await phase_exec.run(
+            ["python3", "-m", "pytest", str(test_file), "-v", "--tb=short",
+             "-p", "no:cacheprovider", "--timeout=30", f"--junitxml={junit}"],
+            cwd=run_dir, project=output_dir, env=env, timeout=60, text=True)
+    except asyncio.TimeoutError:
+        logger.warning("[p07a] pytest timed out")
+        return {"collection_error": "pytest timed out after 60s", "errors": ["pytest timed out after 60s"]}
+    except SandboxUnavailable:
+        raise  # generated tests were NOT run (never on the host): the phase fails with this message
+    except Exception as exc:
+        logger.warning("[p07a] pytest run failed: %s", exc)
+        return {"collection_error": f"pytest did not run: {exc}", "errors": [str(exc)]}
+    output_text = done.stdout + done.stderr
+    # output_dir is writable by the sandboxed tests: never follow a link they planted (host file read/write) and
+    # never read an unbounded file. A refused report is treated as missing (the output summary is parsed instead).
+    safe_fs.safe_write_text(output_dir, output_dir / "pytest_output.txt", output_text)
+    report = pytest_report.parse_run(done.returncode, output_text,
+                                     safe_fs.read_text_or_none(output_dir, junit, max_bytes=pytest_report.MAX_REPORT))
+    if done.returncode not in (0, 1):
+        errors.append(output_text[-500:])
+    logger.info("[p07a] pytest done: %s passed, %s failed, collection error: %s",
+                report["passed"], report["failed"], report["collection_error"])
+    return {**report, "errors": errors}

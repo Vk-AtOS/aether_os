@@ -130,3 +130,25 @@ def _model_admission_bypassed(request, monkeypatch):
     async def usable(org_id):
         return model_admission.ModelAdmission(usable=True, provider="test")
     monkeypatch.setattr(model_admission, "check_model_admission", usable)
+
+
+@pytest.fixture(autouse=True)
+def _llm_provider_health_isolated():
+    """Each test starts with no provider marked dead or degraded.
+
+    The router keeps provider health in process-global tables (circuit breakers with a 600 s TTL, AHM health
+    scores). A test whose code reached an unreachable Ollama left it dead/degraded, and test_pipeline (which mocks
+    Ollama) was then routed to Anthropic only and failed with a 401 in CI (PR #107: s07 now really runs the app
+    checks, so more pipeline code reaches the router).
+    """
+    from aether_os.core import model_router_providers as mrp
+    from aether_os.core.llm.ahm import default_ahm
+
+    def _clear():
+        mrp._DEAD_PROVIDERS.clear()
+        mrp._DEAD_MODELS.clear()
+        mrp._SERVER_FAILURES.clear()
+        default_ahm._health.clear()
+    _clear()
+    yield
+    _clear()
