@@ -18,6 +18,7 @@ import logging
 import os
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,21 @@ def seed_demo_enabled() -> bool:
     return os.environ.get("SEED_DEMO_DATA", "false").strip().lower() in ("1", "true", "yes")
 
 
+def admin_password_problem(password: str) -> str:
+    """The rule an ADMIN_PASSWORD breaks ('' when it is acceptable). Names the rule, never the value."""
+    if password.lower() in KNOWN_DEFAULT_PASSWORDS:
+        return "a known default or placeholder password"
+    if len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+        return f"shorter than {MIN_ADMIN_PASSWORD_LENGTH} characters"
+    return ""
+
+
 def validate_production_settings() -> None:
     """Fail fast, with the reason, when a production start would be unsafe."""
     if not os.environ.get("DATABASE_URL", "").strip():
         raise RuntimeError("DATABASE_URL is required in production (for example postgresql+asyncpg://user:pass@host/db)")
     password = os.environ.get("ADMIN_PASSWORD", "")
-    if password and (password.lower() in KNOWN_DEFAULT_PASSWORDS or len(password) < MIN_ADMIN_PASSWORD_LENGTH):
+    if password and admin_password_problem(password):
         raise RuntimeError(
             f"ADMIN_PASSWORD is a known default or shorter than {MIN_ADMIN_PASSWORD_LENGTH} characters: "
             "set a strong ADMIN_PASSWORD (or unset it and create the admin another way)")
@@ -76,6 +86,10 @@ async def ensure_admin(db):
     password = os.environ.get("ADMIN_PASSWORD", "")
     if not email or not password:
         return None
+    problem = admin_password_problem(password)
+    if problem:      # any environment: a placeholder or short password must never protect an admin account
+        logger.error("Admin not created: ADMIN_PASSWORD is %s", problem)
+        return None
     admin = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if admin is not None:
         return admin
@@ -101,16 +115,19 @@ async def run_startup(engine, base) -> None:
     try:
         async with AsyncSessionLocal() as db:
             if await ensure_admin(db) is None:
-                logger.warning("No admin created: set ADMIN_EMAIL and ADMIN_PASSWORD to create the first admin")
+                logger.warning("No admin created: set ADMIN_EMAIL and a strong ADMIN_PASSWORD to create the first admin")
+    except IntegrityError:
+        logger.info("Admin already created by another replica")      # lost the race: nothing to do
     except Exception as exc:
+        # Never log the exception text: SQLAlchemy errors carry the statement and its parameters (password hash).
+        logger.error("Admin bootstrap failed: %s", type(exc).__name__)
         if is_production():
-            raise
-        logger.warning("Admin bootstrap skipped: %s", exc)
+            raise RuntimeError(f"admin bootstrap failed ({type(exc).__name__})") from None
     if seed_demo_enabled():
         try:
             from seed import seed_database
             await seed_database()
             logger.info("Demo data seeded (SEED_DEMO_DATA=true)")
         except Exception as exc:
-            logger.warning("Demo seed skipped: %s", exc)
+            logger.warning("Demo seed skipped: %s", type(exc).__name__)
 '''

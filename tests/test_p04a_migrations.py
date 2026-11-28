@@ -180,16 +180,16 @@ def test_production_refuses_a_missing_database_url(app):
 
 def test_development_creates_tables_but_seeds_only_when_asked(app, tmp_path):
     url = sqlite_url(tmp_path)
-    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="dev-pass")
+    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="Dev-pass-long-enough")
     r = result(run_py(app, _TABLES, DATABASE_URL=url))
     assert "customers" in r["tables"] and r["users"] == 1
     count = ("import sqlite3, os, json; c = sqlite3.connect(os.environ['DATABASE_URL'].split('///')[1]); "
              "print('RESULT ' + json.dumps(c.execute('select count(*) from customers').fetchone()[0]))")
     assert result(run_py(app, count, DATABASE_URL=url)) == 0
-    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="dev-pass",
+    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="Dev-pass-long-enough",
            SEED_DEMO_DATA="true")
     assert result(run_py(app, count, DATABASE_URL=url)) == 20
-    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="dev-pass",
+    run_py(app, _START, DATABASE_URL=url, ENVIRONMENT="development", ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD="Dev-pass-long-enough",
            SEED_DEMO_DATA="true")
     assert result(run_py(app, count, DATABASE_URL=url)) == 20          # idempotent
 
@@ -216,3 +216,58 @@ def test_export_ships_the_migrations_and_runs_them_on_start(app, tmp_path):
     assert "alembic upgrade head" in (be / "Dockerfile").read_text()
     compose = (dest / "docker-compose.yml").read_text()
     assert "postgres" in compose and "ENVIRONMENT: production" in compose
+
+
+_LOGS = r'''
+import json, logging, os, sys, io
+sys.path.insert(0, "src")
+buf = io.StringIO(); logging.basicConfig(level=logging.INFO, stream=buf)
+import main
+from fastapi.testclient import TestClient
+with TestClient(main.app, raise_server_exceptions=True) as c:
+    pass
+import sqlite3
+con = sqlite3.connect(os.environ["DATABASE_URL"].split("///")[1])
+print("RESULT " + json.dumps({"users": con.execute("select count(*) from users").fetchone()[0], "log": buf.getvalue()}))
+'''
+
+
+@pytest.mark.parametrize("password", ["change-me", "qwerty", "zq7-pw"])
+def test_a_placeholder_or_short_admin_password_creates_no_admin_in_any_environment(app, tmp_path, password):
+    r = result(run_py(app, _LOGS, DATABASE_URL=sqlite_url(tmp_path), ENVIRONMENT="development",
+                      ADMIN_EMAIL="a@b.test", ADMIN_PASSWORD=password))
+    assert r["users"] == 0
+    assert "ADMIN_PASSWORD is" in r["log"] and password not in r["log"]      # names the rule, not the value
+
+
+_RACE = r'''
+import asyncio, json, logging, io, os, sys
+sys.path.insert(0, "src")
+buf = io.StringIO(); logging.basicConfig(level=logging.INFO, stream=buf)
+import bootstrap, database
+from sqlalchemy.exc import IntegrityError
+async def lost_race(db): raise IntegrityError("INSERT INTO users", {"password_hash": "SECRETHASH"}, Exception("dup"))
+async def boom(db): raise RuntimeError("SECRETHASH")
+async def go(fn):
+    bootstrap.ensure_admin = fn
+    await bootstrap.run_startup(database.engine, database.Base)
+asyncio.run(go(lost_race))
+try:
+    os.environ["ENVIRONMENT"] = "production"
+    asyncio.run(go(boom))
+except RuntimeError as e:
+    err = str(e)
+print("RESULT " + json.dumps({"log": buf.getvalue(), "err": err}))
+'''
+
+
+def test_bootstrap_failures_never_log_sql_parameters_and_a_lost_race_is_quiet(app, tmp_path):
+    url = sqlite_url(tmp_path)
+    assert alembic(app, "upgrade", "head", DATABASE_URL=url).returncode == 0
+    r = result(run_py(app, _RACE, DATABASE_URL=url, ENVIRONMENT="development"))
+    assert "SECRETHASH" not in r["log"] and "SECRETHASH" not in r["err"]
+    assert "already created" in r["log"] and "RuntimeError" in r["log"]
+
+
+def test_generated_engine_hides_sql_parameters(app):
+    assert (app / "src" / "database.py").read_text().count("hide_parameters=True") == 2

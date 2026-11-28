@@ -121,7 +121,7 @@ def _fallback_seed(
                 f"            await db.commit()\n"
                 f"        except Exception as _e:\n"
                 f"            await db.rollback()\n"
-                f"            _logger.warning('Seed {name} failed (non-fatal): %s', _e)\n"
+                f"            _logger.warning('Seed {name} failed (non-fatal): %s', type(_e).__name__)\n"
             )
 
     entity_seed_code = "\n".join(entity_blocks) if entity_blocks else "        pass  # no entity seed data"
