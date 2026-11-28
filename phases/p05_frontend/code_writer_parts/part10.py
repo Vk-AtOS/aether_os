@@ -82,10 +82,10 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:     'bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:scale-[0.98]',
-        outline:     'border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-400 active:scale-[0.98]',
-        ghost:       'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
-        destructive: 'bg-red-600 text-white shadow-sm hover:bg-red-700 active:scale-[0.98]',
-        secondary:   'bg-gray-100 text-gray-900 hover:bg-gray-200 active:scale-[0.98]',
+        outline:     'border border-input bg-card text-foreground shadow-sm hover:bg-muted hover:border-input active:scale-[0.98]',
+        ghost:       'text-muted-foreground hover:bg-muted hover:text-foreground',
+        destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:opacity-90 active:scale-[0.98]',
+        secondary:   'bg-muted text-foreground hover:bg-muted active:scale-[0.98]',
         link:        'text-brand-600 underline-offset-4 hover:underline p-0 h-auto',
       },
       size: {
@@ -143,10 +143,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-foreground"
           >
             {label}
-            {props.required && <span className="text-red-500 ml-1" aria-hidden>*</span>}
+            {props.required && <span className="text-destructive ml-1" aria-hidden>*</span>}
           </label>
         )}
         <input
@@ -154,11 +154,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           id={inputId}
           className={cn(
             'flex h-10 w-full rounded-lg border px-3 py-2 text-sm ring-offset-white transition-colors',
-            'placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
             'disabled:cursor-not-allowed disabled:opacity-50',
             error
-              ? 'border-red-400 bg-red-50 focus-visible:ring-red-400'
-              : 'border-gray-300 bg-white hover:border-gray-400',
+              ? 'border-destructive bg-destructive-soft focus-visible:ring-destructive'
+              : 'border-input bg-card hover:border-input',
             className
           )}
           aria-invalid={!!error}
@@ -166,12 +166,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {...props}
         />
         {error && (
-          <p id={`${inputId}-error`} className="text-xs text-red-600 flex items-center gap-1">
+          <p id={`${inputId}-error`} className="text-xs text-destructive flex items-center gap-1">
             {error}
           </p>
         )}
         {helperText && !error && (
-          <p id={`${inputId}-helper`} className="text-xs text-gray-500">
+          <p id={`${inputId}-helper`} className="text-xs text-muted-foreground">
             {helperText}
           </p>
         )}
@@ -194,7 +194,7 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('rounded-2xl border border-gray-100 bg-white shadow-sm', className)}
+      className={cn('rounded-2xl border border-border bg-card shadow-sm', className)}
       {...props}
     />
   )
@@ -212,7 +212,7 @@ export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadi
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn('text-xl font-semibold tracking-tight text-gray-900', className)}
+      className={cn('text-xl font-semibold tracking-tight text-foreground', className)}
       {...props}
     />
   )
@@ -221,7 +221,7 @@ CardTitle.displayName = 'CardTitle'
 
 export const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-sm text-gray-500', className)} {...props} />
+    <p ref={ref} className={cn('text-sm text-muted-foreground', className)} {...props} />
   )
 )
 CardDescription.displayName = 'CardDescription'
@@ -256,11 +256,11 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:  'bg-brand-100 text-brand-800 border border-brand-200',
-        success:  'bg-green-100  text-green-800  border border-green-200',
-        warning:  'bg-amber-100  text-amber-800  border border-amber-200',
-        error:    'bg-red-100    text-red-800    border border-red-200',
-        outline:  'border border-gray-300 text-gray-700 bg-white',
-        secondary:'bg-gray-100   text-gray-700   border border-gray-200',
+        success:  'bg-success-soft  text-success  border border-success',
+        warning:  'bg-warning-soft  text-warning-foreground  border border-warning',
+        error:    'bg-destructive-soft    text-destructive    border border-destructive',
+        outline:  'border border-input text-foreground bg-card',
+        secondary:'bg-muted   text-foreground   border border-border',
       },
     },
     defaultVariants: { variant: 'default' },
@@ -297,7 +297,7 @@ import { cn } from '../../lib/utils'
 export function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('animate-pulse rounded-md bg-gray-200', className)}
+      className={cn('animate-pulse rounded-md bg-muted', className)}
       aria-hidden="true"
       {...props}
     />
@@ -308,13 +308,13 @@ export function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>
 export function TableSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
     <div className="animate-pulse space-y-0" role="status" aria-label="Loading">
-      <div className="flex gap-4 px-4 py-3 border-b border-gray-100">
+      <div className="flex gap-4 px-4 py-3 border-b border-border">
         {Array.from({ length: cols }).map((_, j) => (
           <Skeleton key={j} className="h-3 w-20 rounded" />
         ))}
       </div>
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-4 px-4 py-3 border-b border-gray-50">
+        <div key={i} className="flex gap-4 px-4 py-3 border-b border-border">
           {Array.from({ length: cols }).map((_, j) => (
             <Skeleton
               key={j}
@@ -332,7 +332,7 @@ export function TableSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
 /** Card-shaped skeleton for detail panels. */
 export function CardSkeleton() {
   return (
-    <div className="space-y-4 p-6 bg-white rounded-2xl border border-gray-100">
+    <div className="space-y-4 p-6 bg-card rounded-2xl border border-border">
       <Skeleton className="h-6 w-3/4" />
       <Skeleton className="h-4 w-1/2" />
       <Skeleton className="h-4 w-2/3" />
@@ -380,7 +380,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
         <Dialog.Content
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-            'w-full rounded-2xl bg-white dark:bg-gray-900 shadow-2xl',
+            'w-full rounded-2xl bg-card shadow-2xl',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -390,20 +390,20 @@ export function Modal({ open, onOpenChange, title, description, children, classN
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 dark:border-gray-700 shrink-0">
+          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border shrink-0">
             <div>
-              <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+              <Dialog.Title className="text-lg font-semibold text-foreground tracking-tight">
                 {title}
               </Dialog.Title>
               {description && (
-                <Dialog.Description className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                <Dialog.Description className="text-sm text-muted-foreground mt-0.5">
                   {description}
                 </Dialog.Description>
               )}
             </div>
             <Dialog.Close asChild>
               <button
-                className="rounded-lg p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="rounded-lg p-2 text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
                 aria-label="Close dialog"
               >
                 <X size={18} />
@@ -411,7 +411,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
             </Dialog.Close>
           </div>
           {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 text-gray-900 dark:text-gray-100">
+          <div className="flex-1 overflow-y-auto px-6 py-4 text-foreground">
             {children}
           </div>
         </Dialog.Content>

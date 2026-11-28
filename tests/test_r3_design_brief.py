@@ -2,10 +2,12 @@
 back to the token system, and the per-domain lookup tables are gone."""
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import pytest
 
+from aether_os.core.rulepacks.color import parse_hex, srgb_to_oklch
 from aether_os.phases.p05_frontend import design_brief as db
 from aether_os.tests.test_p05_generated_frontend import ENTITIES, build_frontend
 
@@ -61,15 +63,16 @@ def test_no_model_in_test_mode_and_a_failing_model_give_none(monkeypatch):
     assert asyncio.run(db.get_design_brief(Broken(), "Demo", "x", "crm", ENTITIES)) is None
 
 
-def test_brand_scale_and_tailwind_override():
-    scale = db.brand_scale("#4f46e5")
-    assert scale[600] == "#4f46e5" and list(scale) == [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]
-    assert scale[50] > scale[900]                    # hex strings of light tints compare above dark shades
+def test_tailwind_config_reads_the_token_variables_whatever_the_theme_name():
+    # KAN-243: it held 17 hex brand ramps picked by domain / ui_theme; the run's design tokens own every color now.
     from aether_os.phases.p05_frontend.code_writer import _generate_tailwind_config
-    for theme in ("default", "neon"):
-        original = _generate_tailwind_config(theme)
-        css = db.apply_brand_to_tailwind(original, "#4f46e5")
-        assert "600: '#4f46e5'" in css and css.count("brand: {") == 1 and len(css) > 200
+    for theme in ("default", "neon", "healthcare"):
+        cfg = _generate_tailwind_config(theme)
+        assert "var(--primary)" in cfg and "var(--brand-600)" in cfg and not re.search(r"#[0-9a-fA-F]{3,6}\b", cfg)
+
+
+def _primary_hue(css: str) -> float:
+    return float(re.search(r"--primary: oklch\([\d.]+ [\d.]+ ([\d.]+)\)", css).group(1))
 
 
 def test_lookup_tables_are_gone():
@@ -94,13 +97,15 @@ def test_generation_with_a_brief_themes_the_app_and_without_one_keeps_the_token_
         return db.validate_brief(brief)
     monkeypatch.setattr(db, "get_design_brief", fake_brief)
     root = build_frontend(tmp_path / "with", domain, monkeypatch)
-    assert f"600: '{brief['primary_hex']}'" in (root / "tailwind.config.js").read_text()
+    with_css = (root / "src" / "index.css").read_text()
+    _, _, hue = srgb_to_oklch(parse_hex(brief["primary_hex"]))
+    assert abs(_primary_hue(with_css) - hue) < 3          # the brief's colour is the token primary (contrast-fitted)
 
     async def none(*a, **k):
         return None
     monkeypatch.setattr(db, "get_design_brief", none)
     plain = build_frontend(tmp_path / "without", domain, monkeypatch)
-    assert f"600: '{brief['primary_hex']}'" not in (plain / "tailwind.config.js").read_text()
+    assert _primary_hue((plain / "src" / "index.css").read_text()) != _primary_hue(with_css)
 
 
 def test_template_debt_counts_the_login_layout_and_router_shell(tmp_path, monkeypatch):

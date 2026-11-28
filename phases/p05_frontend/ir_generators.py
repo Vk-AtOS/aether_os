@@ -199,14 +199,14 @@ def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
 
     if input_type == "textarea":
         return f"""      <div>
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         <textarea name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" rows={{3}} />
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm" rows={{3}} />
       </div>"""
     if input_type == "checkbox":
         return f"""      <div className="flex items-center gap-2">
         <input type="checkbox" name="{f.name}" defaultChecked={{item?.{f.name} ?? false}} />
-        <label className="text-sm font-medium text-gray-700">{label}</label>
+        <label className="text-sm font-medium text-foreground">{label}</label>
       </div>"""
     if input_type == "select" and f.enum_values:
         options = "\n".join(
@@ -214,18 +214,18 @@ def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
             for v in f.enum_values
         )
         return f"""      <div>
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         <select name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm">
 {options}
         </select>
       </div>"""
     # FK field: render a select populated by a sibling useQuery (data var injected by caller)
     if f.type == AetherType.FK and ref_data_var:
         return f"""      <div>
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         <select name="{f.name}" defaultValue={{String(item?.{f.name} ?? '')}}{required}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm">
           <option value="">— select —</option>
           {{({ref_data_var}?.items ?? {ref_data_var} ?? []).map((r: any) => (
             <option key={{r.id}} value={{r.id}}>{{r.name ?? r.title ?? r.email ?? String(r.id)}}</option>
@@ -236,18 +236,18 @@ def _form_field_jsx(f: IRField, ref_data_var: str | None = None) -> str:
     # add a descriptive hint so users know what value is expected.
     if f.type == AetherType.FK:
         return f"""      <div>
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         <input type="number" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
           placeholder="Enter related record ID"
           title="Foreign key ID — enter the ID of the related record"
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm" />
       </div>"""
     # Resolve input_type: fk-select was handled above; remaining types use HTML input
     resolved_input_type = "number" if input_type == "fk-select" else input_type
     return f"""      <div>
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         <input type="{resolved_input_type}" name="{f.name}" defaultValue={{item?.{f.name} ?? ''}}{required}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm" />
       </div>"""
 
 
@@ -258,10 +258,10 @@ _SERVER_SET_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 _SECRET_COLUMNS = frozenset({"password_hash", "hashed_password", "password"})
 
 _PASSWORD_FIELD_JSX = """      <div>
-        <label className="block text-sm font-medium text-gray-700">Password</label>
+        <label className="block text-sm font-medium text-foreground">Password</label>
         <input type="password" name="password" autoComplete="new-password" required={!item}
           placeholder={item ? 'Leave blank to keep the current password' : ''}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" />
+          className="mt-1 block w-full rounded-md border-input shadow-sm text-sm" />
       </div>"""
 
 
@@ -316,7 +316,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
 
     # Columns for the table (all fields) — FK fields resolved to names
     col_headers = "\n".join(
-        f"              <th className='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>"
+        f"              <th className='px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase'>"
         f"{f.name.replace('_', ' ').title()}</th>"
         for f in shown[:6]
     )
@@ -331,20 +331,20 @@ def generate_ir_entity_page(entity: IREntity) -> str:
             data_var = fk_var_map[fname]
             lookup_var = data_var[:-4] + "Lookup"  # e.g. customerData → customerLookup
             return (
-                f"              <td className='px-4 py-2 text-sm text-gray-900'>"
+                f"              <td className='px-4 py-2 text-sm text-foreground'>"
                 f"{{{lookup_var}[row.{fname} ?? 0] ?? row.{fname}}}</td>"   # nullable FK: undefined cannot index (TS2538)
             )
         if any(fname.endswith(s) or fname == s.lstrip("_") for s in _DATE_SUFFIXES):
             return (
-                f"              <td className='px-4 py-2 text-sm text-gray-600'>"
+                f"              <td className='px-4 py-2 text-sm text-muted-foreground'>"
                 f"{{row.{fname} ? new Date(row.{fname}).toLocaleDateString(undefined, {{year:'numeric',month:'short',day:'numeric'}}) : '—'}}</td>"
             )
         if any(fname.endswith(s) for s in _URL_SUFFIXES):
             return (
                 f"              <td className='px-4 py-2'>"
-                f"{{row.{fname} ? <img src={{String(row.{fname})}} alt='' loading='lazy' className='w-10 h-10 object-cover rounded shadow-sm' onError={{(e)=>{{(e.target as HTMLImageElement).style.display='none'}}}} /> : <span className='text-gray-300 text-xs'>—</span>}}</td>"
+                f"{{row.{fname} ? <img src={{String(row.{fname})}} alt='' loading='lazy' className='w-10 h-10 object-cover rounded shadow-sm' onError={{(e)=>{{(e.target as HTMLImageElement).style.display='none'}}}} /> : <span className='text-muted-foreground text-xs'>—</span>}}</td>"
             )
-        return f"              <td className='px-4 py-2 text-sm text-gray-900'>{{String(row.{fname} ?? '')}}</td>"
+        return f"              <td className='px-4 py-2 text-sm text-foreground'>{{String(row.{fname} ?? '')}}</td>"
 
     col_cells = "\n".join(_col_cell(f) for f in shown[:6])
     form_fields = "\n".join(_form_field_jsx(f, fk_var_map.get(f.name)) for f in editable)
@@ -416,9 +416,9 @@ export default function {name}Page() {{
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">{plural_label}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{plural_label}</h1>
         <button onClick={{() => setEditing('new')}}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
           aria-label="Create new {label}">
           + New {label}
         </button>
@@ -427,40 +427,40 @@ export default function {name}Page() {{
       {{isLoading ? (
         <div role="status" aria-label="Loading {plural_label}" className="space-y-3">
           {{[1,2,3,4,5].map(i => (
-            <div key={{i}} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+            <div key={{i}} className="h-12 bg-muted rounded-lg animate-pulse" />
           ))}}
           <span className="sr-only">Loading…</span>
         </div>
       ) : rows.length === 0 ? (
-        <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-xl" role="status">
+        <div className="text-center py-16 border-2 border-dashed border-border rounded-xl" role="status">
           <div className="text-4xl mb-3">📋</div>
-          <h3 className="text-lg font-medium text-gray-900">No {plural_label} yet</h3>
-          <p className="text-gray-500">Get started by creating your first {label}.</p>
+          <h3 className="text-lg font-medium text-foreground">No {plural_label} yet</h3>
+          <p className="text-muted-foreground">Get started by creating your first {label}.</p>
           <button onClick={{() => setEditing('new')}}
-            className="mt-4 text-blue-600 font-semibold hover:underline">
+            className="mt-4 text-primary font-semibold hover:underline">
             + Add {label}
           </button>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-xl border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200" aria-label="{plural_label} list">
-              <thead className="bg-gray-50">
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="min-w-full divide-y divide-border" aria-label="{plural_label} list">
+              <thead className="bg-muted">
                 <tr>
 {col_headers}
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-border">
                 {{rows.map(row => (
-                  <tr key={{row.id}} className="hover:bg-gray-50">
+                  <tr key={{row.id}} className="hover:bg-muted">
 {col_cells}
                     <td className="px-4 py-2 text-sm text-right space-x-3">
                       <button onClick={{() => setEditing(row)}}
-                        className="text-blue-600 hover:text-blue-800 font-medium"
+                        className="text-primary hover:text-accent-foreground font-medium"
                         aria-label="Edit {{row.id}}">Edit</button>
                       <button onClick={{() => {{ if(confirm('Delete?')) remove.mutate(row.id) }}}}
-                        className="text-red-600 hover:text-red-800 font-medium"
+                        className="text-destructive hover:text-destructive font-medium"
                         aria-label="Delete {{row.id}}">Delete</button>
                     </td>
                   </tr>
@@ -471,23 +471,23 @@ export default function {name}Page() {{
 
           {{/* FIX 14: Pagination controls */}}
           <div className="flex items-center justify-between mt-4" aria-label="Pagination">
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-muted-foreground">
               Showing {{((page - 1) * 20) + 1}}–{{Math.min(page * 20, total)}} of {{total}}
             </span>
             <div className="flex gap-2">
               <button
                 onClick={{() => setPage(p => Math.max(1, p - 1))}}
                 disabled={{page === 1}}
-                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted"
                 aria-label="Previous page"
               >
                 ← Prev
               </button>
-              <span className="px-3 py-1.5 text-sm text-gray-700 font-medium">Page {{page}}</span>
+              <span className="px-3 py-1.5 text-sm text-foreground font-medium">Page {{page}}</span>
               <button
                 onClick={{() => setPage(p => p + 1)}}
                 disabled={{page * 20 >= total}}
-                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted"
                 aria-label="Next page"
               >
                 Next →
@@ -500,8 +500,8 @@ export default function {name}Page() {{
       {{editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
           role="dialog" aria-modal="true" aria-labelledby="modal-title">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <h2 id="modal-title" className="text-xl font-bold text-gray-900 mb-6">
+          <div className="bg-card rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <h2 id="modal-title" className="text-xl font-bold text-foreground mb-6">
               {{editing === 'new' ? 'New {label}' : 'Edit {label}'}}
             </h2>
             <form onSubmit={{handleSubmit}} className="space-y-4">
@@ -512,16 +512,16 @@ export default function {name}Page() {{
                 </>
               ); }})()}}
               {{saveError && (
-                <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{{saveError}}</p>
+                <p role="alert" className="text-sm text-destructive bg-destructive-soft border border-destructive rounded-lg px-3 py-2">{{saveError}}</p>
               )}}
               <div className="flex justify-end gap-3 pt-6 border-t mt-6">
                 <button type="button" onClick={{() => {{ setEditing(null); setSaveError(null); }}}}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100">
+                  className="px-4 py-2 text-sm font-medium text-foreground bg-muted border border-border rounded-lg hover:bg-muted">
                   Cancel
                 </button>
                 <button type="submit"
                   disabled={{save.isPending}}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm disabled:opacity-50">
+                  className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:opacity-90 shadow-sm disabled:opacity-50">
                   {{save.isPending ? 'Saving…' : 'Save {label}'}}
                 </button>
               </div>

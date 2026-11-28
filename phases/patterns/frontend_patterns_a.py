@@ -37,10 +37,10 @@ interface KanbanBoardProps {
 // ── Priority helpers ───────────────────────────────────────────────────────
 
 const PRIORITY_COLORS: Record<Priority, string> = {
-  low: "bg-blue-100 text-blue-800",
-  medium: "bg-yellow-100 text-yellow-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
+  low: "bg-accent text-accent-foreground",
+  medium: "bg-warning-soft text-warning-foreground",
+  high: "bg-warning-soft text-warning-foreground",
+  urgent: "bg-destructive-soft text-destructive",
 };
 
 // ── KanbanCard ─────────────────────────────────────────────────────────────
@@ -56,9 +56,9 @@ function KanbanCard({ card, columnId, onDragStart }: KanbanCardProps) {
     <div
       draggable
       onDragStart={(e) => onDragStart(e, card.id, columnId)}
-      className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow select-none"
+      className="rounded-lg border border-border bg-card p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow select-none"
     >
-      <p className="text-sm font-medium text-gray-900 mb-2">{card.title}</p>
+      <p className="text-sm font-medium text-foreground mb-2">{card.title}</p>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {card.priority && (
@@ -69,11 +69,11 @@ function KanbanCard({ card, columnId, onDragStart }: KanbanCardProps) {
             </span>
           )}
           {card.dueDate && (
-            <span className="text-xs text-gray-500">{card.dueDate}</span>
+            <span className="text-xs text-muted-foreground">{card.dueDate}</span>
           )}
         </div>
         {card.assigneeInitials && (
-          <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">
+          <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
             {card.assigneeInitials.slice(0, 2).toUpperCase()}
           </span>
         )}
@@ -97,7 +97,7 @@ function KanbanColumn({ column, onDragStart, onDrop, onDragOver }: KanbanColumnP
   return (
     <div
       className={`flex w-72 flex-shrink-0 flex-col rounded-xl border-2 ${
-        isDragOver ? "border-indigo-400 bg-indigo-50" : "border-gray-200 bg-gray-50"
+        isDragOver ? "border-primary bg-accent" : "border-border bg-muted"
       } transition-colors`}
       onDragOver={(e) => {
         onDragOver(e);
@@ -112,10 +112,10 @@ function KanbanColumn({ column, onDragStart, onDrop, onDragOver }: KanbanColumnP
       {/* Column header */}
       <div
         className="flex items-center justify-between rounded-t-xl px-4 py-3"
-        style={{ backgroundColor: column.color || "#e5e7eb" }}
+        style={{ backgroundColor: column.color || "var(--muted)" }}
       >
-        <h3 className="text-sm font-semibold text-gray-900">{column.title}</h3>
-        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-xs font-bold text-gray-700 shadow-sm">
+        <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-card px-1.5 text-xs font-bold text-foreground shadow-sm">
           {column.cards.length}
         </span>
       </div>
@@ -294,12 +294,12 @@ export function CommandPalette({ items }: CommandPaletteProps) {
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed left-1/2 top-[20vh] z-50 w-full max-w-xl -translate-x-1/2 rounded-xl border border-gray-200 bg-white shadow-2xl focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-[20vh] z-50 w-full max-w-xl -translate-x-1/2 rounded-xl border border-border bg-card shadow-2xl focus:outline-none">
           <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
 
           {/* Search input */}
           <div className="flex items-center gap-3 border-b px-4 py-3">
-            <Search className="h-4 w-4 flex-shrink-0 text-gray-400" />
+            <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
             <input
               ref={inputRef}
               value={query}
@@ -309,9 +309,9 @@ export function CommandPalette({ items }: CommandPaletteProps) {
               }}
               onKeyDown={handleKeyDown}
               placeholder="Type a command or search..."
-              className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 outline-none"
+              className="flex-1 bg-transparent text-sm text-foreground placeholder-muted-foreground outline-none"
             />
-            <kbd className="hidden rounded border border-gray-200 px-1.5 py-0.5 text-xs text-gray-500 sm:inline-flex">
+            <kbd className="hidden rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground sm:inline-flex">
               ESC
             </kbd>
           </div>
@@ -319,7 +319,7 @@ export function CommandPalette({ items }: CommandPaletteProps) {
           {/* Results */}
           <div ref={listRef} className="max-h-80 overflow-y-auto py-2">
             {flatItems.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-gray-500">
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
                 No results for &ldquo;{query}&rdquo;
               </p>
             ) : (
@@ -327,7 +327,7 @@ export function CommandPalette({ items }: CommandPaletteProps) {
                 const groupItems = grouped[group] || [];
                 return (
                   <div key={group}>
-                    <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {group}
                     </p>
                     {groupItems.map((item) => {
@@ -344,8 +344,8 @@ export function CommandPalette({ items }: CommandPaletteProps) {
                           onMouseEnter={() => setActiveIndex(idx)}
                           className={`flex w-full items-center justify-between px-4 py-2 text-sm ${
                             isActive
-                              ? "bg-indigo-600 text-white"
-                              : "text-gray-700 hover:bg-gray-50"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-foreground hover:bg-muted"
                           }`}
                         >
                           <span>{item.label}</span>
@@ -353,8 +353,8 @@ export function CommandPalette({ items }: CommandPaletteProps) {
                             <kbd
                               className={`rounded border px-1.5 py-0.5 text-xs ${
                                 isActive
-                                  ? "border-indigo-400 text-indigo-100"
-                                  : "border-gray-200 text-gray-400"
+                                  ? "border-primary text-primary"
+                                  : "border-border text-muted-foreground"
                               }`}
                             >
                               {item.shortcut}

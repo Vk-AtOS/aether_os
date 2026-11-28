@@ -10,6 +10,7 @@ from aether_os.core.sandbox import phase_exec
 from aether_os.core.sandbox.browser_job import run_browser_job
 from aether_os.core.sandbox.runner import SandboxUnavailable, sandbox_dirs
 from aether_os.phases.p05_frontend.npm_runner import PREVIEW_BUILD_ENV
+from aether_os.phases.p05_frontend.theme_tokens import page_rules_block
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,8 @@ async def apply_gate2_revisions(
                 f"Current Code:\n{current_code}\n\n"
                 "Rules:\n- Keep the overall structure.\n"
                 "- Only change visual styling (Tailwind classes) or wording to match feedback.\n"
-                "- Return ONLY the updated code. No explanation. No markdown fences."
+                "- Return ONLY the updated code. No explanation. No markdown fences.\n\n"
+                + page_rules_block()   # KAN-243: the run's design + security rules apply to a revision too
             )
             new_code = await _generate_file(fpath.name, prompt, task_type="code_refinement", timeout=90.0)
             if new_code and ("export" in new_code or "function" in new_code):

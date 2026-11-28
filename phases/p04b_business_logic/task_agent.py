@@ -8,6 +8,8 @@ import ast
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.rulepacks.provenance import write_model_file
+from aether_os.core.rulepacks.spec_rules import security_rules_for
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p04b_business_logic.logic_generators import (
     generate_workflow_sm,
@@ -222,6 +224,7 @@ async def trigger_notification(obj, new_status: str):
         e.get("name", "") for e in ir_data.get("entities", [])[:10] if e.get("name")
     ) or "User, Item"
     workflows_summary = json.dumps(ir_data.get("workflows", [])[:5], indent=2) if ir_data.get("workflows") else "[]"
+    _security = security_rules_for(phase_input.input_data, "backend")   # KAN-243: checked again before handoff
 
     workflow_engine_code = _FALLBACK_WORKFLOW_ENGINE.format(
         domain=domain, project_name=project_name
@@ -254,6 +257,8 @@ Generate a complete Python module `services/workflow_engine.py` with:
    - `async def transition(self, db, entity_type, entity_id, new_state, actor_role, actor_id)` — validates and applies transition
    - `def get_available_transitions(self, entity_type, current_state, actor_role)` — returns allowed next states
 
+{_security}
+
 Return ONLY valid Python code. No markdown fences, no explanation."""
 
         result_a = await llm.call(prompt_a, task_type="code_generation")
@@ -284,7 +289,10 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
             logger.warning("p04b: workflow_engine.py validation error: %s", _e)
         logger.warning("p04b: skipping workflow_engine.py write due to validation errors")
     else:
-        (src_dir / "workflow_engine.py").write_text(workflow_engine_code)
+        if workflow_engine_code != _wf_fallback:
+            write_model_file(src_dir / "workflow_engine.py", workflow_engine_code)   # provenance for the KAN-243 gate
+        else:
+            (src_dir / "workflow_engine.py").write_text(workflow_engine_code)
 
     # ── LLM Call B — Business Rules + Calculations ────────────────────────────
     business_rules_code = _FALLBACK_BUSINESS_RULES.format(
@@ -314,6 +322,8 @@ Structure as a `BusinessRules` class with:
 - Each method has a docstring explaining the rule
 - Methods raise `ValueError` with descriptive messages when rules are violated
 - Calculation methods return the computed value
+
+{_security}
 
 Return ONLY valid Python code. No markdown fences, no explanation."""
 
@@ -347,7 +357,10 @@ Return ONLY valid Python code. No markdown fences, no explanation."""
             logger.warning("p04b: business_rules.py validation error: %s", _e)
         logger.warning("p04b: skipping business_rules.py write due to validation errors")
     else:
-        (src_dir / "business_rules.py").write_text(business_rules_code)
+        if business_rules_code != _br_fallback:
+            write_model_file(src_dir / "business_rules.py", business_rules_code)   # provenance for the KAN-243 gate
+        else:
+            (src_dir / "business_rules.py").write_text(business_rules_code)
 
     # 5. Patch main.py to import business logic services (only if main.py exists).
     #    Current generators export classes (EmailService, StripeService, S3Service),

@@ -71,39 +71,39 @@ export function Select({
   return (
     <div className={cn('space-y-1.5', className)}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
       )}
       <RadixSelect.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <RadixSelect.Trigger
           className={cn(
             'flex h-10 w-full items-center justify-between rounded-lg border px-3 py-2 text-sm',
-            'bg-white ring-offset-white transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2',
+            'bg-card ring-offset-white transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2',
             'disabled:cursor-not-allowed disabled:opacity-50',
-            error ? 'border-red-400' : 'border-gray-300 hover:border-gray-400'
+            error ? 'border-destructive' : 'border-input hover:border-input'
           )}
           aria-label={label}
         >
           <RadixSelect.Value placeholder={placeholder} />
           <RadixSelect.Icon>
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </RadixSelect.Icon>
         </RadixSelect.Trigger>
 
         <RadixSelect.Portal>
           <RadixSelect.Content
-            className="relative z-50 min-w-[8rem] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+            className="relative z-50 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-card shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
             position="popper"
             sideOffset={4}
           >
-            <RadixSelect.ScrollUpButton className="flex items-center justify-center py-1 text-gray-400">
+            <RadixSelect.ScrollUpButton className="flex items-center justify-center py-1 text-muted-foreground">
               <ChevronUp className="h-4 w-4" />
             </RadixSelect.ScrollUpButton>
 
             {showSearch && (
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-                <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <input
-                  className="flex-1 text-sm outline-none placeholder:text-gray-400 bg-transparent"
+                  className="flex-1 text-sm outline-none placeholder:text-muted-foreground bg-transparent"
                   placeholder="Search…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
@@ -118,7 +118,7 @@ export function Select({
                   key={opt.value}
                   value={opt.value}
                   disabled={opt.disabled}
-                  className="relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-4 text-sm text-gray-700 outline-none focus:bg-brand-50 focus:text-brand-900 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  className="relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-4 text-sm text-foreground outline-none focus:bg-brand-50 focus:text-brand-900 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                 >
                   <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                     <RadixSelect.ItemIndicator>
@@ -129,17 +129,17 @@ export function Select({
                 </RadixSelect.Item>
               ))}
               {filtered.length === 0 && (
-                <p className="px-4 py-6 text-center text-sm text-gray-400">No options found</p>
+                <p className="px-4 py-6 text-center text-sm text-muted-foreground">No options found</p>
               )}
             </RadixSelect.Viewport>
 
-            <RadixSelect.ScrollDownButton className="flex items-center justify-center py-1 text-gray-400">
+            <RadixSelect.ScrollDownButton className="flex items-center justify-center py-1 text-muted-foreground">
               <ChevronDown className="h-4 w-4" />
             </RadixSelect.ScrollDownButton>
           </RadixSelect.Content>
         </RadixSelect.Portal>
       </RadixSelect.Root>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -158,14 +158,14 @@ export function SelectTrigger({ className, children, ...props }: React.Component
   return (
     <RadixSelect.Trigger
       className={cn(
-        'flex h-10 w-full items-center justify-between rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm',
+        'flex h-10 w-full items-center justify-between rounded-lg border border-input bg-card px-3 py-2 text-sm',
         'focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
     >
       {children}
-      <RadixSelect.Icon><ChevronDown className="h-4 w-4 text-gray-400" /></RadixSelect.Icon>
+      <RadixSelect.Icon><ChevronDown className="h-4 w-4 text-muted-foreground" /></RadixSelect.Icon>
     </RadixSelect.Trigger>
   )
 }
@@ -176,7 +176,7 @@ export function SelectContent({ className, children, ...props }: React.Component
       <RadixSelect.Content
         position="popper"
         sideOffset={4}
-        className={cn('relative z-50 min-w-[8rem] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl', className)}
+        className={cn('relative z-50 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-card shadow-xl', className)}
         {...props}
       >
         <RadixSelect.Viewport className="p-1 max-h-60">{children}</RadixSelect.Viewport>
@@ -191,7 +191,7 @@ export function SelectItem({ value, className, children, ...props }:
     <RadixSelect.Item
       value={toItemValue(value)}
       className={cn(
-        'relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-4 text-sm text-gray-700 outline-none',
+        'relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-4 text-sm text-foreground outline-none',
         'focus:bg-brand-50 focus:text-brand-900 data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
@@ -206,7 +206,7 @@ export function SelectItem({ value, className, children, ...props }:
 }
 
 export function SelectLabel({ className, ...props }: React.ComponentPropsWithoutRef<typeof RadixSelect.Label>) {
-  return <RadixSelect.Label className={cn('px-2 py-1.5 text-xs font-semibold text-gray-500', className)} {...props} />
+  return <RadixSelect.Label className={cn('px-2 py-1.5 text-xs font-semibold text-muted-foreground', className)} {...props} />
 }
 """
 
@@ -240,10 +240,10 @@ export function useToast() {
 }
 
 const variantConfig: Record<ToastVariant, { icon: typeof CheckCircle2; classes: string }> = {
-  success: { icon: CheckCircle2, classes: 'border-green-200  bg-green-50  text-green-900' },
-  error:   { icon: AlertCircle,  classes: 'border-red-200    bg-red-50    text-red-900' },
-  warning: { icon: AlertTriangle,classes: 'border-amber-200  bg-amber-50  text-amber-900' },
-  info:    { icon: Info,         classes: 'border-blue-200   bg-blue-50   text-blue-900' },
+  success: { icon: CheckCircle2, classes: 'border-success  bg-success-soft  text-success' },
+  error:   { icon: AlertCircle,  classes: 'border-destructive    bg-destructive-soft    text-destructive' },
+  warning: { icon: AlertTriangle,classes: 'border-warning  bg-warning-soft  text-warning-foreground' },
+  info:    { icon: Info,         classes: 'border-border   bg-accent   text-accent-foreground' },
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -330,7 +330,7 @@ export function Tooltip({ content, children, side = 'top', className, delayDurat
             side={side}
             sideOffset={6}
             className={cn(
-              'z-50 rounded-lg border border-gray-200 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white shadow-md',
+              'z-50 rounded-lg border border-border bg-foreground px-3 py-1.5 text-xs font-medium text-background shadow-md',
               'animate-in fade-in-0 zoom-in-95',
               'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
               `data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2
@@ -339,7 +339,7 @@ export function Tooltip({ content, children, side = 'top', className, delayDurat
             )}
           >
             {content}
-            <RadixTooltip.Arrow className="fill-gray-900" />
+            <RadixTooltip.Arrow className="fill-foreground" />
           </RadixTooltip.Content>
         </RadixTooltip.Portal>
       </RadixTooltip.Root>
@@ -411,16 +411,16 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
 
   if (isLoading) {
     return (
-      <div className="animate-pulse space-y-0 rounded-xl border border-gray-100 overflow-hidden" role="status">
-        <div className="flex gap-4 bg-gray-50 px-4 py-3 border-b border-gray-100">
+      <div className="animate-pulse space-y-0 rounded-xl border border-border overflow-hidden" role="status">
+        <div className="flex gap-4 bg-muted px-4 py-3 border-b border-border">
           {columns.map((_, j) => (
-            <div key={j} className="h-3 bg-gray-300 rounded w-20" />
+            <div key={j} className="h-3 bg-muted rounded w-20" />
           ))}
         </div>
         {[1, 2, 3, 4, 5].map(i => (
-          <div key={i} className="flex gap-4 px-4 py-3.5 border-b border-gray-50">
+          <div key={i} className="flex gap-4 px-4 py-3.5 border-b border-border">
             {columns.map((_, j) => (
-              <div key={j} className="h-4 bg-gray-100 rounded flex-1" style={{ animationDelay: `${i * 50 + j * 15}ms` }} />
+              <div key={j} className="h-4 bg-muted rounded flex-1" style={{ animationDelay: `${i * 50 + j * 15}ms` }} />
             ))}
           </div>
         ))}
@@ -431,11 +431,11 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
 
   if (!rows.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-gray-200 text-center" role="status">
+      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-border text-center" role="status">
         {emptyState ?? (
           <>
             <div className="text-4xl mb-3">📋</div>
-            <p className="text-sm font-medium text-gray-500">No records found</p>
+            <p className="text-sm font-medium text-muted-foreground">No records found</p>
           </>
         )}
       </div>
@@ -445,7 +445,7 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
   const SortIcon = ({ col }: { col: TableColumn<T> }) => {
     if (!col.sortable) return null
     const key = String(col.key)
-    if (sortKey !== key) return <ChevronsUpDown className="h-3.5 w-3.5 text-gray-300" />
+    if (sortKey !== key) return <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
     if (sortDir === 'asc') return <ChevronUp className="h-3.5 w-3.5 text-brand-500" />
     return <ChevronDown className="h-3.5 w-3.5 text-brand-500" />
   }
@@ -453,17 +453,17 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
   return (
     <div className={cn('w-full', className)}>
       {/* Desktop table */}
-      <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-border shadow-sm">
         <table className="w-full text-sm" aria-label="Data table">
-          <thead className="bg-gray-50 border-b border-gray-100">
+          <thead className="bg-muted border-b border-border">
             <tr>
               {columns.map(col => (
                 <th
                   key={String(col.key)}
                   onClick={() => col.sortable && handleSort(String(col.key))}
                   className={cn(
-                    'px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap',
-                    col.sortable && 'cursor-pointer select-none hover:text-gray-900',
+                    'px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap',
+                    col.sortable && 'cursor-pointer select-none hover:text-foreground',
                     col.className
                   )}
                   aria-sort={sortKey === String(col.key) ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
@@ -476,14 +476,14 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-border">
             {sorted.map((row, i) => (
               <tr
                 key={keyExtractor ? keyExtractor(row, i) : i}
-                className="hover:bg-gray-50 transition-colors group"
+                className="hover:bg-muted transition-colors group"
               >
                 {columns.map(col => (
-                  <td key={String(col.key)} className={cn('px-4 py-3 text-gray-700', col.className)}>
+                  <td key={String(col.key)} className={cn('px-4 py-3 text-foreground', col.className)}>
                     {col.cell
                       ? col.cell(row, i)
                       : String((row as Record<string, unknown>)[String(col.key)] ?? '—')}
@@ -502,16 +502,16 @@ export function Table<T>({ data, columns, isLoading, emptyState, keyExtractor, c
           const [first, ...rest] = visibleCols
           return (
             <div key={keyExtractor ? keyExtractor(row, i) : i}
-              className="rounded-xl border border-gray-100 bg-white shadow-sm p-4 space-y-2">
+              className="rounded-xl border border-border bg-card shadow-sm p-4 space-y-2">
               {first && (
-                <div className="font-semibold text-gray-900 text-sm">
+                <div className="font-semibold text-foreground text-sm">
                   {first.cell ? first.cell(row, i) : String((row as Record<string, unknown>)[String(first.key)] ?? '—')}
                 </div>
               )}
               {rest.map(col => (
                 <div key={String(col.key)} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-400 uppercase tracking-wide font-medium">{col.header}</span>
-                  <span className="text-gray-700">
+                  <span className="text-muted-foreground uppercase tracking-wide font-medium">{col.header}</span>
+                  <span className="text-foreground">
                     {col.cell ? col.cell(row, i) : String((row as Record<string, unknown>)[String(col.key)] ?? '—')}
                   </span>
                 </div>

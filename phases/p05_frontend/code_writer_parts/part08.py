@@ -6,11 +6,7 @@ from aether_os.phases.p05_frontend.scaffold import to_label, entity_emoji
 
 def _generate_storefront_home(entities: List[dict], route_map: Dict[str, str], domain: str = "ecommerce") -> str:
     """Generate a full storefront homepage: hero, trust badges, live product grid."""
-    _domain_hero_gradient = {
-        "ecommerce":   "from-rose-900 via-pink-800 to-pink-600",
-        "marketplace": "from-violet-900 via-purple-800 to-violet-600",
-    }
-    _hero_gradient = _domain_hero_gradient.get(domain, "from-gray-900 via-brand-900 to-brand-700")
+    _hero_gradient = "from-brand-900 via-brand-800 to-brand-700"   # the token brand ramp (KAN-243); was a per-domain palette
     # Pick the most product-like entity as the primary showcase
     _product_keywords = ("product", "item", "goods", "service", "listing", "sku", "artifact", "piece")
     primary_entity = next(
@@ -29,9 +25,9 @@ def _generate_storefront_home(entities: List[dict], route_map: Dict[str, str], d
         _cl = to_label(_ct)
         _ce_emoji = entity_emoji(_ct)
         _cat_parts.append(
-            f"            <a href='#{_ct}' className=\"group flex flex-col items-center gap-3 p-4 rounded-2xl bg-gray-50 hover:bg-brand-50 border border-transparent hover:border-brand-200 transition-all\">\n"
+            f"            <a href='#{_ct}' className=\"group flex flex-col items-center gap-3 p-4 rounded-2xl bg-muted hover:bg-brand-50 border border-transparent hover:border-brand-200 transition-all\">\n"
             f"              <div className=\"text-2xl\">{_ce_emoji}</div>\n"
-            f"              <span className=\"text-xs font-semibold text-gray-700 group-hover:text-brand-700 text-center\">{_cl}</span>\n"
+            f"              <span className=\"text-xs font-semibold text-foreground group-hover:text-brand-700 text-center\">{_cl}</span>\n"
             f"            </a>"
         )
 
@@ -47,7 +43,7 @@ function StarRating({{ rating = 4.5 }}: {{ rating?: number }}) {{
     <div className="flex items-center gap-0.5">
       {{[1,2,3,4,5].map(s => (
         <Star key={{s}} size={{12}}
-          className={{s <= Math.round(rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}} />
+          className={{s <= Math.round(rating) ? 'fill-warning text-warning-foreground' : 'text-muted-foreground'}} />
       ))}}
     </div>
   )
@@ -61,9 +57,9 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
   const rating = typeof product.rating === 'number' ? product.rating : null   // no invented ratings
 
   return (
-    <div className="group relative bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 flex flex-col">
+    <div className="group relative bg-card rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 flex flex-col">
       {{/* Image */}}
-      <div className="relative aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
+      <div className="relative aspect-square bg-gradient-to-br from-muted to-muted overflow-hidden">
         {{(product.image_url ?? product.image ?? product.thumbnail)
           ? <img
               src={{product.image_url ?? product.image ?? product.thumbnail}}
@@ -72,33 +68,33 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
               loading="lazy"
               onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}}
             />
-          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-gray-300">{{String(product.name ?? product.title ?? '?').charAt(0).toUpperCase()}}</div>}}
+          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-muted-foreground">{{String(product.name ?? product.title ?? '?').charAt(0).toUpperCase()}}</div>}}
         {{product.is_featured && (
           <span className="absolute top-3 left-3 bg-brand-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
             Featured
           </span>
         )}}
         {{product.stock_quantity === 0 && (
-          <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
-            <span className="text-sm font-semibold text-gray-600">Out of Stock</span>
+          <div className="absolute inset-0 bg-background flex items-center justify-center">
+            <span className="text-sm font-semibold text-muted-foreground">Out of Stock</span>
           </div>
         )}}
       </div>
       {{/* Content */}}
       <div className="p-4 flex flex-col flex-1">
         <p className="text-[11px] font-bold text-brand-600 uppercase tracking-wider mb-1">{{category}}</p>
-        <h3 className="font-semibold text-gray-900 text-sm leading-snug mb-2 line-clamp-2 flex-1">
+        <h3 className="font-semibold text-foreground text-sm leading-snug mb-2 line-clamp-2 flex-1">
           {{product.name ?? product.title ?? 'Product'}}
         </h3>
         {{rating !== null && (
           <div className="flex items-center gap-2 mb-3">
             <StarRating rating={{rating}} />
-            {{typeof product.review_count === 'number' && <span className="text-[11px] text-gray-400">({{product.review_count}})</span>}}
+            {{typeof product.review_count === 'number' && <span className="text-[11px] text-muted-foreground">({{product.review_count}})</span>}}
           </div>
         )}}
         <div className="flex items-center justify-between mt-auto">
           <div>
-            <span className="text-lg font-bold text-gray-900">${{price > 0 ? price.toFixed(2) : '—'}}</span>
+            <span className="text-lg font-bold text-foreground">${{price > 0 ? price.toFixed(2) : '—'}}</span>
           </div>
           <button
             className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 active:scale-95 text-white px-3 py-1.5 rounded-xl text-sm font-semibold transition-all"
@@ -122,35 +118,35 @@ export default function Dashboard() {{
   const products: any[] = Array.isArray(raw) ? raw : (raw?.items ?? raw?.data ?? [])
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-card">
       {{/* ── Hero Section ── */}}
       <section className="relative overflow-hidden bg-gradient-to-br {_hero_gradient} text-white">
         {{/* Subtle grid overlay */}}
         <div className="absolute inset-0 opacity-[0.07]"
-          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
+          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,currentColor 40px,currentColor 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,currentColor 40px,currentColor 41px)' }}}} />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-36">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-1.5 mb-8">
-              <CheckCircle size={{14}} className="text-green-400" />
+            <div className="inline-flex items-center gap-2 bg-background backdrop-blur-sm border border-white/20 rounded-full px-4 py-1.5 mb-8">
+              <CheckCircle size={{14}} className="text-success" />
               <span className="text-xs font-semibold tracking-wide">New Collection · Spring 2025</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-extrabold leading-none tracking-tight mb-6">
               Discover<br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-200 to-white">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-100 to-brand-50">
                 Something
               </span><br />
               Beautiful
             </h1>
-            <p className="text-lg md:text-xl text-gray-300 mb-10 leading-relaxed max-w-xl">
+            <p className="text-lg md:text-xl text-muted-foreground mb-10 leading-relaxed max-w-xl">
               Handcrafted with love. Every piece in our collection is thoughtfully designed and built to last a lifetime.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link to="{primary_route}"
-                className="inline-flex items-center gap-2 bg-white text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5">
+                className="inline-flex items-center gap-2 bg-card text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-0.5">
                 Shop Now <ArrowRight size={{18}} />
               </Link>
               <a href="#featured"
-                className="inline-flex items-center gap-2 border-2 border-white/30 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/10 transition-all">
+                className="inline-flex items-center gap-2 border-2 border-white/30 text-white font-semibold px-8 py-4 rounded-xl hover:bg-background transition-all">
                 Explore Collection
               </a>
             </div>
@@ -170,7 +166,7 @@ export default function Dashboard() {{
           <div className="flex items-end justify-between mb-10">
             <div>
               <p className="text-brand-600 text-xs font-bold uppercase tracking-widest mb-2">Our Collection</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Featured Products</h2>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-foreground">Featured Products</h2>
             </div>
             <Link to="{primary_route}"
               className="hidden sm:flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors">
@@ -181,11 +177,11 @@ export default function Dashboard() {{
           {{isLoading ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
               {{Array.from({{ length: 8 }}).map((_, i) => (
-                <div key={{i}} className="rounded-2xl bg-gray-100 animate-pulse" style={{{{ aspectRatio: '3/4' }}}} />
+                <div key={{i}} className="rounded-2xl bg-muted animate-pulse" style={{{{ aspectRatio: '3/4' }}}} />
               ))}}
             </div>
           ) : products.length === 0 ? (
-            <div className="text-center py-20 text-gray-400">
+            <div className="text-center py-20 text-muted-foreground">
               <ShoppingCart size={{48}} className="mx-auto mb-4 opacity-30" />
               <p className="text-lg font-medium">No products yet</p>
             </div>
@@ -209,20 +205,20 @@ export default function Dashboard() {{
       </section>
 
       {{/* ── Why Choose Us ── */}}
-      <section className="py-16 bg-gray-50">
+      <section className="py-16 bg-muted">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <p className="text-brand-600 text-xs font-bold uppercase tracking-widest mb-2">Why Us</p>
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-12">Made With Purpose</h2>
+          <h2 className="text-3xl font-extrabold text-foreground mb-12">Made With Purpose</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {{[
               {{ emoji: '🎨', title: 'Artisan Quality', desc: 'Every item is crafted by skilled artisans using time-tested techniques and premium materials.' }},
               {{ emoji: '🌱', title: 'Sustainably Sourced', desc: 'We partner with ethical suppliers to ensure our products are good for you and the planet.' }},
               {{ emoji: '❤️', title: 'Made with Love', desc: 'Each product carries the dedication and passion of the maker—quality you can feel.' }},
             ].map(f => (
-              <div key={{f.title}} className="bg-white rounded-2xl p-8 shadow-sm hover:shadow-md transition-shadow">
+              <div key={{f.title}} className="bg-card rounded-2xl p-8 shadow-sm hover:shadow-md transition-shadow">
                 <div className="text-4xl mb-4">{{f.emoji}}</div>
-                <h3 className="text-lg font-bold text-gray-900 mb-2">{{f.title}}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">{{f.desc}}</p>
+                <h3 className="text-lg font-bold text-foreground mb-2">{{f.title}}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{{f.desc}}</p>
               </div>
             ))}}
           </div>

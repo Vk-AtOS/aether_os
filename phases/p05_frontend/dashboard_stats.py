@@ -53,8 +53,8 @@ def stats_dashboard_tsx(entities: List[Dict[str, Any]], project_name: str, route
     cards = stat_cards(entities)
     card_rows = ",\n".join(f"  {{ label: {l!r}, key: {k!r}, tone: {_COLORS[i % 6]!r} }}" for i, (l, k) in enumerate(cards))
     links = "\n".join(
-        f"          <Link to='{route_prefix}/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-white rounded-xl "
-        f"border border-gray-100 hover:shadow-sm transition-all'><span className='font-semibold text-gray-900'>"
+        f"          <Link to='{route_prefix}/{e['table'].replace('_', '-')}' className='flex items-center justify-between p-4 bg-card rounded-xl "
+        f"border border-border hover:shadow-sm transition-all'><span className='font-semibold text-foreground'>"
         f"{_label(e['table'])}</span><span aria-hidden>→</span></Link>"
         for e in entities if not _is_user(e) and e.get("table"))
     title = project_name.replace("\\", " ").replace("'", " ").replace("{", " ").replace("}", " ").replace("<", " ").strip() or "Dashboard"
@@ -68,9 +68,9 @@ const CARDS = [
 {card_rows}
 ];
 const TONES: Record<string, string> = {{
-  blue: 'bg-blue-50 text-blue-700 border-blue-100', green: 'bg-green-50 text-green-700 border-green-100',
-  purple: 'bg-purple-50 text-purple-700 border-purple-100', orange: 'bg-orange-50 text-orange-700 border-orange-100',
-  red: 'bg-red-50 text-red-700 border-red-100', teal: 'bg-teal-50 text-teal-700 border-teal-100',
+  blue: 'bg-accent text-primary border-border', green: 'bg-success-soft text-success border-success',
+  purple: 'bg-accent text-primary border-border', orange: 'bg-warning-soft text-warning-foreground border-warning',
+  red: 'bg-destructive-soft text-destructive border-destructive', teal: 'bg-success-soft text-success border-success',
 }};
 
 export default function Dashboard() {{
@@ -80,12 +80,12 @@ export default function Dashboard() {{
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
       <div>
-        <h1 className="text-3xl font-extrabold text-gray-900">{title}</h1>
-        <p className="text-gray-500 mt-1 text-sm">Live totals from the API.</p>
+        <h1 className="text-3xl font-extrabold text-foreground">{title}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">Live totals from the API.</p>
       </div>
 
-      {{isError && <p role="alert" className="text-sm text-red-600">The numbers could not be loaded. Try again shortly.</p>}}
-      {{empty && <p className="text-sm text-gray-500">No data yet. Add records and the totals appear here.</p>}}
+      {{isError && <p role="alert" className="text-sm text-destructive">The numbers could not be loaded. Try again shortly.</p>}}
+      {{empty && <p className="text-sm text-muted-foreground">No data yet. Add records and the totals appear here.</p>}}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {{CARDS.map(c => (
@@ -101,7 +101,7 @@ export default function Dashboard() {{
 {SLOT}
 
       <div>
-        <h2 className="text-base font-bold text-gray-700 uppercase tracking-wide mb-4">Quick Access</h2>
+        <h2 className="text-base font-bold text-foreground uppercase tracking-wide mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
 {links}
         </div>
@@ -224,13 +224,13 @@ const TILES = [
 export default function DomainWidget() {{
   const {{ data, isLoading }} = useQuery({{ queryKey: ['stats'], queryFn: fetchStats, staleTime: 30_000 }})
   return (
-    <section className="p-6 bg-white rounded-2xl border" aria-label="{_label(e['table'])} by {enum_field['name']}">
+    <section className="p-6 bg-card rounded-2xl border" aria-label="{_label(e['table'])} by {enum_field['name']}">
       <h2 className="text-lg font-bold mb-4">{_label(e['table'])} by {enum_field['name']}</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {{TILES.map(t => (
           <div key={{t.key}} className="rounded-xl border p-4">
-            <div className="text-xs uppercase tracking-wide text-gray-500">{{t.label}}</div>
-            {{isLoading ? <div className="h-7 w-10 animate-pulse rounded bg-gray-200" /> : <div className="text-2xl font-bold">{{typeof data?.[t.key] === 'number' ? data[t.key] : '–'}}</div>}}
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{{t.label}}</div>
+            {{isLoading ? <div className="h-7 w-10 animate-pulse rounded bg-muted" /> : <div className="text-2xl font-bold">{{typeof data?.[t.key] === 'number' ? data[t.key] : '–'}}</div>}}
           </div>
         ))}}
       </div>
@@ -247,14 +247,14 @@ const ROWS = [
 export default function DomainWidget() {{
   const {{ data, isLoading }} = useQuery({{ queryKey: ['stats'], queryFn: fetchStats, staleTime: 30_000 }})
   return (
-    <section className="p-6 bg-white rounded-2xl border" aria-label="{heading}">
+    <section className="p-6 bg-card rounded-2xl border" aria-label="{heading}">
       <h2 className="text-lg font-bold mb-4">{heading}</h2>
-      {{ROWS.length === 0 ? <p className="text-sm text-gray-500">No records yet.</p> : (
+      {{ROWS.length === 0 ? <p className="text-sm text-muted-foreground">No records yet.</p> : (
         <ul className="divide-y">
           {{ROWS.map(r => (
             <li key={{r.key}} className="flex items-center justify-between py-2 text-sm">
               <span>{{r.label}}</span>
-              {{isLoading ? <span className="h-4 w-8 animate-pulse rounded bg-gray-200" /> : <span className="font-semibold">{{typeof data?.[r.key] === 'number' ? data[r.key] : '–'}}</span>}}
+              {{isLoading ? <span className="h-4 w-8 animate-pulse rounded bg-muted" /> : <span className="font-semibold">{{typeof data?.[r.key] === 'number' ? data[r.key] : '–'}}</span>}}
             </li>
           ))}}
         </ul>

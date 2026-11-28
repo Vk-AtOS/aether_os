@@ -39,9 +39,9 @@ interface ApprovalRequest {
 }
 
 function StepIcon({ status }: { status: string }) {
-  if (status === 'approved') return <CheckCircle2 className="h-4 w-4 text-green-600" />
-  if (status === 'rejected') return <XCircle className="h-4 w-4 text-red-500" />
-  return <Clock className="h-4 w-4 text-amber-500" />
+  if (status === 'approved') return <CheckCircle2 className="h-4 w-4 text-success" />
+  if (status === 'rejected') return <XCircle className="h-4 w-4 text-destructive" />
+  return <Clock className="h-4 w-4 text-warning-foreground" />
 }
 
 function ApprovalCard({ req }: { req: ApprovalRequest }) {
@@ -65,17 +65,17 @@ function ApprovalCard({ req }: { req: ApprovalRequest }) {
   })
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">
+          <h3 className="text-sm font-semibold text-foreground">
             {req.title ?? `${req.entity_type} #${req.entity_id}`}
           </h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             By {req.requested_by} · {new Date(req.created_at).toLocaleDateString()}
           </p>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+        <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2.5 py-0.5 text-xs font-medium text-warning-foreground">
           <Clock className="h-3 w-3" />Level {req.current_level}/{req.total_levels}
         </span>
       </div>
@@ -85,52 +85,52 @@ function ApprovalCard({ req }: { req: ApprovalRequest }) {
           {req.steps.map((step, i) => (
             <div key={i} className="flex items-center gap-1">
               <StepIcon status={step.status} />
-              {i < req.steps.length - 1 && <ChevronRight className="h-3 w-3 text-gray-300" />}
+              {i < req.steps.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
             </div>
           ))}
-          <span className="ml-2 text-xs text-gray-400">Approval chain</span>
+          <span className="ml-2 text-xs text-muted-foreground">Approval chain</span>
         </div>
       )}
 
       {req.status === 'pending' && (
         action ? (
-          <div className="space-y-2 mt-3 pt-3 border-t border-gray-100">
+          <div className="space-y-2 mt-3 pt-3 border-t border-border">
             <textarea
               value={comment}
               onChange={e => setComment(e.target.value)}
               placeholder="Add a comment (optional)…"
               rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+              className="w-full rounded-lg border border-input px-3 py-2 text-xs focus:ring-2 focus:ring-ring outline-none resize-none"
             />
             <div className="flex gap-2">
               <button
                 onClick={() => decide.mutate({ act: action, note: comment })}
                 disabled={decide.isPending}
                 className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium text-white transition-colors ${
-                  action === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                  action === 'approve' ? 'bg-success hover:opacity-90' : 'bg-destructive hover:opacity-90'
                 }`}
               >
                 {decide.isPending ? '…' : action === 'approve' ? 'Confirm Approve' : 'Confirm Reject'}
               </button>
               <button
                 onClick={() => setAction(null)}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border border-input px-3 py-2 text-xs text-muted-foreground hover:bg-muted"
               >
                 Cancel
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+          <div className="flex gap-2 mt-3 pt-3 border-t border-border">
             <button
               onClick={() => setAction('approve')}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-green-50 px-3 py-2 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-success-soft px-3 py-2 text-xs font-medium text-success hover:bg-success-soft transition-colors"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />Approve
             </button>
             <button
               onClick={() => setAction('reject')}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-destructive-soft px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive-soft transition-colors"
             >
               <XCircle className="h-3.5 w-3.5" />Reject
             </button>
@@ -155,9 +155,9 @@ export default function ApprovalQueuePage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Approval Queue</h1>
+        <h1 className="text-2xl font-bold text-foreground">Approval Queue</h1>
         {requests.length > 0 && (
-          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+          <span className="rounded-full bg-warning-soft px-3 py-1 text-xs font-semibold text-warning-foreground">
             {requests.length} pending
           </span>
         )}
@@ -165,13 +165,13 @@ export default function ApprovalQueuePage() {
       {isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-36 rounded-xl bg-gray-100 animate-pulse" />
+            <div key={i} className="h-36 rounded-xl bg-muted animate-pulse" />
           ))}
         </div>
       ) : requests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 py-16">
-          <CheckCircle2 className="h-10 w-10 text-green-300 mb-3" />
-          <p className="text-gray-400 text-sm">All caught up — no pending approvals.</p>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-input py-16">
+          <CheckCircle2 className="h-10 w-10 text-success mb-3" />
+          <p className="text-muted-foreground text-sm">All caught up — no pending approvals.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -243,49 +243,49 @@ function FlagRow({ name, entry }: { name: string; entry: FlagEntry }) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0 mr-4">
           <div className="flex items-center gap-2">
-            <Flag className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-            <code className="text-sm font-semibold text-gray-900">{name}</code>
+            <Flag className="h-3.5 w-3.5 text-primary shrink-0" />
+            <code className="text-sm font-semibold text-foreground">{name}</code>
           </div>
           {entry.description && (
-            <p className="text-xs text-gray-500 mt-0.5 ml-5">{entry.description}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 ml-5">{entry.description}</p>
           )}
         </div>
         <button
           onClick={() => toggle.mutate()}
           disabled={toggle.isPending}
           aria-label={entry.enabled ? 'Disable flag' : 'Enable flag'}
-          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
-            entry.enabled ? 'bg-indigo-600' : 'bg-gray-200'
+          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+            entry.enabled ? 'bg-primary' : 'bg-muted'
           }`}
         >
-          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${
+          <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-card shadow transform transition-transform ${
             entry.enabled ? 'translate-x-5' : 'translate-x-0'
           }`} />
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-100">
+      <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-border">
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">
+          <label className="text-xs font-medium text-muted-foreground block mb-1">
             Rollout — {pct}%
           </label>
           <input
             type="range" min={0} max={100} step={5}
             value={pct}
             onChange={e => setPct(Number(e.target.value))}
-            className="w-full accent-indigo-600"
+            className="w-full accent-primary"
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Ring</label>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Ring</label>
           <select
             value={ring}
             onChange={e => setRing(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+            className="w-full rounded-lg border border-input px-2 py-1.5 text-xs focus:ring-2 focus:ring-ring focus:border-primary outline-none"
           >
             {RING_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -293,14 +293,14 @@ function FlagRow({ name, entry }: { name: string; entry: FlagEntry }) {
       </div>
 
       <div className="flex items-center justify-between mt-3">
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-muted-foreground">
           Current: {entry.rollout_pct}% · {entry.ring}
           {entry.variant ? ` · ${entry.variant}` : ''}
         </span>
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 transition-colors"
         >
           {saving ? 'Saving…' : 'Apply'}
         </button>
@@ -326,20 +326,20 @@ export default function FlagAdminPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="flex items-center gap-3 mb-6">
-        <Sliders className="h-6 w-6 text-indigo-600" />
-        <h1 className="text-2xl font-bold text-gray-900">Feature Flags</h1>
-        <span className="text-sm text-gray-400">{names.length} flag{names.length !== 1 ? 's' : ''}</span>
+        <Sliders className="h-6 w-6 text-primary" />
+        <h1 className="text-2xl font-bold text-foreground">Feature Flags</h1>
+        <span className="text-sm text-muted-foreground">{names.length} flag{names.length !== 1 ? 's' : ''}</span>
       </div>
       {isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-28 rounded-xl bg-gray-100 animate-pulse" />
+            <div key={i} className="h-28 rounded-xl bg-muted animate-pulse" />
           ))}
         </div>
       ) : names.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 py-16">
-          <Flag className="h-10 w-10 text-gray-300 mb-3" />
-          <p className="text-gray-400 text-sm">No feature flags configured.</p>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-input py-16">
+          <Flag className="h-10 w-10 text-muted-foreground mb-3" />
+          <p className="text-muted-foreground text-sm">No feature flags configured.</p>
         </div>
       ) : (
         <div className="space-y-4">

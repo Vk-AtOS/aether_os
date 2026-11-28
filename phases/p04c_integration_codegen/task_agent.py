@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.rulepacks.provenance import write_model_file
+from aether_os.core.rulepacks.spec_rules import security_rules_for
 from aether_os.phases.base import TaskResult
 from aether_os.phases.p04c_integration_codegen.templates import match_template
 
@@ -274,6 +276,8 @@ Requirements:
 
 {_HTTPX_CLIENT_EXAMPLE}
 
+{security_rules_for(data, "backend")}
+
 Return ONLY valid Python code. No markdown fences, no explanation.
 File: services/{slug}_client.py"""
 
@@ -291,7 +295,10 @@ File: services/{slug}_client.py"""
             except Exception as exc:
                 logger.warning("p04c: LLM call for %s failed: %s — using stub", name, exc)
 
-        client_path.write_text(client_code)
+        if client_code != _fallback_client(integration):
+            write_model_file(client_path, client_code)   # model-written: the KAN-243 gate may send it back for repair
+        else:
+            client_path.write_text(client_code)
         clients_generated.append(f"{slug}_client")
         logger.info("p04c: wrote %s", client_path)
 

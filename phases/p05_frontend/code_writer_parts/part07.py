@@ -66,26 +66,26 @@ export function LoginPage() {{
         </div>
       </div>
       {{/* Login form panel */}}
-      <div className="flex-1 flex items-center justify-center bg-gray-50 p-8">
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+      <div className="flex-1 flex items-center justify-center bg-muted p-8">
+        <div className="bg-card rounded-2xl shadow-xl p-8 w-full max-w-md">
           <div className="lg:hidden mb-6 text-center">
             <h1 className="text-2xl font-bold text-brand-600">{project_name}</h1>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Welcome back</h2>
-          <p className="text-gray-500 mb-8 text-sm">Sign in to your account to continue.</p>
+          <h2 className="text-2xl font-bold text-foreground mb-1">Welcome back</h2>
+          <p className="text-muted-foreground mb-8 text-sm">Sign in to your account to continue.</p>
           <form onSubmit={{handleSubmit}} className="space-y-4">
             <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-foreground mb-1">Email address</label>
               <input id="login-email" type="email" value={{email}} onChange={{e => setEmail(e.target.value)}} required
                 placeholder="you@example.com"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+                className="w-full px-3 py-2.5 border border-input rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
             </div>
             <div>
-              <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-foreground mb-1">Password</label>
               <input id="login-password" type="password" value={{password}} onChange={{e => setPassword(e.target.value)}} required
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
+                className="w-full px-3 py-2.5 border border-input rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm" />
             </div>
-            {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
+            {{error && <p className="text-sm text-destructive bg-destructive-soft px-3 py-2 rounded-lg">{{error}}</p>}}
             <button type="submit" disabled={{loading}}
               className="w-full py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 disabled:opacity-50 font-semibold text-sm transition-colors">
               {{loading ? 'Signing in…' : 'Sign in'}}
@@ -142,15 +142,15 @@ export function LoginPage() {{
       </div>
       {{/* Login form panel */}}
       <div className="flex-1 flex items-center justify-center p-8">
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+        <div className="bg-card rounded-2xl shadow-xl p-8 w-full max-w-md">
           <div className="lg:hidden mb-6 text-center">
             <h1 className="text-2xl font-bold text-brand-600">{project_name}</h1>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Sign in</h2>
-          <p className="text-gray-500 mb-8">Welcome back — we missed you!</p>
+          <h2 className="text-2xl font-bold text-foreground mb-1">Sign in</h2>
+          <p className="text-muted-foreground mb-8">Welcome back — we missed you!</p>
           <form onSubmit={{handleSubmit}} className="space-y-4">
             <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-foreground mb-1">Email address</label>
               <input
                 id="login-email" type="email"
                 value={{email}}
@@ -161,7 +161,7 @@ export function LoginPage() {{
               />
             </div>
             <div>
-              <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-foreground mb-1">Password</label>
               <input
                 id="login-password" type="password"
                 value={{password}}
@@ -170,7 +170,7 @@ export function LoginPage() {{
                 className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               />
             </div>
-            {{error && <p className="text-sm text-red-500">{{error}}</p>}}
+            {{error && <p className="text-sm text-destructive">{{error}}</p>}}
             <button
               type="submit"
               disabled={{loading}}
@@ -179,7 +179,7 @@ export function LoginPage() {{
               {{loading ? 'Signing in...' : 'Sign in to your account'}}
             </button>
           </form>
-          <p className="mt-6 text-center text-sm text-gray-500">
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{{' '}}
             <a href="#" className="text-brand-600 font-medium hover:underline">Create one free</a>
           </p>
@@ -222,38 +222,38 @@ export function LoginPage() {{
   }}
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-brand-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-muted to-brand-50 flex items-center justify-center p-4">
+      <div className="bg-card rounded-2xl shadow-xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 bg-brand-600 rounded-xl mb-4">
             <span className="text-white font-extrabold text-xl">{project_name[0] if project_name else 'A'}</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-gray-900">{project_name}</h1>
-          <p className="text-gray-500 mt-1 text-sm">Sign in to your admin account</p>
+          <h1 className="text-2xl font-extrabold text-foreground">{project_name}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Sign in to your admin account</p>
         </div>
         <form onSubmit={{handleSubmit}} className="space-y-4">
           <div>
-            <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+            <label htmlFor="login-email" className="block text-sm font-medium text-foreground mb-1">Email address</label>
             <input
               id="login-email" type="email"
               value={{email}}
               onChange={{e => setEmail(e.target.value)}}
               required
               placeholder="you@example.com"
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
+              className="w-full px-3 py-2.5 border border-input rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
           </div>
           <div>
-            <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-foreground mb-1">Password</label>
             <input
               id="login-password" type="password"
               value={{password}}
               onChange={{e => setPassword(e.target.value)}}
               required
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
+              className="w-full px-3 py-2.5 border border-input rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
           </div>
-          {{error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{{error}}</p>}}
+          {{error && <p className="text-sm text-destructive bg-destructive-soft px-3 py-2 rounded-lg">{{error}}</p>}}
           <button
             type="submit"
             disabled={{loading}}
@@ -275,79 +275,18 @@ def _generate_dashboard(entities: List[dict], route_map: Dict[str, str], domain:
         return _generate_storefront_home(entities, route_map, domain=domain)
 
     # Domain-appropriate page background and text colours
-    _theme_bg: Dict[str, str] = {
-        "healthcare":  "bg-teal-50",
-        "fintech":     "bg-slate-900",
-        "education":   "bg-sky-50",
-        "gym_fitness": "bg-red-50",
-        "fitness":     "bg-red-50",
-        "real_estate": "bg-emerald-50",
-        "hospitality": "bg-amber-50",
-        "restaurant":  "bg-orange-50",
-        "food":        "bg-orange-50",
-        "logistics":   "bg-slate-50",
-        "iot":         "bg-slate-900",
-        "security":    "bg-slate-900",
-        "hrm":         "bg-indigo-50",
-        "crm":         "bg-indigo-50",
-        "analytics":   "bg-indigo-50",
-        "saas":        "bg-violet-50",
-        "sports":      "bg-green-50",
-        "library":     "bg-stone-50",
-    }
-    _theme_heading: Dict[str, str] = {
-        "healthcare":  "text-teal-900",
-        "fintech":     "text-yellow-300",
-        "education":   "text-sky-900",
-        "gym_fitness": "text-red-900",
-        "fitness":     "text-red-900",
-        "real_estate": "text-emerald-900",
-        "hospitality": "text-amber-900",
-        "restaurant":  "text-orange-900",
-        "food":        "text-orange-900",
-        "logistics":   "text-slate-900",
-        "iot":         "text-cyan-300",
-        "security":    "text-red-300",
-        "hrm":         "text-indigo-900",
-        "crm":         "text-indigo-900",
-        "analytics":   "text-indigo-900",
-        "saas":        "text-violet-900",
-        "sports":      "text-green-900",
-        "library":     "text-stone-900",
-    }
-    _theme_sub: Dict[str, str] = {
-        "fintech": "text-slate-400", "iot": "text-slate-400", "security": "text-slate-400",
-    }
-    _theme_card: Dict[str, str] = {
-        "healthcare":  "bg-white border-teal-100",
-        "fintech":     "bg-slate-800 border-slate-700",
-        "education":   "bg-white border-sky-100",
-        "gym_fitness": "bg-white border-red-100",
-        "fitness":     "bg-white border-red-100",
-        "real_estate": "bg-white border-emerald-100",
-        "hospitality": "bg-white border-amber-100",
-        "restaurant":  "bg-white border-orange-100",
-        "food":        "bg-white border-orange-100",
-        "logistics":   "bg-white border-slate-200",
-        "iot":         "bg-slate-800 border-slate-700",
-        "security":    "bg-slate-800 border-slate-700",
-        "hrm":         "bg-white border-indigo-100",
-        "crm":         "bg-white border-indigo-100",
-        "analytics":   "bg-white border-indigo-100",
-        "saas":        "bg-white border-violet-100",
-        "sports":      "bg-white border-green-100",
-        "library":     "bg-white border-stone-200",
-    }
-    _theme_stat_text: Dict[str, str] = {
-        "fintech": "text-yellow-200", "iot": "text-cyan-200", "security": "text-red-200",
-    }
+    _theme_bg: Dict[str, str] = {}   # KAN-243: the run tokens theme every domain
+    _theme_heading: Dict[str, str] = {}   # KAN-243: the run tokens theme every domain
+    _theme_sub: Dict[str, str] = {}   # KAN-243: the run tokens theme every domain
+    _theme_card: Dict[str, str] = {}   # KAN-243: the run tokens theme every domain
+    _theme_stat_text: Dict[str, str] = {}   # KAN-243: the run tokens theme every domain
 
     _eff_theme = ui_theme if ui_theme and ui_theme != "default" else domain
-    page_bg    = _theme_bg.get(_eff_theme, "bg-gray-50")
-    heading_cl = _theme_heading.get(_eff_theme, "text-gray-900")
-    sub_cl     = _theme_sub.get(_eff_theme, "text-gray-500")
-    card_cl    = _theme_card.get(_eff_theme, "bg-white border-gray-100")
-    stat_cl    = _theme_stat_text.get(_eff_theme, "text-gray-900")
+    page_bg    = _theme_bg.get(_eff_theme, "bg-background")
+    heading_cl = _theme_heading.get(_eff_theme, "text-foreground")
+    sub_cl     = _theme_sub.get(_eff_theme, "text-muted-foreground")
+    card_cl    = _theme_card.get(_eff_theme, "bg-card border-border")
+    stat_cl    = _theme_stat_text.get(_eff_theme, "text-foreground")
 
     query_lines: List[str] = []
     stat_cards: List[str] = []

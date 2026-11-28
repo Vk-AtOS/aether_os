@@ -6,7 +6,7 @@ Three packs for generated projects: **design**, **security** and **prodready**. 
 2. **Deterministic checks** run on what it wrote: regex and Python `ast` only. Nothing in the scanned project
    is imported or executed, and no model or network is used.
 
-The package does not plug into the pipeline yet. The stages call it as shown below.
+The pipeline uses all three packs on every build (see "In the pipeline" below). The API:
 
 ```python
 from aether_os.core.rulepacks import (generate_tokens, design_prompt_rules, security_prompt_rules,
@@ -28,6 +28,25 @@ Every finding has `rule_id`, `pack`, `severity` (info/low/medium/high/critical),
 `fix_hint` and the offending line as `snippet`. A project-level finding (for example "no CI workflow") has
 `file == ""` and `line == 0`. When checks disagree, fewer findings win: each check is written to miss a case
 rather than flag correct code, because every finding becomes an instruction to the model.
+
+## In the pipeline
+
+- **Design (p05).** `phases/p05_frontend/theme_tokens.py` builds one token set per run with `generate_tokens`: the
+  site type comes from the spec (`site_type` / `app_shape`, else the domain), the brand name is the project name, the
+  moods come from the description, the brief's density and the domain, and the brief's primary color is used when
+  there is one. The tokens are written as `src/index.css` (variables) and `tailwind.config.js` (every color, font,
+  radius and shadow reads a variable). The templates use semantic classes only (no hex, no palette classes). Every
+  model page prompt ends with `design_prompt_rules` and the frontend security rules (at most
+  `spec_rules.MAX_RULES_CHARS`).
+- **Security (p04*, p05).** `core/rulepacks/spec_rules.security_rules_for(context, surface)` picks the modules from the
+  spec (FastAPI, SQLAlchemy, JWT auth, React and Docker always; file upload and LLM agent when the spec asks) and is
+  added to every code-writing prompt.
+- **Gate (s11).** `core/rulepacks/pipeline_gate.py` scans the clean export of the run (`core/project_export`) with the
+  platform's public routes plus `context["public_routes"]`. Blocking findings in model-written files (recorded by the
+  generators in `<app>/.aetheros/model_files.json`, `provenance.py`) go back to the model through
+  `core/codegen/patching` with `repair_prompt`, at most 3 rounds with a re-scan after each. A blocking finding in a
+  template file fails s11 and names the rule id and file: that is a generator bug, never suppressed. The report is
+  written to `s11_handoff/rulepacks_report.json` and summarised in the stage metadata (`metadata["rulepacks"]`).
 
 ## Design tokens
 
