@@ -74,26 +74,52 @@ def detect_active_patterns(data: Dict[str, Any], raw_input: str) -> List[str]:
     return active
 
 
+_AGENT_MOUNT = (
+    "\ntry:\n"
+    "    from agent import router as _agent_router\n"
+    "    app.include_router(_agent_router, prefix=\"/api\")\n"
+    "except Exception as _agent_exc:\n"
+    "    import logging as _l; _l.getLogger(__name__).warning('agent router unavailable: %s', _agent_exc)\n"
+)
+
+
+def mount_agent_router(main_py: str) -> str:
+    """Mount src/agent.py's router in the generated main.py (KAN-264: it was written but never mounted)."""
+    anchor = '@app.get("/health"'
+    if anchor not in main_py:
+        logger.warning("[p04a] health anchor missing in main.py - agent router not mounted")
+        return main_py
+    return main_py.replace(anchor, _AGENT_MOUNT + anchor, 1)
+
+
+def append_requirements(output_dir: Path, new_reqs: List[str]) -> None:
+    """Add pattern requirements to requirements.txt once it exists (it used to be appended to before the file was
+    written, then overwritten, so no pattern's packages ever reached the generated app)."""
+    req_path = output_dir / "requirements.txt"
+    if not req_path.exists():
+        logger.warning("[p04a] requirements.txt missing - pattern requirements %s not added", new_reqs)
+        return
+    existing = req_path.read_text()
+    for req in new_reqs:
+        pkg_name = req.split(">=")[0].split("==")[0].split("[")[0]
+        if pkg_name not in existing:
+            existing = existing.rstrip() + f"\n{req}\n"
+    req_path.write_text(existing)
+
+
 def inject_patterns(
     active_patterns: List[str],
     src_dir: Path,
     output_dir: Path,
-) -> None:
-    """Write pattern files to src_dir and append their requirements to requirements.txt.
+) -> List[str]:
+    """Write pattern files to src_dir; return the packages they need (the caller adds them to requirements.txt).
 
     Failures are non-fatal — logged at WARNING level and skipped.
     """
-    req_path = output_dir / "requirements.txt"
+    pattern_reqs: List[str] = []
 
     def _append_requirements(new_reqs: List[str]) -> None:
-        if not req_path.exists():
-            return
-        existing = req_path.read_text()
-        for req in new_reqs:
-            pkg_name = req.split(">=")[0].split("==")[0].split("[")[0]
-            if pkg_name not in existing:
-                req_path.write_text(existing.rstrip() + f"\n{req}\n")
-                existing = req_path.read_text()
+        pattern_reqs.extend(r for r in new_reqs if r not in pattern_reqs)
 
     for pattern_name in active_patterns:
         logger.info("[p04a] activating pattern: %s", pattern_name)
@@ -169,3 +195,4 @@ def inject_patterns(
 
         except Exception as exc:
             logger.warning("[p04a] pattern %s injection failed (non-fatal): %s", pattern_name, exc)
+    return pattern_reqs

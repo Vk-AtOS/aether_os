@@ -182,7 +182,7 @@ def run_pipeline_and_seed_steps(
     _inject_stripe_router = "stripe" in _active_patterns
     _inject_marketplace_router = "marketplace" in _active_patterns
     _inject_erp_approval_router = "erp_approval" in _active_patterns
-    inject_patterns_fn(_active_patterns, src_dir, output_dir)
+    _pattern_requirements = inject_patterns_fn(_active_patterns, src_dir, output_dir) or []
 
     # Step 4b: Audit infrastructure
     try:
@@ -213,6 +213,8 @@ def run_pipeline_and_seed_steps(
         "_inject_stripe_router": _inject_stripe_router,
         "_inject_marketplace_router": _inject_marketplace_router,
         "_inject_erp_approval_router": _inject_erp_approval_router,
+        "_active_patterns": _active_patterns,
+        "_pattern_requirements": _pattern_requirements,
     }
 
 

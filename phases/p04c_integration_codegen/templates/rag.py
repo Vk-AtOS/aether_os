@@ -9,7 +9,7 @@ def generate_rag_service(output_dir=None, config: dict | None = None) -> str:
 
 Uses ChromaDB if available, falls back to in-memory vector store.
 Reads EMBEDDING_MODEL from env (default: text-embedding-3-small).
-Requires OPENAI_API_KEY for embeddings and chat.
+Requires LLM_API_KEY (+ LLM_BASE_URL for a non-OpenAI endpoint) for embeddings and chat.
 """
 from __future__ import annotations
 import hashlib
@@ -20,7 +20,8 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-_OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+_OPENAI_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+_BASE_URL = os.getenv("LLM_BASE_URL") or None
 _COLLECTION_NAME = os.getenv("RAG_COLLECTION", "rag_documents")
 
 
@@ -78,7 +79,7 @@ class RAGService:
         if self._openai_client is None:
             try:
                 from openai import OpenAI
-                self._openai_client = OpenAI(api_key=_OPENAI_KEY)
+                self._openai_client = OpenAI(api_key=_OPENAI_KEY, base_url=_BASE_URL)
             except ImportError as exc:
                 raise RuntimeError("openai package not installed: pip install openai") from exc
         return self._openai_client
@@ -142,7 +143,7 @@ class RAGService:
                 {"role": "user", "content": query},
             ]
             resp = client.chat.completions.create(
-                model=os.getenv("AI_MODEL", "gpt-4o-mini"),
+                model=os.getenv("LLM_MODEL") or os.getenv("AI_MODEL", "gpt-4o-mini"),
                 messages=messages,
                 max_tokens=800,
             )
