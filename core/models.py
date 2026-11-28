@@ -44,6 +44,8 @@ class Organisation(Base):
     # Cap the ORG ADMIN chose for itself (lowers only). Kept apart from llm_monthly_cap_usd so a tenant can never
     # undo a cap the platform set: effective cap = min(platform-or-plan cap, org cap).
     llm_org_cap_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Monthly token cap overriding the plan default (KAN-261); NULL = the plan's cap (LLM_PLAN_TOKEN_CAPS or plans.py).
+    llm_monthly_token_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     llm_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Admin MFA policy (KAN-186): when on, owners/admins without MFA are locked to MFA enrolment
     # once the grace period (unix time, NULL = none) has passed.
