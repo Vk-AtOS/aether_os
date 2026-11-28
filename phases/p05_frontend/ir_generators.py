@@ -127,7 +127,8 @@ def generate_ir_dashboard_stats(ir: DomainIR) -> str:
     return "\n".join(cards)
 
 
-def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: str, domain: str = "saas") -> str:
+def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: str, domain: str = "saas",
+                              route_prefix: str = "") -> str:
     """
     Generate Dashboard.tsx — storefront homepage for ecommerce, rich KPI dashboard for others.
     """
@@ -140,7 +141,7 @@ def generate_ir_dashboard_tsx(ir: DomainIR, entities: list[dict], project_name: 
         return generate_storefront_home(entities, route_map)
 
     # All other domains: stat cards read from /stats (dashboard_stats keeps every number off the page source)
-    return stats_dashboard_tsx(entities, project_name)
+    return stats_dashboard_tsx(entities, project_name, route_prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +332,7 @@ def generate_ir_entity_page(entity: IREntity) -> str:
             lookup_var = data_var[:-4] + "Lookup"  # e.g. customerData → customerLookup
             return (
                 f"              <td className='px-4 py-2 text-sm text-gray-900'>"
-                f"{{{lookup_var}[row.{fname}] ?? row.{fname}}}</td>"
+                f"{{{lookup_var}[row.{fname} ?? 0] ?? row.{fname}}}</td>"   # nullable FK: undefined cannot index (TS2538)
             )
         if any(fname.endswith(s) or fname == s.lstrip("_") for s in _DATE_SUFFIXES):
             return (
