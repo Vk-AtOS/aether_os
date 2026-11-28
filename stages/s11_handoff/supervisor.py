@@ -23,7 +23,7 @@ OUTPUTS:
   - deployment_guide_path    : str — Step-by-step deployment guide
   - postman_collection_path  : str
   - client_portal_path       : str — Client review portal HTML
-  - handoff_zip_path         : str — ZIP of entire generated project
+  - export_manifest_path     : str — manifest of the clean export (the download / GitHub push build it on demand)
   - quality_report_path      : str — JSON quality summary
 
 SUB-STEPS:
@@ -40,10 +40,10 @@ import copy
 import importlib
 import json
 import logging
-import zipfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+from aether_os.core.project_export import ExportError, export_files
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ STAGE_CONTRACT = {
         "deployment_guide_path",
         "postman_collection_path",
         "client_portal_path",
-        "handoff_zip_path",
+        "export_manifest_path",
         "quality_report_path",
     ],
 }
@@ -125,14 +125,10 @@ class HandoffStageSupervisor(PhaseBase):
         if handoff_result is not None:
             results["p15_handoff"] = handoff_result
 
-        # ── Build ZIP archive of entire generated project output ───────────────
-        # The documentation, client portal and handoff package (Postman, runbook) are part of the delivery.
-        extras = {
-            "docs": docs_result, "client_portal": portal_result, "handoff": handoff_result,
-        }
-        zip_path = self._build_project_zip(phase_input, output_dir, issues, extras)
-        if zip_path:
-            phase_input.input_data["handoff_zip_path"] = str(zip_path)
+        # ── Verify the run exports cleanly (the download / GitHub push build the real artifact) ──
+        manifest_path = await self._check_export(phase_input, output_dir, issues)
+        if manifest_path:
+            phase_input.input_data["export_manifest_path"] = str(manifest_path)
 
         # ── Write quality report ──────────────────────────────────────────────
         quality_report_path = self._write_quality_report(
@@ -152,7 +148,7 @@ class HandoffStageSupervisor(PhaseBase):
         metadata = {
             "succeeded": succeeded,
             "failed": failed,
-            "zip_path": str(zip_path) if zip_path else None,
+            "export_manifest_path": str(manifest_path) if manifest_path else None,
             "quality_report_path": str(quality_report_path) if quality_report_path else None,
             "docs_written": docs_result.metadata.get("files_written", 0) if docs_result else 0,
         }
@@ -229,56 +225,32 @@ class HandoffStageSupervisor(PhaseBase):
             if runbook.exists():
                 context["deployment_guide_path"] = str(runbook)
 
-    def _build_project_zip(
-        self, phase_input: Any, output_dir: Path, issues: List[str],
-        extras: Dict[str, TaskResult | None] | None = None,
-    ) -> Path | None:
-        """ZIP the backend + frontend output plus the docs / portal / handoff results into a delivery archive.
+    async def _check_export(self, phase_input: Any, output_dir: Path, issues: List[str]) -> Path | None:
+        """Prove the run can be exported and record the manifest (KAN-270).
 
-        extras maps an archive folder to the sub-phase result whose output folder goes under it.
+        The deliverable is the clean export the download endpoint and the GitHub push build on demand
+        (core/project_export). This stage used to zip backend/frontend/docs itself: 87 MB with node_modules, a .env and
+        a private key, and nothing served it. It now only runs the same export (including its secret scan) so a
+        run that cannot be exported is flagged here, and writes the manifest next to the quality report.
         """
         try:
             data = phase_input.input_data or {}
-            zip_path = output_dir / "project_delivery.zip"
-
-            dirs_to_zip = []
-            for key in ("backend_output_path", "frontend_output_path"):
-                val = data.get(key, "")
-                if val:
-                    p = Path(val)
-                    if p.exists():
-                        dirs_to_zip.append(p)
-
-            extra_dirs: Dict[str, Path] = {}
-            for folder, res in (extras or {}).items():
-                out = Path(res.output_path) if res is not None and res.output_path else None
-                if out is not None and out.exists():
-                    extra_dirs[folder] = out if out.is_dir() else out.parent
-
-            if not dirs_to_zip and not extra_dirs:
-                logger.info("s11: no backend/frontend paths found — skipping ZIP")
-                return None
-
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for base_dir in dirs_to_zip:
-                    for file_path in base_dir.rglob("*"):
-                        if file_path.is_file():
-                            # Skip __pycache__ and .pyc to keep archive clean
-                            parts = file_path.parts
-                            if "__pycache__" in parts or file_path.suffix == ".pyc":
-                                continue
-                            arcname = file_path.relative_to(base_dir.parent)
-                            zf.write(file_path, arcname)
-                for folder, base_dir in extra_dirs.items():
-                    for file_path in base_dir.rglob("*"):
-                        if file_path.is_file() and file_path != zip_path and "__pycache__" not in file_path.parts:
-                            zf.write(file_path, Path(folder) / file_path.relative_to(base_dir))
-
-            logger.info("s11: delivery ZIP written to %s", zip_path)
-            return zip_path
+            ws = Path(data.get("project_dir") or "")
+            if not ws.is_dir():
+                from aether_os.core.projects import get_project_manager
+                ws = get_project_manager().get_project_dir(phase_input.project_id)
+            _, manifest = await asyncio.to_thread(export_files, ws, str(data.get("project_name") or "app"))
+            path = output_dir / "export_manifest.json"
+            path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            logger.info("s11: clean export verified, %d files", manifest["file_count"])
+            return path
+        except ExportError as e:
+            logger.warning("s11: the run cannot be exported: %s", e)
+            issues.append(f"Export check failed: {e}")
+            return None
         except Exception as e:
-            logger.warning("s11: ZIP creation failed (non-critical): %s", e)
-            issues.append(f"ZIP creation failed: {e}")
+            logger.warning("s11: export check crashed (non-critical): %s", e)
+            issues.append(f"Export check crashed: {e}")
             return None
 
     def _write_quality_report(self, context: dict, output_dir: Path) -> Path | None:

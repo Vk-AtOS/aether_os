@@ -1,29 +1,47 @@
-"""KAN-100: the delivery ZIP carries the docs, portal and handoff package, not only backend and frontend."""
-import zipfile
+"""KAN-270: s11 no longer writes its own 87 MB delivery zip (node_modules, .env, key, served by nothing).
+
+It runs the clean export (the same one the download and the GitHub push use) and records its manifest.
+"""
+import asyncio
+import json
 from types import SimpleNamespace
 
-from aether_os.phases.base import TaskResult
 from aether_os.stages.s11_handoff.supervisor import HandoffStageSupervisor
 
 
-def _res(path):
-    return TaskResult(output_path=str(path), confidence=1.0, success=True)
+def _w(root, rel, text="x"):
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text)
 
 
-def test_zip_contains_docs_portal_and_handoff(tmp_path):
-    be, fe = tmp_path / "backend", tmp_path / "frontend"
-    docs, portal, handoff = tmp_path / "p10", tmp_path / "p14", tmp_path / "p15"
-    for d, name in ((be, "main.py"), (fe, "App.tsx"), (docs, "README.md"), (portal, "index.html"), (handoff, "postman/collection.json")):
-        f = d / name
-        f.parent.mkdir(parents=True)
-        f.write_text("x")
-    docs_summary = docs / "docs_summary.json"          # p10 returns its summary FILE as output_path
-    docs_summary.write_text("{}")
-    out = tmp_path / "out"
+def _ws(tmp_path):
+    ws = tmp_path / "run"
+    _w(ws, "p04_backend/backend_codegen/src/main.py", "app = 1")
+    _w(ws, "p04_backend/backend_codegen/requirements.txt", "fastapi\n")
+    _w(ws, "p04_backend/backend_codegen/.env", "SECRET_KEY=abcdefabcdefabcdef")
+    _w(ws, "frontend/package.json", "{}")
+    _w(ws, "frontend/node_modules/x/index.js", "x")
+    _w(ws, "p10_docs_delivery/docs/README.md", "# docs")
+    return ws
+
+
+def test_s11_verifies_the_clean_export_and_writes_no_zip(tmp_path):
+    ws, out, issues = _ws(tmp_path), tmp_path / "out", []
     out.mkdir()
-    pi = SimpleNamespace(input_data={"backend_output_path": str(be), "frontend_output_path": str(fe)})
-    zp = HandoffStageSupervisor()._build_project_zip(
-        pi, out, [], {"docs": _res(docs_summary), "client_portal": _res(portal), "handoff": _res(handoff), "none": None})
-    names = set(zipfile.ZipFile(zp).namelist())
-    assert {"backend/main.py", "frontend/App.tsx", "docs/README.md", "client_portal/index.html",
-            "handoff/postman/collection.json"} <= names
+    pi = SimpleNamespace(project_id="p", input_data={"project_dir": str(ws), "project_name": "App"})
+    path = asyncio.run(HandoffStageSupervisor()._check_export(pi, out, issues))
+    manifest = json.loads(path.read_text())
+    paths = {f["path"] for f in manifest["files"]}
+    assert not issues and {"backend/src/main.py", "frontend/package.json", "docs/README.md"} <= paths
+    assert not any("node_modules" in p or p.endswith(".env") for p in paths)
+    assert not list(out.glob("*.zip")) and not hasattr(HandoffStageSupervisor, "_build_project_zip")
+
+
+def test_s11_flags_a_run_that_cannot_be_exported(tmp_path):
+    ws, out, issues = _ws(tmp_path), tmp_path / "out", []
+    out.mkdir()
+    _w(ws, "p04_backend/backend_codegen/src/leak.py", "K='''-----BEGIN RSA PRIVATE KEY-----'''")
+    pi = SimpleNamespace(project_id="p", input_data={"project_dir": str(ws)})
+    assert asyncio.run(HandoffStageSupervisor()._check_export(pi, out, issues)) is None
+    assert issues and "private-key" in issues[0]

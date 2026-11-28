@@ -21,7 +21,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from aether_os.gateway.dependencies import get_current_user, require_run_user
 from aether_os.core.db import get_session_factory
-from aether_os.core.run_app import safe_fs
+from aether_os.core.github_push import PushError, push_files
+from aether_os.core.project_export import ExportError, export_files
 from aether_os.core.llm.client import LLMClient
 from aether_os.core.models import LLMTrace
 from aether_os.core.models import Run
@@ -29,8 +30,9 @@ from aether_os.core.models import RunSpec
 from aether_os.core.services import learning_service
 from pathlib import Path
 from sqlalchemy import select
-import base64
+import asyncio
 import httpx
+import re
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 # ── Auth helper ────────────────────────────────────────────────────────────────
@@ -58,16 +60,18 @@ async def push_run_to_github(
     project_dir = Path.home() / ".aether_os" / "projects" / run_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project files not found")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", repo_name):
+        raise HTTPException(status_code=422, detail="repo_name may only contain letters, digits, '.', '_' and '-'")
+    # The clean export, never the raw workspace: no keys, .env, stage folders or preview rewrites (KAN-268).
+    try:
+        files, manifest = await asyncio.to_thread(
+            export_files, project_dir, (run.project_name or run_id).replace(" ", "_"))
+    except ExportError as e:
+        raise HTTPException(status_code=422, detail={"message": str(e), "findings": [str(f) for f in e.findings]}) from e
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json",
     }
-    _SKIP = {"__pycache__", ".pytest_cache", "node_modules", ".git", ".venv", "venv"}
-    _ALLOW_HIDDEN = {
-        ".env.example", ".gitignore", ".dockerignore", ".eslintrc",
-        ".prettierrc", ".editorconfig", ".nvmrc",
-    }
-    _ALLOW_HIDDEN_DIRS = {".github", ".devcontainer"}
     async with httpx.AsyncClient(timeout=30) as gh:
         create_res = await gh.post(
             "https://api.github.com/user/repos",
@@ -84,40 +88,26 @@ async def push_run_to_github(
                 status_code=502,
                 detail=f"GitHub repo creation failed: {create_res.text}",
             )
-        repo_data = create_res.json()
-        html_url = repo_data.get("html_url", f"https://github.com/user/{repo_name}")
         user_res = await gh.get("https://api.github.com/user", headers=headers)
-        gh_user = user_res.json().get("login", "aetheros")
-        files_pushed = 0
-        for rel in safe_fs.walk_files(project_dir, skip_dirs=_SKIP):   # links never followed
-            fpath = project_dir / rel
-            if files_pushed >= 50:
-                break
-            if rel.name == "run_preview.py":
-                continue
-            parts = rel.parts
-            if any(p in _SKIP for p in parts):
-                continue
-            if any(p.startswith(".") for p in parts):
-                if not (parts[0] in _ALLOW_HIDDEN_DIRS or fpath.name in _ALLOW_HIDDEN):
-                    continue
-            if fpath.suffix in {".pyc", ".pyo"}:
-                continue
-            try:
-                data = safe_fs.read_bytes_or_none(project_dir, rel, max_bytes=5 * 1024 * 1024)
-                if data is None:
-                    continue
-                content = base64.b64encode(data).decode()
-                await gh.put(
-                    f"https://api.github.com/repos/{gh_user}/{repo_name}/contents/{rel}",
-                    json={"message": f"Add {rel}", "content": content},
-                    headers=headers,
-                )
-                files_pushed += 1
-            except Exception as _push_exc:
-                logger.warning("Failed to push file %s to GitHub: %s", rel, _push_exc)
-                continue
-    return {"html_url": html_url, "files_pushed": files_pushed}
+        if user_res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"GitHub token rejected: {user_res.text[:200]}")
+        gh_user = user_res.json().get("login", "")
+        info = await gh.get(f"https://api.github.com/repos/{gh_user}/{repo_name}", headers=headers)
+        if info.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"GitHub repo {gh_user}/{repo_name} not readable: {info.text[:200]}")
+        repo_data = info.json()
+        try:
+            pushed = await push_files(
+                github_token, f"{gh_user}/{repo_name}", files, branch=repo_data.get("default_branch") or "main",
+                message="Initial commit from AetherOS", client=gh)
+        except PushError as e:
+            logger.warning("GitHub push of run %s failed: %s (%d file errors)", run_id, e, len(e.errors))
+            raise HTTPException(status_code=502, detail={"message": str(e), "errors": e.errors}) from e
+    return {"html_url": repo_data.get("html_url", f"https://github.com/{gh_user}/{repo_name}"),
+            "files_pushed": pushed["files_pushed"], "commit_sha": pushed["commit_sha"],
+            "branch": pushed["branch"], "manifest_files": manifest["file_count"]}
+
+
 @router.get("/factory/runs/{run_id}/traces")
 async def get_run_traces(
     run_id: str,
