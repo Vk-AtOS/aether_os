@@ -253,29 +253,29 @@ export function AdminLayout() {{
   const router = useRouter()
   const handleLogout = () => {{ clearToken(); router.navigate({{ to: '/login' }}) }}
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <aside className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
-        <div className="px-6 py-5 border-b border-gray-700">
-          <span className="text-lg font-bold text-white">{project_name}</span>
-          <span className="ml-2 text-xs bg-brand-600 text-white px-2 py-0.5 rounded-full font-semibold">Admin</span>
+    <div className="flex h-screen bg-muted overflow-hidden">
+      <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
+        <div className="px-6 py-5 border-b border-sidebar-border">
+          <span className="text-lg font-bold text-sidebar-foreground">{project_name}</span>
+          <span className="ml-2 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">Admin</span>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {{NAV.map(item => {{
             const Icon = _ICON_MAP[item.icon]
             return (
               <Link key={{item.to}} to={{item.to}}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors [&.active]:bg-brand-600 [&.active]:text-white text-sm font-medium">
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors [&.active]:bg-sidebar-primary [&.active]:text-sidebar-primary-foreground text-sm font-medium">
                 {{Icon && <Icon size={{16}} />}} {{item.label}}
               </Link>
             )
           }})}}
         </nav>
-        <div className="px-3 py-4 border-t border-gray-700 space-y-1">
-          <a href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white text-sm transition-colors">
+        <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
+          <a href="/" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground text-sm transition-colors">
             <span className="text-xs">🌐</span> Customer View
           </a>
           <button onClick={{handleLogout}}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white text-sm transition-colors">
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground text-sm transition-colors">
             <LogOut size={{16}} /> Logout
           </button>
         </div>
@@ -320,16 +320,16 @@ export function CustomerLayout() {{
   const handleLogout = () => {{ clearToken(); router.navigate({{ to: '/login' }}) }}
   const isLoggedIn = !!getToken()
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
+    <div className="min-h-screen bg-card flex flex-col">
+      <header className="sticky top-0 z-40 bg-card border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="text-xl font-extrabold text-gray-900 hover:text-brand-600 transition-colors">
+          <Link to="/" className="text-xl font-extrabold text-foreground hover:text-brand-600 transition-colors">
             {project_name}
           </Link>
           <nav className="hidden md:flex items-center gap-1">
             {{NAV.map(item => (
               <Link key={{item.to}} to={{item.to}}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors [&.active]:text-brand-600 [&.active]:bg-brand-50">
+                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors [&.active]:text-brand-600 [&.active]:bg-brand-50">
                 {{item.label}}
               </Link>
             ))}}
@@ -337,7 +337,7 @@ export function CustomerLayout() {{
           <div className="flex items-center gap-2">
             {{isLoggedIn ? (
               <button onClick={{handleLogout}}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors">
                 <LogOut size={{15}} /> Sign out
               </button>
             ) : (
@@ -352,8 +352,8 @@ export function CustomerLayout() {{
       <main className="flex-1">
         <Outlet />
       </main>
-      <footer className="bg-gray-50 border-t border-gray-100 py-8 mt-12">
-        <div className="max-w-7xl mx-auto px-4 text-center text-sm text-gray-400">
+      <footer className="bg-muted border-t border-border py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-4 text-center text-sm text-muted-foreground">
           © {{new Date().getFullYear()}} {project_name}
         </div>
       </footer>

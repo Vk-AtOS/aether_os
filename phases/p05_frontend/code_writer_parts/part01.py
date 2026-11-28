@@ -149,287 +149,10 @@ def _generate_tsconfig() -> str:
 
 
 def _generate_tailwind_config(ui_theme: str = "default") -> str:
-    # Theme-appropriate brand palette + dark-mode class
-    _neon_palette = """\
-        brand: {
-          50:  '#e0ffff',
-          100: '#b3fffe',
-          200: '#80fffd',
-          300: '#4dfffc',
-          400: '#00ffff',
-          500: '#00e5e5',
-          600: '#00b3b3',
-          700: '#008080',
-          800: '#005555',
-          900: '#003333',
-        },
-        surface: {
-          50: '#0a0f1e',
-          100: '#050810',
-          200: '#0d1117',
-          300: '#1a2035',
-          400: '#242b45',
-        },
-        accent: {
-          pink:   '#ff00ff',
-          cyan:   '#00ffff',
-          yellow: '#facc15',
-        },"""
-    _glass_palette = """\
-        brand: {
-          50:  '#f5f3ff',
-          200: '#ddd6fe',
-          500: '#8b5cf6',
-          600: '#7c3aed',
-          700: '#6d28d9',
-          900: '#4c1d95',
-        },"""
-    _default_palette = """\
-        brand: {
-          50:  '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          900: '#1e3a8a',
-        },"""
-    # Domain-specific palettes — each domain gets a distinct visual identity
-    _domain_palettes = {
-        # Healthcare: clinical teal — trust, cleanliness, calm
-        "healthcare": ("""\
-        brand: {
-          50:  '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          500: '#14b8a6',
-          600: '#0d9488',
-          700: '#0f766e',
-          900: '#134e4a',
-        },""", None),
-        # FinTech: deep navy + gold — wealth, authority, precision
-        "fintech": ("""\
-        brand: {
-          50:  '#fefce8',
-          100: '#fef9c3',
-          200: '#fef08a',
-          500: '#eab308',
-          600: '#ca8a04',
-          700: '#1e3a5f',
-          900: '#0f172a',
-        },""", None),
-        # Restaurant / Food: warm amber/orange — appetite, warmth
-        "restaurant": ("""\
-        brand: {
-          50:  '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          500: '#f97316',
-          600: '#ea580c',
-          700: '#c2410c',
-          900: '#7c2d12',
-        },""", None),
-        # E-commerce / Marketplace: vibrant rose-pink — energy, deals
-        "ecommerce": ("""\
-        brand: {
-          50:  '#fdf2f8',
-          100: '#fce7f3',
-          200: '#fbcfe8',
-          500: '#ec4899',
-          600: '#db2777',
-          700: '#be185d',
-          900: '#831843',
-        },""", None),
-        "marketplace": ("""\
-        brand: {
-          50:  '#fdf2f8',
-          100: '#fce7f3',
-          200: '#fbcfe8',
-          500: '#ec4899',
-          600: '#db2777',
-          700: '#be185d',
-          900: '#831843',
-        },""", None),
-        # Education: friendly cyan-sky — openness, learning
-        "education": ("""\
-        brand: {
-          50:  '#ecfeff',
-          100: '#cffafe',
-          200: '#a5f3fc',
-          500: '#06b6d4',
-          600: '#0891b2',
-          700: '#0e7490',
-          900: '#164e63',
-        },""", None),
-        # Fitness / Gym: energetic red-orange — power, action
-        "fitness": ("""\
-        brand: {
-          50:  '#fff1f2',
-          100: '#ffe4e6',
-          200: '#fecdd3',
-          500: '#f43f5e',
-          600: '#e11d48',
-          700: '#be123c',
-          900: '#881337',
-        },""", None),
-        "gym_fitness": ("""\
-        brand: {
-          50:  '#fff1f2',
-          100: '#ffe4e6',
-          200: '#fecdd3',
-          500: '#f43f5e',
-          600: '#e11d48',
-          700: '#be123c',
-          900: '#881337',
-        },""", None),
-        # Real Estate: earthy green — stability, growth, trust
-        "real_estate": ("""\
-        brand: {
-          50:  '#f0fdf4',
-          100: '#dcfce7',
-          200: '#bbf7d0',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-          900: '#14532d',
-        },""", None),
-        # Hospitality: warm golden — luxury, welcome
-        "hospitality": ("""\
-        brand: {
-          50:  '#fffbeb',
-          100: '#fef3c7',
-          200: '#fde68a',
-          500: '#f59e0b',
-          600: '#d97706',
-          700: '#b45309',
-          900: '#78350f',
-        },""", None),
-        # Logistics / IoT: slate-blue — reliability, technology
-        "logistics": ("""\
-        brand: {
-          50:  '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          900: '#0f172a',
-        },""", None),
-        "iot": ("""\
-        brand: {
-          50:  '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          900: '#0f172a',
-        },""", None),
-        # HRM / CRM / Analytics: professional indigo
-        "hrm": ("""\
-        brand: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          900: '#312e81',
-        },""", None),
-        "crm": ("""\
-        brand: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          900: '#312e81',
-        },""", None),
-        "analytics": ("""\
-        brand: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          900: '#312e81',
-        },""", None),
-        # SaaS: modern violet — innovation, product
-        "saas": ("""\
-        brand: {
-          50:  '#faf5ff',
-          100: '#f3e8ff',
-          200: '#e9d5ff',
-          500: '#a855f7',
-          600: '#9333ea',
-          700: '#7e22ce',
-          900: '#581c87',
-        },""", None),
-        # Food delivery: deep orange
-        "food": ("""\
-        brand: {
-          50:  '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          500: '#f97316',
-          600: '#ea580c',
-          700: '#c2410c',
-          900: '#7c2d12',
-        },""", None),
-    }
-
-    _theme_palettes = {
-        "neon_cyberpunk": (_neon_palette, "'Share Tech Mono', 'Courier New', monospace"),
-        "glassmorphism":  (_glass_palette, None),
-        "brutalist":      (_default_palette, "'Courier New', monospace"),
-    }
-    # Domain themes override the ui_theme name when it's still "default"
-    if ui_theme in _domain_palettes:
-        _palette, _font = _domain_palettes[ui_theme]
-    else:
-        _palette, _font = _theme_palettes.get(ui_theme, (_default_palette, None))
-    # Dark mode enabled for all themes — class-based toggle with localStorage persistence
-    _dark = "darkMode: 'class',"
-    _font_block = f"""
-      fontFamily: {{
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: [{_font}],
-      }},""" if _font else """
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-      },"""
-    return f"""\
-export default {{
-  content: ['./index.html', './src/**/*.{{js,ts,jsx,tsx}}'],
-  {_dark}
-  theme: {{
-    extend: {{
-      colors: {{
-{_palette}
-      }},{_font_block}
-      fontSize: {{
-        'xs':   ['0.75rem',  {{ lineHeight: '1rem' }}],
-        'sm':   ['0.875rem', {{ lineHeight: '1.25rem' }}],
-        'base': ['1rem',     {{ lineHeight: '1.5rem' }}],
-        'lg':   ['1.125rem', {{ lineHeight: '1.75rem' }}],
-        'xl':   ['1.25rem',  {{ lineHeight: '1.75rem' }}],
-        '2xl':  ['1.5rem',   {{ lineHeight: '2rem' }}],
-        '3xl':  ['1.875rem', {{ lineHeight: '2.25rem' }}],
-        '4xl':  ['2.25rem',  {{ lineHeight: '2.5rem' }}],
-      }},
-      fontWeight: {{
-        normal:    '400',
-        medium:    '500',
-        semibold:  '600',
-        bold:      '700',
-      }},
-    }}
-  }},
-  plugins: []
-}}
-"""
+    """tailwind.config.js of the run's design tokens (KAN-243). It held 17 hard-coded hex brand palettes picked by
+    domain or ui_theme; every color, font, radius and shadow now reads a CSS variable that index.css defines."""
+    from aether_os.phases.p05_frontend.theme_tokens import current_theme   # lazy: theme_tokens imports this module
+    return current_theme().tailwind_config(ui_theme)
 
 
 def _generate_postcss_config() -> str:
@@ -440,7 +163,7 @@ export default {
 """
 
 
-def _generate_index_html(project_name: str, description: str = "", domain: str = "saas") -> str:
+def _generate_index_html(project_name: str, description: str = "", domain: str = "saas", theme_color: str = "") -> str:
     # Both values come from the spec: escaped for HTML text/attributes, and JSON-encoded (with `<` neutralised, so
     # `</script>` cannot end the block) inside the JSON-LD script. `x</title><script>` used to run as a script.
     _desc = description or f"{project_name} — the modern platform built for your business."
@@ -448,6 +171,8 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
     _ld_desc = json.dumps(_desc).replace("<", "\\u003c")
     project_name = html.escape(project_name, quote=True)
     _desc = html.escape(_desc, quote=True)
+    # The browser UI color is the token primary (passed in by the run theme), never a fixed hex.
+    _theme_meta = f'  <meta name="theme-color" content="{html.escape(theme_color, quote=True)}" />\n' if theme_color else ""
     _og_type = "website"
     _schema_type = "WebSite"
     if domain in ("ecommerce", "marketplace"):
@@ -463,8 +188,7 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="{_desc}" />
   <meta name="robots" content="index, follow" />
-  <meta name="theme-color" content="#6366f1" />
-
+{_theme_meta}
   <!-- Open Graph / Social -->
   <meta property="og:type" content="{_og_type}" />
   <meta property="og:title" content="{project_name}" />
@@ -480,8 +204,7 @@ def _generate_index_html(project_name: str, description: str = "", domain: str =
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-  <!-- Inter font — primary typography system -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Fonts: src/index.css imports the pair the design tokens chose -->
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />

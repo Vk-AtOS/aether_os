@@ -24,7 +24,8 @@ from aether_os.phases.p05_frontend.cloud_console_generator import (
     generate_cloud_console,
 )
 from aether_os.phases.p05_frontend.ir_generators import ir_to_p05_entities
-from aether_os.phases.p05_frontend.design_brief import apply_brand_to_tailwind
+from aether_os.core.rulepacks.provenance import write_model_file
+from aether_os.phases.p05_frontend.theme_tokens import build_run_theme
 from aether_os.phases.p05_frontend.llm_page_writer import compute_template_debt
 from aether_os.phases.utils import memory_hint
 from aether_os.phases.p05_frontend.safe_text import check_entity_names, safe_display_name
@@ -49,14 +50,11 @@ from aether_os.phases.p05_frontend.code_writer import (
     generate_eslint_config,
     generate_vite_config,
     generate_tsconfig,
-    generate_tailwind_config,
     generate_postcss_config,
-    generate_index_html,
     generate_nginx_conf,
     generate_dockerfile,
     generate_env_example,
     generate_headers_file,
-    generate_index_css,
     generate_main_tsx,
     generate_auth_ts,
     generate_types,
@@ -281,6 +279,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             brief_source = "llm"
     if not ui_theme or ui_theme == "default":
         ui_theme = _DOMAIN_THEME_MAP.get((data.get("domain", "") or domain or "").lower(), "default")
+    run_theme = build_run_theme(data, project_name, domain, primary_hex, density)   # KAN-243: one token set per run
 
     # ── Wire new accumulated_context fields ──────────────────────────────────
     user_personas: List[dict] = data.get("user_personas") or []
@@ -333,16 +332,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         generate_eslint_config_fn=generate_eslint_config,
         generate_vite_config_fn=generate_vite_config,
         generate_tsconfig_fn=generate_tsconfig,
-        generate_tailwind_config_fn=(
-            (lambda theme: apply_brand_to_tailwind(generate_tailwind_config(theme), primary_hex)) if brief_source == "llm"
-            else generate_tailwind_config),
+        generate_tailwind_config_fn=run_theme.tailwind_config,
         generate_postcss_config_fn=generate_postcss_config,
-        generate_index_html_fn=generate_index_html,
+        generate_index_html_fn=run_theme.index_html,
         generate_nginx_conf_fn=generate_nginx_conf,
         generate_dockerfile_fn=generate_dockerfile,
         generate_env_example_fn=generate_env_example,
         generate_headers_file_fn=generate_headers_file,
-        generate_index_css_fn=generate_index_css,
+        generate_index_css_fn=run_theme.index_css,
         generate_main_tsx_fn=generate_main_tsx,
         generate_auth_ts_fn=generate_auth_ts,
         generate_api_fn=generate_api,
@@ -433,7 +430,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
             fallbacks=_page_fallbacks,
         )
         if _portal_home_llm:
-            (src_dir / "pages" / "customer" / "Home.tsx").write_text(_portal_home_llm)
+            write_model_file(src_dir / "pages" / "customer" / "Home.tsx", _portal_home_llm, frontend_dir)
             _llm_count += 1
             logger.info("p05: LLM portal home written for %s", project_name)
         else:

@@ -21,19 +21,18 @@ from aether_os.phases.p05_frontend.ui_catalog import ui_catalog
 
 logger = logging.getLogger(__name__)
 
-# Fallback design tokens — design_system module does not yet exist in p05_frontend.
-try:
-    from aether_os.phases.p05_frontend.design_system import get_design_tokens  # type: ignore
-except ImportError:
-    def get_design_tokens(domain: str) -> dict:  # noqa: ARG001
-        return {
-            "accent": "indigo-600",
-            "bg_page": "bg-slate-50",
-            "radius": "rounded-xl",
-            "bg_card": "bg-white",
-            "text_primary": "text-slate-900",
-            "gradient": "from-indigo-600 to-violet-600",
-        }
+from aether_os.phases.p05_frontend.design_system import get_design_tokens
+from aether_os.phases.p05_frontend.theme_tokens import page_rules_block
+
+# Every page prompt says this instead of a palette (KAN-243): colors are the run's CSS-variable tokens.
+_COLORS = ("- Colors ONLY through the theme's semantic classes: bg-background, bg-card, text-foreground, "
+           "text-muted-foreground, bg-primary with text-primary-foreground, bg-accent, border-border, ring-ring, "
+           "bg-destructive. No hex values, no palette classes such as bg-blue-500, no gradients\n")
+
+
+def _rules(tokens: dict) -> str:
+    """The run's DESIGN + SECURITY RULES (theme_tokens.py), placed at the end of every page prompt."""
+    return "\n" + ((tokens or {}).get("rules") or page_rules_block()) + "\n\n"
 
 
 async def _recorded(checked: Any, key: str, args: tuple, kwargs: dict) -> Optional[str]:
@@ -107,7 +106,7 @@ async def write_portal_home_checked(
         f"User's original request: {raw_input[:400]}\n\n"
         "The page MUST include:\n"
         "- A hero section with a compelling headline, subtitle, and a primary CTA button\n"
-        "- A feature highlights section with 3 cards describing key benefits\n"
+        "- A section on what this product does for its users, in its own words and records (not a generic 3-card grid)\n"
         "- A CTA banner at the bottom encouraging sign-up or login\n\n"
         "Hard requirements:\n"
         "- React 18 + TypeScript + Tailwind CSS\n"
@@ -115,10 +114,10 @@ async def write_portal_home_checked(
         "- Use shadcn/ui Button from '@/components/ui/Button' for the CTA\n"
         "- No API calls — this is a static marketing page\n"
         "- Export: export default function Home()\n"
-        f"- Design tokens: accent={tokens.get('accent')}, gradient={tokens.get('gradient')}, "
-        f"radius={tokens.get('radius')}, card={tokens.get('bg_card')}\n"
-        "- Max 250 lines total\n"
+        + _COLORS
+        + "- Max 250 lines total\n"
         "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
+        + _rules(tokens)
     )
 
     client = get_llm_client()
@@ -186,11 +185,10 @@ async def write_dashboard_checked(
         "show a skeleton while loading and an empty state when no data. Pages with hard-coded counts are rejected\n"
         "- Include: {/* DOMAIN_WIDGET_SLOT */} comment as a placeholder inside the JSX\n"
         "- Export: export default function Dashboard()\n"
-        f"- Design tokens: accent={tokens.get('accent')}, page bg={tokens.get('bg_page')}, "
-        f"radius={tokens.get('radius')}, card={tokens.get('bg_card')}, "
-        f"text={tokens.get('text_primary')}, gradient={tokens.get('gradient')}\n"
+        + _COLORS +
         "- Max 350 lines total\n"
         "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
+        + _rules(tokens)
     )
 
     client = get_llm_client()
@@ -319,11 +317,10 @@ async def write_entity_page_checked(
         "Nothing else exists there; anything more you need, write inline\n"
         "- No hardcoded data — all rows come from the API\n"
         "- Export: export default function {name}Page()\n"
-        f"- Design tokens: accent={tokens.get('accent')}, page bg={tokens.get('bg_page')}, "
-        f"radius={tokens.get('radius')}, card={tokens.get('bg_card')}, "
-        f"text={tokens.get('text_primary')}, gradient={tokens.get('gradient')}\n"
+        + _COLORS +
         "- Max 350 lines total\n"
         "- Return ONLY the .tsx code — no markdown fences, no prose.\n"
+        + _rules(tokens)
     ).replace("{name}", name).replace("{camel}", _camel(table))
 
     client = get_llm_client()

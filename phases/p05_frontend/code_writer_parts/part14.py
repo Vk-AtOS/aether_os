@@ -148,24 +148,24 @@ export function CommandPalette() {{
       aria-modal="true"
       aria-label="Command palette"
     >
-      <div className="w-full max-w-xl mx-4 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="w-full max-w-xl mx-4 bg-card rounded-2xl shadow-2xl border border-border overflow-hidden">
         {{/* Search input */}}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <Search size={{18}} className="text-gray-400 dark:text-gray-500 shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+          <Search size={{18}} className="text-muted-foreground shrink-0" />
           <input
             ref={{inputRef}}
             value={{query}}
             onChange={{e => setQuery(e.target.value)}}
             onKeyDown={{handleKeyDown}}
             placeholder="Search across all records..."
-            className="flex-1 bg-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-600 text-sm outline-none"
+            className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none"
           />
           {{query && (
-            <button onClick={{() => setQuery('')}} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <button onClick={{() => setQuery('')}} className="text-muted-foreground hover:text-muted-foreground">
               <X size={{16}} />
             </button>
           )}}
-          <kbd className="hidden sm:inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5">
+          <kbd className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">
             ESC
           </kbd>
         </div>
@@ -173,19 +173,19 @@ export function CommandPalette() {{
         {{/* Results */}}
         <div className="max-h-[50vh] overflow-y-auto py-2">
           {{searching && (
-            <div className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">Searching...</div>
+            <div className="px-4 py-3 text-sm text-muted-foreground">Searching...</div>
           )}}
           {{!searching && query && results.length === 0 && (
-            <div className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">No results for "{{query}}"</div>
+            <div className="px-4 py-3 text-sm text-muted-foreground">No results for "{{query}}"</div>
           )}}
           {{!query && (
-            <div className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">
+            <div className="px-4 py-3 text-sm text-muted-foreground">
               Type to search across {{ENTITIES.map(e => ENTITY_LABELS[e]).join(', ')}}
             </div>
           )}}
           {{Object.entries(grouped).map(([ent, items]) => (
             <div key={{ent}}>
-              <div className="px-4 py-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+              <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 {{ENTITY_LABELS[ent as EntityKey]}}
               </div>
               {{items.map(item => {{
@@ -199,12 +199,12 @@ export function CommandPalette() {{
                     className={{`w-full text-left px-4 py-2 text-sm flex items-center gap-3 transition-colors ${{
                       isActive
                         ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300'
-                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        : 'text-foreground hover:bg-muted'
                     }}`}}
                   >
                     <span className="flex-1 truncate">{{item.label}}</span>
                     {{isActive && (
-                      <kbd className="text-xs text-gray-400 dark:text-gray-500 border border-current rounded px-1">↵</kbd>
+                      <kbd className="text-xs text-muted-foreground border border-current rounded px-1">↵</kbd>
                     )}}
                   </button>
                 )

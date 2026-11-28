@@ -11,9 +11,7 @@ from aether_os.phases.p05_frontend.design_system import get_design_tokens
 
 
 def get_domain_color_hint(domain: str) -> str:
-    """Convert the structured token dict for *domain* into the color-hint string
-    format used in LLM prompts.
-    """
+    """The color hint for LLM prompts: the run's semantic token classes (KAN-243), never a per-domain palette."""
     t = get_design_tokens(domain)
     accent = t["accent"]
     bg_page = t["bg_page"].replace("bg-", "")
@@ -25,76 +23,6 @@ def get_domain_color_hint(domain: str) -> str:
         f"cards bg-{bg_card} border-{border}, accents {accent}"
     )
 
-
-
-# ── Domain fallback widgets ───────────────────────────────────────────────────
-DOMAIN_FALLBACK_WIDGETS: Dict[str, str] = {
-    "crm": """
-import React from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { apiClient } from '../lib/api'
-
-export default function DomainWidget() {
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ['stats'],
-    queryFn: () => apiClient.get('/stats').then(r => r.data),
-    staleTime: 30_000,
-  })
-
-  const pipeline = [
-    { stage: 'New', count: stats?.stage_new ?? 0 },
-    { stage: 'Qualified', count: stats?.stage_qualified ?? 0 },
-    { stage: 'Proposal', count: stats?.stage_proposal ?? 0 },
-    { stage: 'Won', count: stats?.stage_won ?? 0 },
-  ]
-
-  if (isLoading) {
-    return (
-      <div className="p-6 bg-indigo-50 rounded-2xl animate-pulse">
-        <div className="h-6 bg-indigo-200 rounded w-48 mb-4" />
-        <div className="flex space-x-4">
-          {[1,2,3,4].map(i => <div key={i} className="h-24 bg-indigo-100 rounded-xl w-1/4" />)}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="p-6 bg-indigo-50 rounded-2xl" role="region" aria-label="Deal pipeline overview">
-      <h2 className="text-xl font-bold text-indigo-900 mb-4">Deal Pipeline</h2>
-      <div className="flex space-x-4">
-        {pipeline.map(({ stage, count }) => (
-          <div key={stage}
-            className="flex flex-col items-center bg-white border border-indigo-100 rounded-2xl shadow-sm p-4 flex-1"
-            role="group" aria-label={`${stage} stage`}>
-            <span className="text-xs font-bold uppercase tracking-widest text-indigo-500 mb-2">{stage}</span>
-            <span className="text-3xl font-extrabold text-indigo-900">{count}</span>
-            <span className="text-xs text-indigo-400 mt-1">Deals</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-""",
-    "restaurant": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Table Map</h3><div className='grid grid-cols-4 gap-2 mt-2'>{[1,2,3,4,5,6,7,8].map(i => <div key={i} className='w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-xs'>{i}</div>)}</div></div> }",
-    "healthcare": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Today's Appointments</h3><ul className='mt-2 text-sm space-y-1'><li>9:00 AM - John Doe</li><li>10:30 AM - Jane Smith</li></ul></div> }",
-    "ecommerce": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Sales Overview</h3><div className='mt-2 text-2xl font-bold'>$4,250.00</div><div className='text-xs text-green-600'>+12% from yesterday</div></div> }",
-    "hrm": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Team Attendance</h3><div className='mt-2 flex gap-1'>{[1,2,3,4,5].map(i => <div key={i} className='w-2 h-8 bg-blue-500 rounded'></div>)}</div></div> }",
-    "real_estate": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Property Map</h3><div className='aspect-video bg-gray-100 rounded mt-2 flex items-center justify-center text-gray-400'>Map View</div></div> }",
-    "education": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Class Schedule</h3><div className='mt-2 space-y-2'><div className='h-2 bg-gray-100 rounded w-full'></div><div className='h-2 bg-gray-100 rounded w-3/4'></div></div></div> }",
-    "gym_fitness": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Active Members</h3><div className='mt-2 text-3xl font-bold'>124</div></div> }",
-    "hospitality": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Room Status</h3><div className='grid grid-cols-5 gap-1 mt-2'>{[1,2,3,4,5].map(i => <div key={i} className='h-4 bg-green-500 rounded'></div>)}</div></div> }",
-    "logistics": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Fleet Tracking</h3><div className='mt-2 space-y-1 text-xs'><div>Truck 01: En Route</div><div>Truck 02: Loading</div></div></div> }",
-    "marketplace": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Top Sellers</h3><div className='mt-2 space-y-2'>{[1,2,3].map(i => <div key={i} className='h-4 bg-gray-50 rounded'></div>)}</div></div> }",
-    "saas": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>MRR Trend</h3><div className='mt-2 h-16 flex items-end gap-1'>{[4,6,5,8,7].map(i => <div key={i} style={{height: `${i*10}%`}} className='bg-indigo-500 w-full rounded-t'></div>)}</div></div> }",
-    "fintech": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Cash Flow</h3><div className='mt-2 text-xl font-mono'>$128,450.00</div></div> }",
-    "library": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Checked Out</h3><div className='mt-2 text-2xl font-bold'>42 Books</div></div> }",
-    "security": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>System Health</h3><div className='mt-2 text-green-600 font-bold'>ALL SYSTEMS NOMINAL</div></div> }",
-    "iot": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Device Feed</h3><div className='mt-2 space-y-1'>{[1,2].map(i => <div key={i} className='h-2 bg-blue-400 rounded'></div>)}</div></div> }",
-    "events": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Ticket Sales</h3><div className='mt-2 text-lg font-bold'>85% Capacity</div></div> }",
-    "sports": "export default function DomainWidget() { return <div className='p-4 bg-white rounded-lg border'><h3>Latest Scores</h3><div className='mt-2 text-sm'>Team A 2 - 1 Team B</div></div> }",
-}
 
 
 # ── Icon mapping ───────────────────────────────────────────────────────────────
@@ -174,88 +102,6 @@ ENTITY_EMOJI_MAP: Dict[str, str] = {
     "payment": "💳", "review": "⭐", "customer": "👤", "user": "👥", "coupon": "🎟️",
     "shipping": "🚚", "brand": "🏪", "discount": "💸", "wishlist": "❤️",
     "collection": "🗂️", "sku": "🔖", "service": "✨", "package": "📦",
-}
-
-# ── Theme CSS snippets ─────────────────────────────────────────────────────────
-THEME_CSS: Dict[str, str] = {
-    "glassmorphism": """\
-/* Glassmorphism theme */
-body { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%) fixed; min-height: 100vh; }
-.glass-card { background: rgba(255,255,255,0.12); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-""",
-    "neomorphism": """\
-/* Neomorphism theme */
-body { background: #e0e5ec; color: #4b5563; }
-.neo-card { background: #e0e5ec; border-radius: 12px; box-shadow: 6px 6px 12px #a3b1c6, -6px -6px 12px #ffffff; border: none; }
-.neo-inset { box-shadow: inset 4px 4px 8px #a3b1c6, inset -4px -4px 8px #ffffff; }
-.neo-btn { background: #e0e5ec; border-radius: 8px; box-shadow: 4px 4px 8px #a3b1c6, -4px -4px 8px #ffffff; border: none; }
-.neo-btn:active { box-shadow: inset 2px 2px 5px #a3b1c6, inset -2px -2px 5px #ffffff; }
-""",
-    "material": """\
-/* Material Design 3 theme */
-body { background: #fffbfe; color: #1c1b1f; font-family: 'Roboto', 'Google Sans', sans-serif; }
-.md-surface { background: #f3edf7; border-radius: 12px; }
-.md-surface-variant { background: #e7e0ec; }
-.md-primary { background: #6750a4; color: #ffffff; border-radius: 100px; }
-.md-secondary { background: #625b71; color: #ffffff; border-radius: 100px; }
-.md-elevation-1 { box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15); }
-.md-elevation-2 { box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 6px 2px rgba(0,0,0,0.15); }
-.md-ripple { position: relative; overflow: hidden; }
-""",
-    "flat": """\
-/* Flat / Minimal theme */
-body { background: #ffffff; color: #111827; }
-* { box-shadow: none !important; }
-.flat-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0; }
-.flat-btn { border-radius: 0; border: 2px solid #111827; background: #111827; color: #ffffff; }
-.flat-btn-outline { border-radius: 0; border: 2px solid #111827; background: transparent; color: #111827; }
-""",
-    "brutalist": """\
-/* Brutalist theme */
-body { background: #ffffff; color: #000000; font-family: 'Courier New', monospace; }
-* { border-radius: 0 !important; }
-.brut-card { background: #ffffff; border: 2px solid #000000; box-shadow: 4px 4px 0 #000000; }
-.brut-card:hover { box-shadow: 6px 6px 0 #000000; transform: translate(-2px,-2px); }
-.brut-btn { background: #000000; color: #ffffff; border: 2px solid #000000; padding: 8px 16px; box-shadow: 3px 3px 0 #f97316; }
-.brut-btn:hover { box-shadow: 5px 5px 0 #f97316; transform: translate(-2px,-2px); }
-.brut-accent { background: #facc15; color: #000000; }
-""",
-    "neon_cyberpunk": """\
-/* Neon / Cyberpunk theme */
-body { background: #050810; color: #e2e8f0; font-family: 'Share Tech Mono', 'Courier New', monospace; }
-body::before { content:''; position:fixed; inset:0; background-image: linear-gradient(rgba(0,255,255,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(0,255,255,0.03) 1px,transparent 1px); background-size: 40px 40px; pointer-events:none; z-index:0; }
-.cyber-card { background: rgba(5,8,16,0.85); border: 1px solid #00ffff; box-shadow: 0 0 12px rgba(0,255,255,0.25), inset 0 0 12px rgba(0,255,255,0.05); }
-.cyber-card-magenta { border-color: #ff00ff; box-shadow: 0 0 12px rgba(255,0,255,0.25), inset 0 0 12px rgba(255,0,255,0.05); }
-.cyber-text-glow { color: #00ffff; text-shadow: 0 0 8px #00ffff; }
-.cyber-btn { background: transparent; border: 1px solid #00ffff; color: #00ffff; box-shadow: 0 0 8px rgba(0,255,255,0.4); }
-.cyber-btn:hover { background: rgba(0,255,255,0.1); box-shadow: 0 0 16px rgba(0,255,255,0.6); }
-""",
-    "soft_pastel": """\
-/* Soft Pastel theme */
-body { background: #fdf4ff; color: #3b1f5e; font-family: 'Nunito', 'Inter', sans-serif; }
-.pastel-card { background: #fce7f3; border: 1px solid #fbcfe8; border-radius: 16px; box-shadow: 0 4px 20px rgba(168,85,247,0.08); }
-.pastel-card-blue { background: #e0f2fe; border-color: #bae6fd; }
-.pastel-card-green { background: #dcfce7; border-color: #bbf7d0; }
-.pastel-btn { background: #a855f7; color: #ffffff; border-radius: 50px; box-shadow: 0 4px 12px rgba(168,85,247,0.3); }
-.pastel-btn:hover { background: #9333ea; box-shadow: 0 6px 16px rgba(168,85,247,0.4); transform: translateY(-1px); }
-""",
-}
-
-SPEED_MS: Dict[str, int] = {
-    "instant": 0, "fast": 150, "normal": 300, "slow": 500, "cinematic": 800,
-}
-
-TRANSITION_CSS: Dict[str, str] = {
-    "fade":  "transition: opacity {ms}ms ease;",
-    "slide": "transition: transform {ms}ms ease, opacity {ms}ms ease;",
-    "scale": "transition: transform {ms}ms cubic-bezier(.4,0,.2,1), opacity {ms}ms ease;",
-    "flip":  "transition: transform {ms}ms ease; transform-style: preserve-3d;",
-    "blur":  "transition: filter {ms}ms ease, opacity {ms}ms ease;",
-}
-
-SKELETON_CSS: Dict[str, str] = {
-    "pulse":   ".skeleton { animation: pulse 1.5s cubic-bezier(.4,0,.6,1) infinite; background: rgba(148,163,184,.2); border-radius:4px; } @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}",
-    "shimmer": ".skeleton { background: linear-gradient(90deg,rgba(148,163,184,.1) 25%,rgba(148,163,184,.25) 50%,rgba(148,163,184,.1) 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px; } @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
 }
 
 # ── Domain keyword scoring for detection ──────────────────────────────────────

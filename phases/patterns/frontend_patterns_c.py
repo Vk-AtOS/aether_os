@@ -53,45 +53,45 @@ function PostCard({ post }: { post: Post }) {
   })
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center gap-3 mb-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-sm font-bold text-primary">
           {(post.author_display_name ?? post.author_username)[0].toUpperCase()}
         </span>
         <div>
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-foreground">
             {post.author_display_name ?? post.author_username}
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-muted-foreground">
             @{post.author_username} · {relTime(post.created_at)}
           </p>
         </div>
       </div>
-      <p className="text-sm text-gray-800 mb-3 leading-relaxed">{post.content}</p>
+      <p className="text-sm text-foreground mb-3 leading-relaxed">{post.content}</p>
       {post.hashtags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
           {post.hashtags.map(tag => (
             <span
               key={tag}
-              className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
+              className="inline-flex items-center gap-0.5 rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-primary"
             >
               <Hash className="h-3 w-3" />{tag}
             </span>
           ))}
         </div>
       )}
-      <div className="flex items-center gap-5 pt-2 border-t border-gray-100">
+      <div className="flex items-center gap-5 pt-2 border-t border-border">
         <button
           onClick={() => toggle.mutate()}
           disabled={toggle.isPending}
           className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${
-            post.is_liked ? 'text-red-500 hover:text-red-600' : 'text-gray-400 hover:text-red-400'
+            post.is_liked ? 'text-destructive hover:text-destructive' : 'text-muted-foreground hover:text-destructive'
           }`}
         >
           <Heart className={`h-4 w-4 ${post.is_liked ? 'fill-current' : ''}`} />
           {post.like_count}
         </button>
-        <span className="flex items-center gap-1.5 text-xs text-gray-400">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MessageCircle className="h-4 w-4" />
           {post.comment_count}
         </span>
@@ -121,16 +121,16 @@ export default function FeedPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Feed</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Feed</h1>
       <div className="flex gap-6">
         <div className="flex-1 space-y-4">
           {isLoading ? (
             Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-40 rounded-xl bg-gray-100 animate-pulse" />
+              <div key={i} className="h-40 rounded-xl bg-muted animate-pulse" />
             ))
           ) : posts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center">
-              <p className="text-gray-400 text-sm">
+            <div className="rounded-xl border border-dashed border-input p-12 text-center">
+              <p className="text-muted-foreground text-sm">
                 No posts yet. Follow some users to see their posts here.
               </p>
             </div>
@@ -140,15 +140,15 @@ export default function FeedPage() {
         </div>
         {trending.length > 0 && (
           <aside className="hidden lg:block w-64 shrink-0">
-            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sticky top-6">
-              <h2 className="text-sm font-semibold text-gray-900 mb-3">Trending</h2>
+            <div className="rounded-xl border border-border bg-card p-4 shadow-sm sticky top-6">
+              <h2 className="text-sm font-semibold text-foreground mb-3">Trending</h2>
               <div className="space-y-2">
                 {trending.slice(0, 10).map(h => (
                   <div key={h.tag} className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-sm text-indigo-600 font-medium">
+                    <span className="flex items-center gap-1 text-sm text-primary font-medium">
                       <Hash className="h-3.5 w-3.5" />{h.tag}
                     </span>
-                    <span className="text-xs text-gray-400">{h.post_count}</span>
+                    <span className="text-xs text-muted-foreground">{h.post_count}</span>
                   </div>
                 ))}
               </div>
@@ -196,16 +196,16 @@ function UserCard({ user }: { user: SocialUser }) {
   })
 
   return (
-    <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center gap-3">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-sm font-bold text-primary">
           {(user.display_name ?? user.username)[0].toUpperCase()}
         </span>
         <div>
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-foreground">
             {user.display_name ?? user.username}
           </p>
-          <p className="text-xs text-gray-400">@{user.username}</p>
+          <p className="text-xs text-muted-foreground">@{user.username}</p>
         </div>
       </div>
       <button
@@ -213,8 +213,8 @@ function UserCard({ user }: { user: SocialUser }) {
         disabled={toggle.isPending}
         className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
           user.is_following
-            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            ? 'bg-muted text-foreground hover:bg-muted'
+            : 'bg-primary text-primary-foreground hover:opacity-90'
         }`}
       >
         {user.is_following
@@ -241,16 +241,16 @@ export default function FollowersPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Connections</h1>
-      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 mb-6">
+      <h1 className="text-2xl font-bold text-foreground mb-6">Connections</h1>
+      <div className="flex gap-1 rounded-xl bg-muted p-1 mb-6">
         {(['followers', 'following'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium capitalize transition-colors ${
               tab === t
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {t}
@@ -260,11 +260,11 @@ export default function FollowersPage() {
       <div className="space-y-3">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-20 rounded-xl bg-gray-100 animate-pulse" />
+            <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />
           ))
         ) : users.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 p-12 text-center">
-            <p className="text-gray-400 text-sm">No {tab} yet.</p>
+          <div className="rounded-xl border border-dashed border-input p-12 text-center">
+            <p className="text-muted-foreground text-sm">No {tab} yet.</p>
           </div>
         ) : (
           users.map(u => <UserCard key={u.user_id} user={u} />)

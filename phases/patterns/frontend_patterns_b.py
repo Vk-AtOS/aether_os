@@ -111,11 +111,11 @@ export function NotificationCenter({ websocketUrl }: NotificationCenterProps) {
       <DropdownMenu.Trigger asChild>
         <button
           aria-label="Notifications"
-          className="relative rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          className="relative rounded-full p-2 text-muted-foreground hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Bell className="h-5 w-5" />
           {unread.length > 0 && (
-            <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
+            <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground leading-none">
               {unread.length > 99 ? "99+" : unread.length}
             </span>
           )}
@@ -126,15 +126,15 @@ export function NotificationCenter({ websocketUrl }: NotificationCenterProps) {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          className="z-50 w-80 rounded-xl border border-gray-200 bg-white shadow-xl focus:outline-none"
+          className="z-50 w-80 rounded-xl border border-border bg-card shadow-xl focus:outline-none"
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-900">Notifications</h2>
+            <h2 className="text-sm font-semibold text-foreground">Notifications</h2>
             {unread.length > 0 && (
               <button
                 onClick={() => markAllReadMutation.mutate()}
-                className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                className="text-xs text-primary hover:text-accent-foreground disabled:opacity-50"
                 disabled={markAllReadMutation.isPending}
               >
                 Mark all read
@@ -143,9 +143,9 @@ export function NotificationCenter({ websocketUrl }: NotificationCenterProps) {
           </div>
 
           {/* List */}
-          <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
+          <div className="max-h-96 overflow-y-auto divide-y divide-border">
             {notifications.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-gray-400">
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
                 No notifications yet
               </p>
             ) : (
@@ -154,25 +154,25 @@ export function NotificationCenter({ websocketUrl }: NotificationCenterProps) {
                   key={n.id}
                   onSelect={() => !n.read && markReadMutation.mutate(n.id)}
                   className={`flex gap-3 px-4 py-3 text-left focus:outline-none cursor-pointer ${
-                    n.read ? "bg-white" : "bg-indigo-50"
-                  } hover:bg-gray-50`}
+                    n.read ? "bg-card" : "bg-accent"
+                  } hover:bg-muted`}
                 >
                   {n.icon && (
                     <span className="flex-shrink-0 text-lg">{n.icon}</span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-foreground truncate">
                       {n.title}
                     </p>
-                    <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">
+                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
                       {n.body}
                     </p>
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {relativeTime(n.created_at)}
                     </p>
                   </div>
                   {!n.read && (
-                    <span className="mt-1.5 flex-shrink-0 h-2 w-2 rounded-full bg-indigo-500" />
+                    <span className="mt-1.5 flex-shrink-0 h-2 w-2 rounded-full bg-primary" />
                   )}
                 </DropdownMenu.Item>
               ))

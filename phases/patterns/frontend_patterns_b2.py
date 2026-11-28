@@ -89,11 +89,11 @@ function ProfileTab() {
           {me?.avatar_url ? (
             <img src={me.avatar_url} alt="avatar" className="h-16 w-16 rounded-full object-cover" />
           ) : (
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-indigo-100 text-2xl font-bold text-indigo-700">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-2xl font-bold text-primary">
               {(me?.display_name ?? me?.email ?? "?")[0].toUpperCase()}
             </span>
           )}
-          <label className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
+          <label className="cursor-pointer rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted">
             Change photo
             <input type="file" accept="image/*" className="sr-only" onChange={uploadAvatar} />
           </label>
@@ -108,8 +108,8 @@ function ProfileTab() {
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <div className="flex items-center gap-2">
-          <Input id="email" value={me?.email ?? ""} readOnly className="bg-gray-50" />
-          {me?.email_verified && <Badge variant="outline" className="text-green-700 border-green-300">Verified</Badge>}
+          <Input id="email" value={me?.email ?? ""} readOnly className="bg-muted" />
+          {me?.email_verified && <Badge variant="outline" className="text-success border-success">Verified</Badge>}
         </div>
       </div>
 
@@ -119,7 +119,7 @@ function ProfileTab() {
           id="timezone"
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           {COMMON_TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
         </select>
@@ -160,7 +160,7 @@ function SecurityTab() {
   return (
     <div className="space-y-8 max-w-md">
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-gray-900">Change password</h3>
+        <h3 className="text-sm font-semibold text-foreground">Change password</h3>
         <div className="space-y-2">
           <Label htmlFor="current-pw">Current password</Label>
           <Input id="current-pw" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
@@ -179,18 +179,18 @@ function SecurityTab() {
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-900">Active sessions</h3>
+        <h3 className="text-sm font-semibold text-foreground">Active sessions</h3>
         {sessions.length === 0 ? (
-          <p className="text-sm text-gray-500">No active sessions.</p>
+          <p className="text-sm text-muted-foreground">No active sessions.</p>
         ) : (
           sessions.map((s: { id: string; user_agent?: string; created_at: string; is_current?: boolean }) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
+            <div key={s.id} className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
-                <p className="text-sm text-gray-700 truncate max-w-[200px]">{s.user_agent ?? "Unknown device"}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{new Date(s.created_at).toLocaleDateString()}</p>
+                <p className="text-sm text-foreground truncate max-w-[200px]">{s.user_agent ?? "Unknown device"}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{new Date(s.created_at).toLocaleDateString()}</p>
               </div>
               {s.is_current ? (
-                <Badge variant="outline" className="text-green-700 border-green-300">Current</Badge>
+                <Badge variant="outline" className="text-success border-success">Current</Badge>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => revokeSession.mutate(s.id)}>Revoke</Button>
               )}
@@ -226,13 +226,13 @@ function TeamTab() {
   return (
     <div className="space-y-6 max-w-lg">
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-900">Invite a team member</h3>
+        <h3 className="text-sm font-semibold text-foreground">Invite a team member</h3>
         <div className="flex gap-2">
           <Input placeholder="email@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
           <select
             value={inviteRole}
             onChange={(e) => setInviteRole(e.target.value)}
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-md border border-input px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="admin">Admin</option>
             <option value="member">Member</option>
@@ -245,18 +245,18 @@ function TeamTab() {
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-gray-900">Members</h3>
+        <h3 className="text-sm font-semibold text-foreground">Members</h3>
         {members.map((m: { id: string; user_id: string; name: string; email: string; role: string; joined_at: string }) => (
-          <div key={m.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
+          <div key={m.id} className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <p className="text-sm font-medium text-gray-900">{m.name || m.email}</p>
-              <p className="text-xs text-gray-500">{m.email} \xb7 joined {new Date(m.joined_at).toLocaleDateString()}</p>
+              <p className="text-sm font-medium text-foreground">{m.name || m.email}</p>
+              <p className="text-xs text-muted-foreground">{m.email} \xb7 joined {new Date(m.joined_at).toLocaleDateString()}</p>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="capitalize">{m.role}</Badge>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">Remove</Button>
+                  <Button size="sm" variant="outline" className="text-destructive border-destructive hover:bg-destructive-soft">Remove</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -267,7 +267,7 @@ function TeamTab() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => removeMember.mutate(m.user_id)} className="bg-red-600 hover:bg-red-700">
+                    <AlertDialogAction onClick={() => removeMember.mutate(m.user_id)} className="bg-destructive hover:opacity-90">
                       Remove
                     </AlertDialogAction>
                   </AlertDialogFooter>
@@ -288,30 +288,30 @@ function BillingTab() {
 
   return (
     <div className="space-y-6 max-w-md">
-      <div className="rounded-xl border border-gray-200 p-5 space-y-3">
+      <div className="rounded-xl border border-border p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-gray-900 capitalize">{billing?.plan ?? "Free"} plan</p>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-sm font-semibold text-foreground capitalize">{billing?.plan ?? "Free"} plan</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
               {billing?.current_period_end
                 ? `Renews ${new Date(billing.current_period_end * 1000).toLocaleDateString()}`
                 : "No active subscription"}
             </p>
           </div>
-          <Badge variant="outline" className={billing?.status === "active" ? "text-green-700 border-green-300" : "text-gray-500"}>
+          <Badge variant="outline" className={billing?.status === "active" ? "text-success border-success" : "text-muted-foreground"}>
             {billing?.status ?? "inactive"}
           </Badge>
         </div>
 
         {billing?.usage_percent != null && (
           <div>
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <div className="flex justify-between text-xs text-muted-foreground mb-1">
               <span>Usage this period</span>
               <span>{Math.round(billing.usage_percent)}%</span>
             </div>
-            <div className="h-2 rounded-full bg-gray-200">
+            <div className="h-2 rounded-full bg-muted">
               <div
-                className="h-2 rounded-full bg-indigo-500 transition-all"
+                className="h-2 rounded-full bg-primary transition-all"
                 style={{ width: `${Math.min(billing.usage_percent, 100)}%` }}
               />
             </div>
@@ -324,7 +324,7 @@ function BillingTab() {
           Upgrade plan
         </Button>
         {billing?.status === "active" && !billing?.cancel_at_period_end && (
-          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
+          <Button variant="outline" className="text-destructive border-destructive hover:bg-destructive-soft">
             Cancel subscription
           </Button>
         )}
@@ -366,7 +366,7 @@ function ApiKeysTab() {
   return (
     <div className="space-y-6 max-w-lg">
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-900">Create new API key</h3>
+        <h3 className="text-sm font-semibold text-foreground">Create new API key</h3>
         <div className="flex gap-2">
           <Input
             placeholder="Key name (e.g. Production)"
@@ -378,28 +378,28 @@ function ApiKeysTab() {
           </Button>
         </div>
         {newKeyValue && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-            <p className="text-xs font-semibold text-green-800 mb-1">Copy this key now — it won&apos;t be shown again.</p>
-            <code className="text-xs text-green-900 break-all">{newKeyValue}</code>
+          <div className="rounded-lg border border-success bg-success-soft p-3">
+            <p className="text-xs font-semibold text-success mb-1">Copy this key now — it won&apos;t be shown again.</p>
+            <code className="text-xs text-success break-all">{newKeyValue}</code>
           </div>
         )}
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-gray-900">Your API keys</h3>
+        <h3 className="text-sm font-semibold text-foreground">Your API keys</h3>
         {keys.length === 0 ? (
-          <p className="text-sm text-gray-500">No API keys yet.</p>
+          <p className="text-sm text-muted-foreground">No API keys yet.</p>
         ) : (
           keys.map((k: { id: string; name: string; key_preview: string; created_at: string }) => (
-            <div key={k.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
+            <div key={k.id} className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
-                <p className="text-sm font-medium text-gray-900">{k.name}</p>
-                <code className="text-xs text-gray-500">{maskKey(k.key_preview)}</code>
-                <p className="text-xs text-gray-400 mt-0.5">Created {new Date(k.created_at).toLocaleDateString()}</p>
+                <p className="text-sm font-medium text-foreground">{k.name}</p>
+                <code className="text-xs text-muted-foreground">{maskKey(k.key_preview)}</code>
+                <p className="text-xs text-muted-foreground mt-0.5">Created {new Date(k.created_at).toLocaleDateString()}</p>
               </div>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">Revoke</Button>
+                  <Button size="sm" variant="outline" className="text-destructive border-destructive hover:bg-destructive-soft">Revoke</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -410,7 +410,7 @@ function ApiKeysTab() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => revokeKey.mutate(k.id)} className="bg-red-600 hover:bg-red-700">
+                    <AlertDialogAction onClick={() => revokeKey.mutate(k.id)} className="bg-destructive hover:opacity-90">
                       Revoke
                     </AlertDialogAction>
                   </AlertDialogFooter>
@@ -429,7 +429,7 @@ function ApiKeysTab() {
 export function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Settings</h1>
       <Tabs defaultValue="profile">
         <TabsList className="mb-6">
           <TabsTrigger value="profile">Profile</TabsTrigger>

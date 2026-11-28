@@ -43,7 +43,7 @@ def _generate_entity_page(
             f"    header: '{col_label}',\n"
             f"    cell: ({{ getValue }}) => {{\n"
             f"      const v = getValue() as unknown\n"
-            f"      if (v === null || v === undefined) return <span className=\"text-gray-400\">—</span>\n"
+            f"      if (v === null || v === undefined) return <span className=\"text-muted-foreground\">—</span>\n"
             f"      return <span>{{String(v)}}</span>\n"
             f"    }},\n"
             f"  }},"
@@ -206,7 +206,7 @@ export default function {pascal}Page() {{
         <div className="flex gap-2">
           <button
             onClick={{() => {{ setEditing(row.original); setModalOpen(true) }}}}
-            className="p-1.5 text-gray-400 hover:text-brand-600 rounded"
+            className="p-1.5 text-muted-foreground hover:text-brand-600 rounded"
             title="Edit"
           >
             <Pencil size={{15}} />
@@ -218,7 +218,7 @@ export default function {pascal}Page() {{
                   remove.mutate(row.original.id as string | number)
                 }}
               }}}}
-              className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+              className="p-1.5 text-muted-foreground hover:text-destructive rounded"
               title="Delete"
             >
               <Trash2 size={{15}} />
@@ -254,16 +254,16 @@ export default function {pascal}Page() {{
   }}
 
   return (
-    <div className="p-4 sm:p-8 bg-white dark:bg-gray-900 min-h-full">
+    <div className="p-4 sm:p-8 bg-card min-h-full">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{label}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage your {label.lower()} and track changes</p>
+          <h1 className="text-2xl font-bold text-foreground">{label}</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage your {label.lower()} and track changes</p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={{handleExport}}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-4 py-2 border border-input text-foreground rounded-lg hover:bg-muted text-sm font-medium transition-all"
           >
             Export CSV
           </button>
@@ -282,7 +282,7 @@ export default function {pascal}Page() {{
       {{isLoading ? (
         <TableSkeleton rows={{5}} cols={{{len(display_cols) + 1}}} />
       ) : !isLoading && data.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 dark:text-gray-500">
+        <div className="text-center py-16 text-muted-foreground">
           <p className="text-xl font-medium">No {singular}s yet</p>
           <p className="text-sm mt-1">Create your first one to get started</p>
           <RoleGuard allowedRoles={{['admin', 'owner', 'manager']}}>
@@ -366,7 +366,7 @@ function StarRating({{ rating = 4.5 }}: {{ rating?: number }}) {{
     <div className="flex items-center gap-0.5">
       {{[1,2,3,4,5].map(s => (
         <Star key={{s}} size={{11}}
-          className={{s <= Math.round(rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}} />
+          className={{s <= Math.round(rating) ? 'fill-warning text-warning-foreground' : 'text-muted-foreground'}} />
       ))}}
     </div>
   )
@@ -380,23 +380,23 @@ function ProductCard({{ product, index }}: {{ product: any; index: number }}) {{
   const imgSrc: string | null = {img_expr} ?? null
 
   return (
-    <div className="group bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
-      <div className="relative aspect-square bg-gray-50 overflow-hidden">
+    <div className="group bg-card rounded-2xl overflow-hidden border border-border shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
+      <div className="relative aspect-square bg-muted overflow-hidden">
         {{imgSrc
           ? <img src={{imgSrc}} alt={{product.{name_field} ?? '{singular}'}}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               loading="lazy"
               onError={{e => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
-          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-gray-300">{{String(product.{name_field} ?? '{singular}').charAt(0).toUpperCase()}}</div>}}
+          : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-5xl font-bold text-muted-foreground">{{String(product.{name_field} ?? '{singular}').charAt(0).toUpperCase()}}</div>}}
       </div>
       <div className="p-4 flex flex-col flex-1">
         <p className="text-[11px] font-bold text-brand-600 uppercase tracking-wider mb-1">{{{cat_expr}}}</p>
-        <h3 className="text-sm font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 flex-1">
+        <h3 className="text-sm font-semibold text-foreground leading-snug mb-2 line-clamp-2 flex-1">
           {{product.{name_field} ?? '{singular}'}}
         </h3>
         {{rating !== null && <StarRating rating={{rating}} />}}
         <div className="flex items-center justify-between mt-3">
-          <span className="text-lg font-bold text-gray-900">
+          <span className="text-lg font-bold text-foreground">
             {{price > 0 ? `$${{price.toFixed(2)}}` : 'Contact us'}}
           </span>
           <button className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 active:scale-95 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all">
@@ -430,12 +430,12 @@ export default function {pascal}Page() {{
     }})
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-card">
       {{/* Page header */}}
-      <div className="bg-gray-50 border-b border-gray-100 py-8">
+      <div className="bg-muted border-b border-border py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-3xl font-extrabold text-gray-900">{label}</h1>
-          <p className="text-gray-500 mt-1 text-sm">{{all.length}} items available</p>
+          <h1 className="text-3xl font-extrabold text-foreground">{label}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">{{all.length}} items available</p>
         </div>
       </div>
 
@@ -443,22 +443,22 @@ export default function {pascal}Page() {{
         {{/* Toolbar */}}
         <div className="flex flex-col sm:flex-row gap-4 mb-8">
           <div className="relative flex-1 max-w-sm">
-            <Search size={{16}} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={{16}} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="search"
               placeholder="Search {label.lower()}..."
               value={{search}}
               onChange={{e => setSearch(e.target.value)}}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400 transition-all"
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400 transition-all"
             />
           </div>
           <div className="flex items-center gap-3 ml-auto">
             <button onClick={{() => setShowFilters(v => !v)}}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:border-brand-400 hover:text-brand-600 transition-all">
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:border-brand-400 hover:text-brand-600 transition-all">
               <SlidersHorizontal size={{15}} /> Filters
             </button>
             <select value={{sort}} onChange={{e => setSort(e.target.value)}}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white cursor-pointer">
+              className="px-4 py-2.5 rounded-xl border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-300 bg-card cursor-pointer">
               {{SORT_OPTIONS.map(o => <option key={{o.value}} value={{o.value}}>{{o.label}}</option>)}}
             </select>
           </div>
@@ -466,7 +466,7 @@ export default function {pascal}Page() {{
 
         {{/* Results count */}}
         {{search && (
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-muted-foreground mb-4">
             {{filtered.length}} result{{filtered.length !== 1 ? 's' : ''}} for "<span className="font-semibold">{{search}}</span>"
           </p>
         )}}
@@ -475,14 +475,14 @@ export default function {pascal}Page() {{
         {{isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
             {{Array.from({{ length: 12 }}).map((_, i) => (
-              <div key={{i}} className="rounded-2xl bg-gray-100 animate-pulse" style={{{{ aspectRatio: '3/4' }}}} />
+              <div key={{i}} className="rounded-2xl bg-muted animate-pulse" style={{{{ aspectRatio: '3/4' }}}} />
             ))}}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24">
-            <ShoppingCart size={{48}} className="mx-auto mb-4 text-gray-200" />
-            <h3 className="text-lg font-semibold text-gray-700">No {label.lower()} found</h3>
-            {{search && <p className="text-sm text-gray-400 mt-1">Try a different search term</p>}}
+            <ShoppingCart size={{48}} className="mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold text-foreground">No {label.lower()} found</h3>
+            {{search && <p className="text-sm text-muted-foreground mt-1">Try a different search term</p>}}
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">

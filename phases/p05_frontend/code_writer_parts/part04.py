@@ -15,26 +15,7 @@ def _generate_customer_home(
     """Generate CustomerHome.tsx — public-facing landing page for the customer portal."""
     _app_brand = app_brand or {}
     # Domain-specific hero gradient (pairs with the brand palette in tailwind.config.js)
-    _domain_hero_gradient = {
-        "healthcare":  "from-teal-900 via-teal-800 to-teal-600",
-        "fintech":     "from-slate-900 via-slate-800 to-yellow-700",
-        "restaurant":  "from-orange-900 via-orange-800 to-amber-600",
-        "food":        "from-orange-900 via-orange-800 to-amber-600",
-        "ecommerce":   "from-rose-900 via-pink-800 to-pink-600",
-        "marketplace": "from-rose-900 via-pink-800 to-pink-600",
-        "education":   "from-cyan-900 via-sky-800 to-cyan-600",
-        "fitness":     "from-red-900 via-rose-800 to-red-600",
-        "gym_fitness": "from-red-900 via-rose-800 to-red-600",
-        "real_estate": "from-green-900 via-emerald-800 to-green-600",
-        "hospitality": "from-amber-900 via-yellow-800 to-amber-600",
-        "logistics":   "from-slate-900 via-gray-800 to-slate-600",
-        "iot":         "from-slate-900 via-gray-800 to-slate-600",
-        "hrm":         "from-indigo-900 via-indigo-800 to-violet-600",
-        "crm":         "from-indigo-900 via-indigo-800 to-violet-600",
-        "analytics":   "from-indigo-900 via-purple-800 to-indigo-600",
-        "saas":        "from-violet-900 via-purple-800 to-violet-600",
-    }
-    _hero_gradient = _domain_hero_gradient.get(domain, "from-gray-900 via-brand-900 to-brand-700")
+    _hero_gradient = "from-brand-900 via-brand-800 to-brand-700"   # the token brand ramp (KAN-243); was a per-domain palette
     # Pick the most browsable entity (product-like items)
     _browse_kws = ("product", "item", "listing", "book", "service", "course", "event",
                    "article", "menu", "property", "catalog")
@@ -90,18 +71,18 @@ export default function CustomerHome() {{
   const featured = items.slice(0, 8)
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-card">
       {{/* Hero */}}
       <section className="bg-gradient-to-br {_hero_gradient} text-white py-24 md:py-36 relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.06]"
-          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
+          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,currentColor 40px,currentColor 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,currentColor 40px,currentColor 41px)' }}}} />
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-5xl md:text-7xl font-extrabold leading-none tracking-tight mb-6">
             {hero_title}
           </h1>
-          <p className="text-lg md:text-xl text-gray-300 mb-10 max-w-2xl mx-auto">{hero_sub}</p>
+          <p className="text-lg md:text-xl text-brand-100 mb-10 max-w-2xl mx-auto">{hero_sub}</p>
           <Link to="{primary_route}"
-            className="inline-flex items-center gap-2 bg-white text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl">
+            className="inline-flex items-center gap-2 bg-card text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl">
             Browse {primary_label} <ArrowRight size={{18}} />
           </Link>
         </div>
@@ -116,8 +97,8 @@ export default function CustomerHome() {{
       <section className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-end justify-between mb-8">
           <div>
-            <h2 className="text-2xl font-extrabold text-gray-900">Featured {primary_label}</h2>
-            <p className="text-gray-500 mt-1 text-sm">Handpicked just for you</p>
+            <h2 className="text-2xl font-extrabold text-foreground">Featured {primary_label}</h2>
+            <p className="text-muted-foreground mt-1 text-sm">Handpicked just for you</p>
           </div>
           <Link to="{primary_route}" className="text-sm font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1">
             View all <ArrowRight size={{14}} />
@@ -126,11 +107,11 @@ export default function CustomerHome() {{
         {{isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {{[...Array(8)].map((_,i) => (
-              <div key={{i}} className="rounded-2xl bg-gray-100 h-64 animate-pulse" />
+              <div key={{i}} className="rounded-2xl bg-muted h-64 animate-pulse" />
             ))}}
           </div>
         ) : featured.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">No items found.</div>
+          <div className="text-center py-16 text-muted-foreground">No items found.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
             {{featured.map((item: any, i: number) => {{
@@ -139,18 +120,18 @@ export default function CustomerHome() {{
               const price = item.price ?? item.unit_price ?? item.fee ?? null
               return (
                 <Link key={{item.id ?? i}} to="{primary_route}"
-                  className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden flex flex-col">
-                  <div className="aspect-square bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
+                  className="group bg-card rounded-2xl border border-border shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden flex flex-col">
+                  <div className="aspect-square bg-gradient-to-br from-muted to-muted overflow-hidden">
                     {{(item.image_url ?? item.image ?? item.thumbnail)
                       ? <img src={{item.image_url ?? item.image ?? item.thumbnail}} alt={{name}}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           loading="lazy" onError={{(e) => {{ (e.target as HTMLImageElement).style.display = 'none' }}}} />
-                      : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-4xl font-bold text-gray-300">{{String(name).charAt(0).toUpperCase()}}</div>}}
+                      : <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-4xl font-bold text-muted-foreground">{{String(name).charAt(0).toUpperCase()}}</div>}}
                   </div>
                   <div className="p-4 flex flex-col flex-1">
-                    <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2">{{name}}</h3>
+                    <h3 className="font-semibold text-foreground text-sm line-clamp-2 mb-2">{{name}}</h3>
                     {{price != null && (
-                      <p className="text-lg font-bold text-gray-900 mt-auto">${{typeof price === 'number' ? price.toFixed(2) : price}}</p>
+                      <p className="text-lg font-bold text-foreground mt-auto">${{typeof price === 'number' ? price.toFixed(2) : price}}</p>
                     )}}
                   </div>
                 </Link>
@@ -223,13 +204,13 @@ export function Layout() {{
   const cartCount = (cartData as number) || 0
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans">
+    <div className="min-h-screen bg-card flex flex-col font-sans">
       {{/* ── Sticky header ── */}}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
+      <header className="sticky top-0 z-50 bg-background backdrop-blur-sm border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-4">
             {{/* Logo */}}
-            <Link to="/" className="flex-shrink-0 text-xl font-extrabold tracking-tight text-gray-900 hover:text-brand-600 transition-colors">
+            <Link to="/" className="flex-shrink-0 text-xl font-extrabold tracking-tight text-foreground hover:text-brand-600 transition-colors">
               {project_name}
             </Link>
 
@@ -237,7 +218,7 @@ export function Layout() {{
             <nav className="hidden lg:flex items-center gap-7 flex-1 justify-center">
               {{NAV_ITEMS.map(({{ to, label }}) => (
                 <Link key={{to}} to={{to}}
-                  className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors relative group
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors relative group
                     [&.active]:text-brand-600 [&.active]:font-semibold">
                   {{label}}
                   <span className="absolute -bottom-1 left-0 h-0.5 w-0 bg-brand-600 transition-all duration-200 group-hover:w-full group-[&.active]:w-full rounded-full" />
@@ -248,15 +229,15 @@ export function Layout() {{
             {{/* Right actions */}}
             <div className="flex items-center gap-1">
               <button onClick={{() => setSearchOpen(v => !v)}}
-                className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 aria-label="Search">
                 <Search size={{20}} />
               </button>
-              <button className="hidden sm:block p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              <button className="hidden sm:block p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 aria-label="Wishlist">
                 <Heart size={{20}} />
               </button>
-              <Link to="/carts" className="relative p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              <Link to="/carts" className="relative p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 aria-label="Cart">
                 <ShoppingCart size={{20}} />
                 {{cartCount > 0 && (
@@ -266,12 +247,12 @@ export function Layout() {{
                 )}}
               </Link>
               <button onClick={{handleLogout}}
-                className="hidden sm:flex items-center gap-1.5 ml-1 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hidden sm:flex items-center gap-1.5 ml-1 px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 aria-label="Account">
                 <User size={{16}} />
                 Account
               </button>
-              <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg ml-1"
+              <button className="lg:hidden p-2 text-muted-foreground hover:bg-muted rounded-lg ml-1"
                 onClick={{() => setMobileOpen(v => !v)}} aria-label="Menu">
                 {{mobileOpen ? <X size={{22}} /> : <Menu size={{22}} />}}
               </button>
@@ -281,13 +262,13 @@ export function Layout() {{
 
         {{/* Search bar */}}
         {{searchOpen && (
-          <div className="border-t border-gray-100 px-4 py-3 bg-white animate-in fade-in duration-150">
-            <div className="max-w-2xl mx-auto flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100 transition-all">
-              <Search size={{16}} className="text-gray-400 shrink-0" />
+          <div className="border-t border-border px-4 py-3 bg-card animate-in fade-in duration-150">
+            <div className="max-w-2xl mx-auto flex items-center gap-3 bg-muted border border-border rounded-xl px-4 py-2.5 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100 transition-all">
+              <Search size={{16}} className="text-muted-foreground shrink-0" />
               <input autoFocus placeholder="Search products, categories..."
-                className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+                className="flex-1 bg-transparent text-sm text-foreground placeholder-muted-foreground focus:outline-none"
                 onKeyDown={{e => e.key === 'Escape' && setSearchOpen(false)}} />
-              <button onClick={{() => setSearchOpen(false)}} className="text-gray-400 hover:text-gray-600">
+              <button onClick={{() => setSearchOpen(false)}} className="text-muted-foreground hover:text-muted-foreground">
                 <X size={{16}} />
               </button>
             </div>
@@ -296,14 +277,14 @@ export function Layout() {{
 
         {{/* Mobile nav */}}
         {{mobileOpen && (
-          <div className="lg:hidden border-t border-gray-100 bg-white px-4 pb-4">
+          <div className="lg:hidden border-t border-border bg-card px-4 pb-4">
             {{NAV_ITEMS.map(({{ to, label }}) => (
               <Link key={{to}} to={{to}} onClick={{() => setMobileOpen(false)}}
-                className="block py-3 border-b border-gray-50 text-base font-medium text-gray-700 hover:text-brand-600 transition-colors">
+                className="block py-3 border-b border-border text-base font-medium text-foreground hover:text-brand-600 transition-colors">
                 {{label}}
               </Link>
             ))}}
-            <button onClick={{handleLogout}} className="mt-3 flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700">
+            <button onClick={{handleLogout}} className="mt-3 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
               <User size={{16}} /> Account / Sign Out
             </button>
           </div>
@@ -315,18 +296,18 @@ export function Layout() {{
       </main>
 
       {{/* ── Rich footer ── */}}
-      <footer className="bg-gray-900 text-gray-400 mt-16">
+      <footer className="bg-muted text-muted-foreground mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 mb-12">
             {{/* Brand column */}}
             <div>
-              <span className="text-xl font-extrabold text-white block mb-3">{project_name}</span>
+              <span className="text-xl font-extrabold text-foreground block mb-3">{project_name}</span>
               <p className="text-sm leading-relaxed mb-5">
                 Curated quality. Delivered with care. Your go-to destination for authentic craftsmanship and thoughtful design.
               </p>
               <div className="flex gap-2">
                 {{['𝕏', 'f', 'in', '▶'].map(s => (
-                  <button key={{s}} className="w-9 h-9 rounded-full bg-gray-800 hover:bg-brand-600 flex items-center justify-center text-xs font-bold text-gray-300 hover:text-white transition-all">
+                  <button key={{s}} className="w-9 h-9 rounded-full bg-card hover:bg-primary flex items-center justify-center text-xs font-bold text-foreground hover:text-primary-foreground transition-all">
                     {{s}}
                   </button>
                 ))}}
@@ -334,48 +315,48 @@ export function Layout() {{
             </div>
             {{/* Shop links */}}
             <div>
-              <h4 className="text-white font-semibold text-xs uppercase tracking-widest mb-4">Shop</h4>
+              <h4 className="text-foreground font-semibold text-xs uppercase tracking-widest mb-4">Shop</h4>
               <ul className="space-y-2.5 text-sm">
                 {{NAV_ITEMS.slice(0, 6).map(({{ to, label }}) => (
                   <li key={{to}}>
-                    <Link to={{to}} className="hover:text-white hover:translate-x-0.5 transition-all inline-block">{{label}}</Link>
+                    <Link to={{to}} className="hover:text-foreground hover:translate-x-0.5 transition-all inline-block">{{label}}</Link>
                   </li>
                 ))}}
               </ul>
             </div>
             {{/* Help links */}}
             <div>
-              <h4 className="text-white font-semibold text-xs uppercase tracking-widest mb-4">Help</h4>
+              <h4 className="text-foreground font-semibold text-xs uppercase tracking-widest mb-4">Help</h4>
               <ul className="space-y-2.5 text-sm">
                 {{FOOTER_HELP.map(l => (
-                  <li key={{l}}><a href="#" className="hover:text-white transition-colors">{{l}}</a></li>
+                  <li key={{l}}><a href="#" className="hover:text-foreground transition-colors">{{l}}</a></li>
                 ))}}
               </ul>
             </div>
             {{/* Newsletter */}}
             <div>
-              <h4 className="text-white font-semibold text-xs uppercase tracking-widest mb-4">Stay in the Loop</h4>
+              <h4 className="text-foreground font-semibold text-xs uppercase tracking-widest mb-4">Stay in the Loop</h4>
               <p className="text-sm mb-4">New arrivals, exclusive deals, and insider stories. No spam, ever.</p>
               <div className="flex gap-2">
                 <input type="email" placeholder="your@email.com"
-                  className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all" />
-                <button className="shrink-0 px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-semibold transition-colors">
+                  className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-card border border-border text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all" />
+                <button className="shrink-0 px-4 py-2.5 bg-primary hover:opacity-90 text-primary-foreground rounded-lg text-sm font-semibold transition-colors">
                   Join
                 </button>
               </div>
-              <p className="text-xs mt-2 text-gray-600">By subscribing you agree to our Privacy Policy.</p>
+              <p className="text-xs mt-2 text-muted-foreground">By subscribing you agree to our Privacy Policy.</p>
             </div>
           </div>
 
-          <div className="border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+          <div className="border-t border-border pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
             <p>&copy; {{new Date().getFullYear()}} {project_name}. All rights reserved.</p>
             <div className="flex flex-wrap items-center gap-4">
               {{['Privacy Policy', 'Terms of Service', 'Cookie Settings'].map(l => (
-                <a key={{l}} href="#" className="hover:text-white transition-colors">{{l}}</a>
+                <a key={{l}} href="#" className="hover:text-foreground transition-colors">{{l}}</a>
               ))}}
               <div className="flex items-center gap-1.5 ml-2">
                 {{PAYMENT_METHODS.map(p => (
-                  <span key={{p}} className="bg-gray-800 border border-gray-700 px-2 py-0.5 rounded text-[10px] font-mono text-gray-400">{{p}}</span>
+                  <span key={{p}} className="bg-card border border-border px-2 py-0.5 rounded text-[10px] font-mono text-foreground">{{p}}</span>
                 ))}}
               </div>
             </div>
@@ -438,13 +419,13 @@ export function Layout() {{
   }}, [darkMode])
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <aside className="w-64 bg-gray-900 dark:bg-gray-950 text-white flex flex-col border-r border-gray-700 dark:border-gray-800">
-        <div className="p-6 border-b border-gray-700 dark:border-gray-800 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-white">{project_name}</h1>
+    <div className="flex h-screen bg-muted">
+      <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border">
+        <div className="p-6 border-b border-sidebar-border flex items-center justify-between">
+          <h1 className="text-xl font-bold text-sidebar-foreground">{project_name}</h1>
           <button
             onClick={{() => setDarkMode(d => !d)}}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
             aria-label="Toggle dark mode"
             title={{darkMode ? 'Switch to light mode' : 'Switch to dark mode'}}
           >
@@ -456,7 +437,7 @@ export function Layout() {{
             <Link
               key={{to}}
               to={{to}}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors [&.active]:bg-brand-600 [&.active]:text-white"
+              className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors [&.active]:bg-sidebar-primary [&.active]:text-sidebar-primary-foreground"
             >
               <Icon size={{18}} />
               {{label}}
@@ -465,13 +446,13 @@ export function Layout() {{
         </nav>
         <button
           onClick={{handleLogout}}
-          className="flex items-center gap-3 px-8 py-4 text-gray-400 hover:text-white border-t border-gray-700 dark:border-gray-800"
+          className="flex items-center gap-3 px-8 py-4 text-sidebar-foreground hover:text-sidebar-accent-foreground border-t border-sidebar-border"
         >
           <LogOut size={{18}} />
           Logout
         </button>
       </aside>
-      <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <main className="flex-1 overflow-auto bg-muted text-foreground">
         <Outlet />
       </main>
     </div>

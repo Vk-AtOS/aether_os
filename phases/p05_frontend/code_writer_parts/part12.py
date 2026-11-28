@@ -58,18 +58,18 @@ def _generate_domain_dashboard(domain: str, entities: List[dict]) -> str:
         initial={{{{ opacity: 0, y: 8 }}}}
         animate={{{{ opacity: 1, y: 0 }}}}
         transition={{{{ duration: 0.18, ease: 'easeOut', delay: {i} * 0.06 }}}}
-        className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 hover:shadow-md transition-shadow"
+        className="bg-card rounded-2xl border border-border shadow-sm p-6 hover:shadow-md transition-shadow"
       >
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
-          <div className="p-2 bg-{color}-50 rounded-lg">
-            <{icon} size={{18}} className="text-{color}-600" />
+          <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+          <div className="p-2 bg-accent rounded-lg">
+            <{icon} size={{18}} className="text-accent-foreground" />
           </div>
         </div>
-        <p className="text-4xl font-bold text-gray-900">
+        <p className="text-4xl font-bold text-foreground">
           {{{e}Data ? (Array.isArray({e}Data) ? {e}Data.length : ({e}Data?.total ?? {e}Data?.count ?? '—')) : '—'}}
         </p>
-        <p className="text-xs text-gray-400 mt-1">Updated just now</p>
+        <p className="text-xs text-muted-foreground mt-1">Updated just now</p>
       </motion.div>"""
         for i, (label, e, icon, color) in enumerate(kpis)
     )
@@ -79,12 +79,12 @@ def _generate_domain_dashboard(domain: str, entities: List[dict]) -> str:
     icons_import = ", ".join(icon_names)
 
     entity_links = "\n".join(
-        f"""        <a href="/{e['table'].replace('_', '-')}" className="flex items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-brand-200 hover:bg-brand-50 transition-all group">
+        f"""        <a href="/{e['table'].replace('_', '-')}" className="flex items-center justify-between p-4 rounded-xl border border-border hover:border-brand-200 hover:bg-brand-50 transition-all group">
           <div>
-            <p className="text-sm font-semibold text-gray-900 group-hover:text-brand-700">{_label(e['table'])}</p>
-            <p className="text-xs text-gray-400 mt-0.5">Manage {_label(e['table']).lower()}</p>
+            <p className="text-sm font-semibold text-foreground group-hover:text-brand-700">{_label(e['table'])}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Manage {_label(e['table']).lower()}</p>
           </div>
-          <span className="text-gray-300 group-hover:text-brand-400 text-lg transition-colors">→</span>
+          <span className="text-muted-foreground group-hover:text-brand-400 text-lg transition-colors">→</span>
         </a>"""
         for e in entities[:6]
     )
@@ -133,11 +133,11 @@ export default function Dashboard() {{
     >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1 font-medium">Welcome back. Here's what's happening.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1 font-medium">Welcome back. Here's what's happening.</p>
         </div>
         {{!hasActivity && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-600 text-xs font-semibold">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted border border-border text-muted-foreground text-xs font-semibold">
             <Activity size={{12}} /> No activity in the last 14 days
           </span>
         )}}
@@ -155,33 +155,33 @@ export default function Dashboard() {{
           initial={{{{ opacity: 0, y: 8 }}}}
           animate={{{{ opacity: 1, y: 0 }}}}
           transition={{{{ duration: 0.18, ease: 'easeOut', delay: 0.2 }}}}
-          className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
+          className="bg-card rounded-2xl border border-border shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">7-Day Activity</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Records created per day, from the data loaded on this page</p>
+            <h2 className="text-base font-semibold text-foreground tracking-tight">7-Day Activity</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Records created per day, from the data loaded on this page</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <AreaChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>
               <defs>
                 <linearGradient id="gradCurrent" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#6366f1" stopOpacity={{0.15}} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={{0}} />
+                  <stop offset="5%"  stopColor="var(--chart-1)" stopOpacity={{0.15}} />
+                  <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={{0}} />
                 </linearGradient>
                 <linearGradient id="gradPrev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#94a3b8" stopOpacity={{0.1}} />
-                  <stop offset="95%" stopColor="#94a3b8" stopOpacity={{0}} />
+                  <stop offset="5%"  stopColor="var(--muted-foreground)" stopOpacity={{0.1}} />
+                  <stop offset="95%" stopColor="var(--muted-foreground)" stopOpacity={{0}} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={{false}} />
-              <XAxis dataKey="day" tick={{{{ fontSize: 11, fill: '#94a3b8' }}}} axisLine={{false}} tickLine={{false}} />
-              <YAxis tick={{{{ fontSize: 11, fill: '#94a3b8' }}}} axisLine={{false}} tickLine={{false}} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={{false}} />
+              <XAxis dataKey="day" tick={{{{ fontSize: 11, fill: 'var(--muted-foreground)' }}}} axisLine={{false}} tickLine={{false}} />
+              <YAxis tick={{{{ fontSize: 11, fill: 'var(--muted-foreground)' }}}} axisLine={{false}} tickLine={{false}} />
               <RechartsTooltip
-                contentStyle={{{{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: 12 }}}}
+                contentStyle={{{{ borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--popover)', color: 'var(--popover-foreground)', fontSize: 12 }}}}
               />
               <Legend wrapperStyle={{{{ fontSize: 12, paddingTop: 8 }}}} />
-              <Area type="monotone" dataKey="value" name="This week" stroke="#6366f1" strokeWidth={{2}} fill="url(#gradCurrent)" dot={{false}} />
-              <Area type="monotone" dataKey="prev"  name="Last week" stroke="#94a3b8" strokeWidth={{1.5}} fill="url(#gradPrev)" dot={{false}} strokeDasharray="4 4" />
+              <Area type="monotone" dataKey="value" name="This week" stroke="var(--chart-1)" strokeWidth={{2}} fill="url(#gradCurrent)" dot={{false}} />
+              <Area type="monotone" dataKey="prev"  name="Last week" stroke="var(--muted-foreground)" strokeWidth={{1.5}} fill="url(#gradPrev)" dot={{false}} strokeDasharray="4 4" />
             </AreaChart>
           </ResponsiveContainer>
         </motion.div>
@@ -191,22 +191,22 @@ export default function Dashboard() {{
           initial={{{{ opacity: 0, y: 8 }}}}
           animate={{{{ opacity: 1, y: 0 }}}}
           transition={{{{ duration: 0.18, ease: 'easeOut', delay: 0.25 }}}}
-          className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
+          className="bg-card rounded-2xl border border-border shadow-sm p-6"
         >
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-gray-900 tracking-tight">Weekly Breakdown</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Records created per day this week</p>
+            <h2 className="text-base font-semibold text-foreground tracking-tight">Weekly Breakdown</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Records created per day this week</p>
           </div>
           <ResponsiveContainer width="100%" height={{220}}>
             <BarChart data={{TREND_DATA}} margin={{{{ top: 4, right: 4, left: -20, bottom: 0 }}}}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={{false}} />
-              <XAxis dataKey="day" tick={{{{ fontSize: 11, fill: '#94a3b8' }}}} axisLine={{false}} tickLine={{false}} />
-              <YAxis tick={{{{ fontSize: 11, fill: '#94a3b8' }}}} axisLine={{false}} tickLine={{false}} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={{false}} />
+              <XAxis dataKey="day" tick={{{{ fontSize: 11, fill: 'var(--muted-foreground)' }}}} axisLine={{false}} tickLine={{false}} />
+              <YAxis tick={{{{ fontSize: 11, fill: 'var(--muted-foreground)' }}}} axisLine={{false}} tickLine={{false}} />
               <RechartsTooltip
-                contentStyle={{{{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: 12 }}}}
+                contentStyle={{{{ borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--popover)', color: 'var(--popover-foreground)', fontSize: 12 }}}}
                 cursor={{{{ fill: 'rgba(99,102,241,0.05)' }}}}
               />
-              <Bar dataKey="value" name="Volume" fill="#6366f1" radius={{[6, 6, 0, 0]}} maxBarSize={{40}} />
+              <Bar dataKey="value" name="Volume" fill="var(--chart-1)" radius={{[6, 6, 0, 0]}} maxBarSize={{40}} />
             </BarChart>
           </ResponsiveContainer>
         </motion.div>
@@ -217,9 +217,9 @@ export default function Dashboard() {{
         initial={{{{ opacity: 0, y: 8 }}}}
         animate={{{{ opacity: 1, y: 0 }}}}
         transition={{{{ duration: 0.18, ease: 'easeOut', delay: 0.3 }}}}
-        className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
+        className="bg-card rounded-2xl border border-border shadow-sm p-6"
       >
-        <h2 className="text-base font-semibold text-gray-900 tracking-tight mb-4">Quick Access</h2>
+        <h2 className="text-base font-semibold text-foreground tracking-tight mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 {entity_links}
         </div>
@@ -309,14 +309,14 @@ export function Layout() {{
   }}
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
+    <div className="flex h-screen bg-muted overflow-hidden">
       {{/* ── Desktop sidebar ── */}}
-      <aside className="hidden md:flex w-64 bg-gray-900 dark:bg-gray-950 text-white flex-col border-r border-gray-800 shrink-0">
-        <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+      <aside className="hidden md:flex w-64 bg-foreground text-background flex-col border-r border-border shrink-0">
+        <div className="p-6 border-b border-border flex items-center justify-between">
           <h1 className="text-lg font-bold text-white tracking-tight">{project_name}</h1>
           <button
             onClick={{() => setDarkMode(d => !d)}}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-white hover:bg-foreground transition-colors"
             aria-label="Toggle dark mode"
           >
             {{darkMode ? <Sun size={{15}} /> : <Moon size={{15}} />}}
@@ -327,16 +327,16 @@ export function Layout() {{
             const Icon = _ICON_MAP[item.icon]
             return (
               <Link key={{item.to}} to={{item.to}}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-sm font-medium [&.active]:bg-brand-600 [&.active]:text-white">
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:bg-foreground hover:text-white transition-colors text-sm font-medium [&.active]:bg-brand-600 [&.active]:text-white">
                 {{Icon && <Icon size={{16}} />}}
                 {{item.label}}
               </Link>
             )
           }})}}
         </nav>
-        <div className="p-3 border-t border-gray-800">
+        <div className="p-3 border-t border-border">
           <button onClick={{handleLogout}}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors text-sm">
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:bg-foreground hover:text-white transition-colors text-sm">
             <LogOut size={{16}} /> Logout
           </button>
         </div>
@@ -345,28 +345,28 @@ export function Layout() {{
       {{/* ── Main content ── */}}
       <div className="flex-1 flex flex-col overflow-hidden">
         {{/* Mobile top bar */}}
-        <header className="md:hidden sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 h-14 flex items-center justify-between shadow-sm">
-          <span className="text-base font-bold text-gray-900 dark:text-white tracking-tight">{project_name}</span>
+        <header className="md:hidden sticky top-0 z-40 bg-card border-b border-border px-4 h-14 flex items-center justify-between shadow-sm">
+          <span className="text-base font-bold text-foreground dark:text-white tracking-tight">{project_name}</span>
           <button onClick={{() => setSidebarOpen(true)}}
-            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
             aria-label="Open menu">
             <Menu size={{20}} />
           </button>
         </header>
 
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-0 bg-gray-50 dark:bg-gray-900">
+        <main className="flex-1 overflow-y-auto pb-20 md:pb-0 bg-muted">
           <Outlet />
         </main>
 
         {{/* ── Mobile bottom tab bar ── */}}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]"
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border shadow-[0_-4px_16px_rgba(0,0,0,0.06)]"
           aria-label="Bottom navigation">
           <div className="flex items-stretch h-16">
             {{BOTTOM_NAV.map(item => {{
               const Icon = _ICON_MAP[item.icon]
               return (
                 <Link key={{item.to}} to={{item.to}}
-                  className="flex-1 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-brand-600 [&.active]:text-brand-600 transition-colors py-2">
+                  className="flex-1 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-brand-600 [&.active]:text-brand-600 transition-colors py-2">
                   {{Icon && <Icon size={{20}} />}}
                   <span className="text-[10px] font-medium leading-none">{{item.label}}</span>
                 </Link>
@@ -388,12 +388,12 @@ export function Layout() {{
             <motion.aside
               initial={{{{ x: -280 }}}} animate={{{{ x: 0 }}}} exit={{{{ x: -280 }}}}
               transition={{{{ type: 'spring', stiffness: 300, damping: 30 }}}}
-              className="fixed left-0 top-0 bottom-0 z-50 w-72 bg-gray-900 text-white flex flex-col md:hidden"
+              className="fixed left-0 top-0 bottom-0 z-50 w-72 bg-foreground text-background flex flex-col md:hidden"
             >
-              <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+              <div className="p-5 border-b border-border flex items-center justify-between">
                 <span className="text-lg font-bold text-white">{project_name}</span>
                 <button onClick={{() => setSidebarOpen(false)}}
-                  className="p-2 rounded-lg text-gray-400 hover:bg-gray-800" aria-label="Close menu">
+                  className="p-2 rounded-lg text-muted-foreground hover:bg-foreground" aria-label="Close menu">
                   <X size={{18}} />
                 </button>
               </div>
@@ -402,15 +402,15 @@ export function Layout() {{
                   const Icon = _ICON_MAP[item.icon]
                   return (
                     <Link key={{item.to}} to={{item.to}} onClick={{() => setSidebarOpen(false)}}
-                      className="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-sm font-medium [&.active]:bg-brand-600 [&.active]:text-white">
+                      className="flex items-center gap-3 px-3 py-3 rounded-lg text-muted-foreground hover:bg-foreground hover:text-white transition-colors text-sm font-medium [&.active]:bg-brand-600 [&.active]:text-white">
                       {{Icon && <Icon size={{16}} />}} {{item.label}}
                     </Link>
                   )
                 }})}}
               </nav>
-              <div className="p-3 border-t border-gray-800">
+              <div className="p-3 border-t border-border">
                 <button onClick={{handleLogout}}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800 text-sm">
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:bg-foreground text-sm">
                   <LogOut size={{16}} /> Logout
                 </button>
               </div>

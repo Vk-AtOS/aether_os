@@ -8,14 +8,14 @@ import { Link } from '@tanstack/react-router'
 
 export function NotFoundPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-muted">
       <div className="text-center p-8 max-w-md">
-        <div className="text-8xl font-black text-gray-200 mb-4">404</div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Page not found</h1>
-        <p className="text-gray-500 mb-6">The page you're looking for doesn't exist or has been moved.</p>
+        <div className="text-8xl font-black text-muted-foreground mb-4">404</div>
+        <h1 className="text-2xl font-bold text-foreground mb-2">Page not found</h1>
+        <p className="text-muted-foreground mb-6">The page you're looking for doesn't exist or has been moved.</p>
         <Link
           to="/"
-          className="inline-block px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="inline-block px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-colors"
         >
           Back to home
         </Link>
@@ -62,11 +62,11 @@ export function Pagination({ total, page, pageSize, onPageChange }: PaginationPr
 
   const btn = 'px-3 py-1.5 text-sm rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
   const active = 'bg-brand-600 text-white border-brand-600 font-semibold'
-  const inactive = 'bg-white text-gray-700 border-gray-200 hover:border-brand-400 hover:text-brand-600'
+  const inactive = 'bg-card text-foreground border-border hover:border-brand-400 hover:text-brand-600'
 
   return (
     <div className="flex items-center justify-between mt-4 px-1">
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-muted-foreground">
         {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
       </p>
       <div className="flex items-center gap-1">
@@ -80,7 +80,7 @@ export function Pagination({ total, page, pageSize, onPageChange }: PaginationPr
         </button>
         {getPages().map((p, i) =>
           p === '...' ? (
-            <span key={`ellipsis-${i}`} className="px-2 text-gray-400 text-sm select-none">…</span>
+            <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground text-sm select-none">…</span>
           ) : (
             <button
               key={p}
@@ -120,18 +120,18 @@ def _generate_skeleton() -> str:
 export const TableSkeleton = ({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) => (
   <div className="animate-pulse" aria-label="Loading data" role="status">
     {/* Header row */}
-    <div className="flex gap-4 py-3 border-b border-gray-200 mb-1">
+    <div className="flex gap-4 py-3 border-b border-border mb-1">
       {Array.from({ length: cols }).map((_, j) => (
-        <div key={j} className="h-3 bg-gray-300 rounded w-20" />
+        <div key={j} className="h-3 bg-muted rounded w-20" />
       ))}
     </div>
     {/* Data rows */}
     {Array.from({ length: rows }).map((_, i) => (
-      <div key={i} className="flex gap-4 py-3 border-b border-gray-100">
+      <div key={i} className="flex gap-4 py-3 border-b border-border">
         {Array.from({ length: cols }).map((_, j) => (
           <div
             key={j}
-            className="h-4 bg-gray-100 rounded flex-1"
+            className="h-4 bg-muted rounded flex-1"
             style={{ animationDelay: `${i * 60 + j * 20}ms` }}
           />
         ))}
@@ -145,11 +145,11 @@ export const TableSkeleton = ({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
  * CardSkeleton: animated placeholder for a single record card / detail panel.
  */
 export const CardSkeleton = () => (
-  <div className="animate-pulse space-y-4 p-4 bg-white rounded-xl border border-gray-100">
-    <div className="h-6 bg-gray-200 rounded w-3/4" />
-    <div className="h-4 bg-gray-100 rounded w-1/2" />
-    <div className="h-4 bg-gray-100 rounded w-2/3" />
-    <div className="h-4 bg-gray-100 rounded w-1/3" />
+  <div className="animate-pulse space-y-4 p-4 bg-card rounded-xl border border-border">
+    <div className="h-6 bg-muted rounded w-3/4" />
+    <div className="h-4 bg-muted rounded w-1/2" />
+    <div className="h-4 bg-muted rounded w-2/3" />
+    <div className="h-4 bg-muted rounded w-1/3" />
   </div>
 )
 
@@ -160,8 +160,8 @@ export const FormSkeleton = ({ fields = 4 }: { fields?: number }) => (
   <div className="animate-pulse space-y-5 p-6">
     {Array.from({ length: fields }).map((_, i) => (
       <div key={i} className="space-y-1.5">
-        <div className="h-3 bg-gray-200 rounded w-24" />
-        <div className="h-9 bg-gray-100 rounded-lg w-full" />
+        <div className="h-3 bg-muted rounded w-24" />
+        <div className="h-9 bg-muted rounded-lg w-full" />
       </div>
     ))}
   </div>

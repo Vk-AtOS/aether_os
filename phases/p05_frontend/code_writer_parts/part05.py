@@ -42,7 +42,7 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
     return (
       <div role="status" aria-label="Loading data" className="space-y-3">
         {[1, 2, 3, 4, 5].map(i => (
-          <div key={i} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
+          <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
         ))}
         <span className="sr-only">Loading…</span>
       </div>
@@ -55,19 +55,19 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
         value={globalFilter}
         onChange={e => setGlobalFilter(e.target.value)}
         placeholder="Search..."
-        className="mb-4 w-full max-w-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        className="mb-4 w-full max-w-sm px-3 py-2 border border-input rounded-lg text-sm bg-card text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand-500"
         aria-label="Search records"
       />
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm" aria-label="Data table">
-          <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <thead className="bg-muted border-b border-border">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
                 {hg.headers.map(header => (
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
-                    className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 select-none"
+                    className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none"
                     aria-label={`Sort by ${header.column.columnDef.header}`}
                   >
                     <div className="flex items-center gap-1">
@@ -85,9 +85,9 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
           </thead>
           <tbody>
             {table.getRowModel().rows.map(row => (
-              <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <tr key={row.id} className="border-b border-border hover:bg-muted transition-colors">
                 {row.getVisibleCells().map(cell => (
-                  <td key={cell.id} className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                  <td key={cell.id} className="px-4 py-3 text-foreground">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
@@ -96,10 +96,10 @@ export function DataTable<T>({ data, columns, isLoading }: Props<T>) {
           </tbody>
         </table>
         {table.getRowModel().rows.length === 0 && (
-          <div className="text-center py-12 text-gray-400 dark:text-gray-500">No records found</div>
+          <div className="text-center py-12 text-muted-foreground">No records found</div>
         )}
       </div>
-      <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+      <p className="mt-2 text-xs text-muted-foreground">
         {table.getFilteredRowModel().rows.length} records
       </p>
     </div>
@@ -215,10 +215,10 @@ export function CrudModal<T extends object>({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${uid}-title`}
-           className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 id={`${uid}-title`} className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+           className="bg-card rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 id={`${uid}-title`} className="text-lg font-semibold text-foreground">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-muted-foreground hover:text-muted-foreground">
             <X size={20} aria-hidden="true" />
           </button>
         </div>
@@ -232,9 +232,9 @@ export function CrudModal<T extends object>({
             const resolvedOptions = isFkSelect ? (fkOptions[f.name] ?? []) : (f.options ?? [])
             return (
               <div key={f.name}>
-                <label htmlFor={`${uid}-${f.name}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor={`${uid}-${f.name}`} className="block text-sm font-medium text-foreground mb-1">
                   {f.label}
-                  {f.required && <span className="text-red-500 ml-1">*</span>}
+                  {f.required && <span className="text-destructive ml-1">*</span>}
                 </label>
                 {f.type === 'textarea' ? (
                   <textarea
@@ -242,14 +242,14 @@ export function CrudModal<T extends object>({
                     {...register(f.name, {
                       required: f.required ? `${f.label} is required` : false,
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-input rounded-lg text-sm bg-card text-foreground dark:text-white focus:ring-2 focus:ring-brand-500"
                     rows={3}
                   />
                 ) : f.type === 'select' || isFkSelect ? (
                   <select
                     id={`${uid}-${f.name}`}
                     {...register(f.name, { required: f.required ? `${f.label} is required` : false })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-input rounded-lg text-sm bg-card text-foreground dark:text-white focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="">
                       {isFkSelect && resolvedOptions.length === 0 ? 'Loading...' : 'Select...'}
@@ -273,22 +273,22 @@ export function CrudModal<T extends object>({
                         },
                       } : {}),
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2 border border-input rounded-lg text-sm bg-card text-foreground dark:text-white focus:ring-2 focus:ring-brand-500"
                   />
                 )}
                 {errors[f.name] && (
-                  <p role="alert" className="text-xs text-red-500 mt-1">
+                  <p role="alert" className="text-xs text-destructive mt-1">
                     {(errors[f.name] as { message?: string } | undefined)?.message ?? `${f.label} is required`}
                   </p>
                 )}
               </div>
             )
           })}
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end gap-3 pt-4 border-t border-border">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+              className="px-4 py-2 text-sm border border-input rounded-lg text-foreground hover:bg-muted"
             >
               Cancel
             </button>
@@ -348,9 +348,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div
             key={t.id}
             className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg text-sm text-white min-w-[260px] ${
-              t.type === 'success' ? 'bg-green-600'
-              : t.type === 'error' ? 'bg-red-600'
-              : 'bg-gray-800'
+              t.type === 'success' ? 'bg-success'
+              : t.type === 'error' ? 'bg-destructive'
+              : 'bg-foreground'
             }`}
           >
             {t.type === 'success' ? <CheckCircle size={16} />
@@ -484,14 +484,14 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return <>{this.props.fallback}</>
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-muted">
           <div className="text-center p-8 max-w-md">
             <div className="text-6xl mb-4">⚠️</div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
-            <p className="text-gray-500 mb-6">{this.state.error?.message ?? 'An unexpected error occurred.'}</p>
+            <h1 className="text-2xl font-bold text-foreground mb-2">Something went wrong</h1>
+            <p className="text-muted-foreground mb-6">{this.state.error?.message ?? 'An unexpected error occurred.'}</p>
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-colors"
             >
               Try again
             </button>

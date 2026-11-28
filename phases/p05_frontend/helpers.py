@@ -24,6 +24,7 @@ from aether_os.core.llm import client as _llm_client
 from aether_os.phases.p05_frontend.dashboard_stats import fallback_widget, widget_reason
 from aether_os.phases.p05_frontend.design_brief import entity_widget_brief
 from aether_os.phases.p05_frontend.prompts import get_domain_color_hint
+from aether_os.phases.p05_frontend.theme_tokens import page_rules_block
 from aether_os.phases.p05_frontend.ui_primitives import write_fixed_primitive_set
 from aether_os.phases.p05_frontend.sse_hook import _generate_sse_hook  # noqa: F401  (re-export)
 
@@ -120,23 +121,9 @@ async def _generate_domain_component(
     except Exception as exc:
         logger.debug("p05: golden retriever unavailable: %s", exc)
 
-    if primary_hex:
-        # Use user's actual designer colors
-        bg = background_hex or "#0f172a"
-        surface = surface_hex or "#1e293b"
-        primary = primary_hex
-        secondary = secondary_hex or primary_hex
-        _color_hint = (
-            f"EXACT brand colors — use these hex values via Tailwind arbitrary values: "
-            f"primary: {primary} (use as [background-color:{primary}] or bg-[{primary}]), "
-            f"secondary: {secondary}, "
-            f"background: {bg} (page bg), "
-            f"surface: {surface} (card/panel bg). "
-            f"Do NOT substitute generic Tailwind palette colors — use the exact hex values provided."
-        )
-    else:
-        # Fall back to domain-based color hints
-        _color_hint = get_domain_color_hint(domain)
+    # The designer's / brief's colours are already the run's design tokens (theme_tokens.py, KAN-243): the widget uses the
+    # semantic classes, so it follows the theme in light and dark mode. It used to be told to paste hex values.
+    _color_hint = get_domain_color_hint(domain)
 
     _rag_section = (
         f"## Architecture Context (from knowledge graph)\n{rag_context}\n\n"
@@ -156,21 +143,10 @@ async def _generate_domain_component(
         "show a skeleton while loading and an empty state when a key is missing. Zero props\n"
         "- Export: export default function DomainWidget() {{}}\n"
         "- Maximum 250 lines — use the space for rich, domain-appropriate visuals\n"
-        "- Visual polish: rounded-2xl, shadows, colour badges, proper spacing — make it look like a real product\n"
         f"- Entities available in this app (for label inspiration): {', '.join(entity_names)}\n"
-        f"- Design personality: {domain} apps should feel visually distinct — avoid generic grey/white Bootstrap-style layouts\n\n"
-        "- Responsive Design: Use Tailwind responsive prefixes (sm:, md:, lg:) on ALL grid/flex containers and text size declarations.\n"
-        "- Accessibility: Use 'aria-label' on every icon-only button; use 'htmlFor' and 'aria-label' on all inputs.\n"
-        "- Loading/Empty states: Include an 'isLoading' branch showing a skeleton/spinner and an 'isEmpty' branch with an empty-state illustration/text.\n"
-        "- Glassmorphism cards: use bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl for all card/panel elements\n"
-        "- Gradient buttons: primary action buttons must use bg-gradient-to-r from the primary color to secondary color, with shadow-lg and hover:scale-105 transition\n"
-        "- Skeleton loaders: every async/loading state must show animated skeleton placeholders using animate-pulse bg-white/10 rounded blocks, NOT a spinner\n"
-        "- Framer Motion animations: wrap page sections in motion.div with initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{type:'spring',stiffness:300,damping:30}}\n"
-        "- shadcn/ui components: use shadcn/ui primitives (Button, Card, Badge, Input, Table) — import from '@/components/ui/*' — do NOT build raw HTML form elements or buttons\n"
-        "- Visual depth: add at least one gradient orb or abstract shape in hero/header sections using absolute positioned divs with rounded-full blur-3xl opacity-20 bg-[primaryColor]\n"
-        + (f"- Typography: use '{font_pairing.split('+')[0].strip()}' as the primary font via className='font-sans' (ensure it's loaded in index.html)\n" if font_pairing else "- Typography: use Inter as the primary font\n")
-        + (f"- Border radius: apply '{border_radius}' consistently — if 'Rounded', use rounded-xl/2xl; if 'Sharp', use rounded-sm/none; if 'Pill', use rounded-full on buttons\n" if border_radius else "")
-        + (f"- Density: '{density}' — if 'Compact', use p-2/p-3 and text-sm; if 'Normal', use p-4/p-6; if 'Comfortable', use p-6/p-8 and text-base\n" if density else "")
+        "- Use shadcn/ui primitives (Button, Card, Badge, Input, Table) imported from '@/components/ui/*'\n"
+        + (f"- Density: {density}\n" if density else "")
+        + "\n" + page_rules_block() + "\n"
         + "\nReturn ONLY the React component code. No markdown fences, no explanation."
     )
 
@@ -250,7 +226,7 @@ async def _generate_customer_portal(
     _personas = user_personas or []
 
     # Layout and design tokens from brief
-    primary_color = design_brief.get("color_scheme", {}).get("primary", "indigo-600")
+    primary_color = "primary"   # the run's token (KAN-243); a brief colour reaches it through the design tokens
 
     # Derive hero copy — prefer app_brand fields, fall back to domain-generic copy
     _display_name = project_name or domain.replace("_", " ").capitalize()
@@ -288,20 +264,20 @@ import {{ ArrowRight, Star, Shield, Zap }} from 'lucide-react';
 
 export default function Home() {{
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-card">
       {{/* Hero Section */}}
       <div className="relative pt-16 pb-32 flex content-center items-center justify-center min-h-[75vh]">
         <div className="container relative mx-auto">
           <div className="items-center flex flex-wrap">
             <div className="w-full lg:w-6/12 px-4 ml-auto mr-auto text-center">
-              <h1 className="text-5xl font-semibold text-gray-900 leading-tight">
+              <h1 className="text-5xl font-semibold text-foreground leading-tight">
                 {hero_heading}
               </h1>
-              <p className="mt-4 text-lg text-gray-600">
+              <p className="mt-4 text-lg text-muted-foreground">
                 {hero_sub}
               </p>
               <div className="mt-10 flex justify-center gap-x-6">
-                <Link to="/login" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
+                <Link to="/login" className="rounded-md bg-{primary_color} px-6 py-3 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90 transition-all flex items-center gap-2">
                   {_cta_label} <ArrowRight size={{16}} />
                 </Link>
               </div>
@@ -311,26 +287,26 @@ export default function Home() {{
       </div>
 
       {{/* Features Section */}}
-      <div className="py-24 bg-gray-50">
+      <div className="py-24 bg-muted">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-gray-900">Why Choose {_display_name}?</h2>
+            <h2 className="text-3xl font-bold text-foreground">Why Choose {_display_name}?</h2>
           </div>
           <div className="mt-20 grid grid-cols-1 gap-12 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-card p-8 rounded-2xl shadow-sm border border-border">
               <Zap className="text-{primary_color} mb-4" size={{32}} />
               <h3 className="text-xl font-bold mb-2">Lightning Fast</h3>
-              <p className="text-gray-600">Optimized performance for the best user experience in the {domain.replace('_', ' ')} industry.</p>
+              <p className="text-muted-foreground">Optimized performance for the best user experience in the {domain.replace('_', ' ')} industry.</p>
             </div>
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-card p-8 rounded-2xl shadow-sm border border-border">
               <Shield className="text-{primary_color} mb-4" size={{32}} />
               <h3 className="text-xl font-bold mb-2">Secure by Design</h3>
-              <p className="text-gray-600">Enterprise-grade security protecting your sensitive {domain.replace('_', ' ')} data.</p>
+              <p className="text-muted-foreground">Enterprise-grade security protecting your sensitive {domain.replace('_', ' ')} data.</p>
             </div>
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-card p-8 rounded-2xl shadow-sm border border-border">
               <Star className="text-{primary_color} mb-4" size={{32}} />
               <h3 className="text-xl font-bold mb-2">Built for {domain.replace('_', ' ')}</h3>
-              <p className="text-gray-600">Designed around the way {domain.replace('_', ' ')} teams actually work.</p>
+              <p className="text-muted-foreground">Designed around the way {domain.replace('_', ' ')} teams actually work.</p>
             </div>
           </div>
         </div>
@@ -349,7 +325,7 @@ export default function About() {{
   return (
     <div className="max-w-4xl mx-auto py-20 px-4">
       <h1 className="text-4xl font-bold mb-8">About {_display_name}</h1>
-      <p className="text-lg text-gray-600 mb-4">
+      <p className="text-lg text-muted-foreground mb-4">
         We are dedicated to providing the best {domain.replace('_', ' ')} management experience.
         Our mission is to empower business owners with the tools they need to succeed in a digital world.
       </p>
@@ -395,10 +371,10 @@ def _generate_landing_page(
 
     feature_jsx = "\n".join(
         f"""\
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-3">
+            <div className="bg-card p-8 rounded-2xl shadow-sm border border-border flex flex-col gap-3">
               <{f["icon"]} className="text-brand-600 w-8 h-8" />
-              <h3 className="text-xl font-bold text-gray-900">{f["title"]}</h3>
-              <p className="text-gray-600 text-sm">{f["desc"]}</p>
+              <h3 className="text-xl font-bold text-foreground">{f["title"]}</h3>
+              <p className="text-muted-foreground text-sm">{f["desc"]}</p>
             </div>"""
         for f in features
     )
@@ -413,12 +389,12 @@ import {{ ArrowRight, {", ".join(set(f["icon"] for f in features))} }} from 'luc
 
 export default function LandingPage() {{
   return (
-    <div className="min-h-screen bg-white font-sans">
+    <div className="min-h-screen bg-card font-sans">
       {{/* Navigation */}}
-      <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-gray-100 px-6 py-4 flex items-center justify-between">
-        <span className="text-xl font-extrabold text-gray-900 tracking-tight">{_display_name}</span>
+      <nav className="sticky top-0 z-50 bg-background backdrop-blur border-b border-border px-6 py-4 flex items-center justify-between">
+        <span className="text-xl font-extrabold text-foreground tracking-tight">{_display_name}</span>
         <div className="flex items-center gap-4">
-          <Link to="/login" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+          <Link to="/login" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             Sign In
           </Link>
           <Link to="/signup" className="bg-brand-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors">
@@ -430,21 +406,21 @@ export default function LandingPage() {{
       {{/* Hero */}}
       <section className="relative overflow-hidden bg-gradient-to-br from-brand-900 via-brand-800 to-brand-600 text-white py-28 md:py-40 text-center px-4">
         <div className="absolute inset-0 opacity-[0.06]"
-          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)' }}}} />
+          style={{{{ backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 40px,currentColor 40px,currentColor 41px),repeating-linear-gradient(90deg,transparent,transparent 40px,currentColor 40px,currentColor 41px)' }}}} />
         <div className="relative max-w-4xl mx-auto">
           <h1 className="text-5xl md:text-7xl font-extrabold leading-none tracking-tight mb-6">
             {_display_name}
           </h1>
-          <p className="text-lg md:text-2xl text-gray-200 mb-10 max-w-2xl mx-auto">
+          <p className="text-lg md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto">
             {_tagline}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link to="/signup"
-              className="inline-flex items-center gap-2 bg-white text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl text-base">
+              className="inline-flex items-center gap-2 bg-card text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl text-base">
               Start Free Trial <ArrowRight size={{18}} />
             </Link>
             <Link to="/login"
-              className="inline-flex items-center gap-2 border border-white/30 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/10 transition-all text-base">
+              className="inline-flex items-center gap-2 border border-white/30 text-white font-semibold px-8 py-4 rounded-xl hover:bg-background transition-all text-base">
               Sign In
             </Link>
           </div>
@@ -457,13 +433,13 @@ export default function LandingPage() {{
       </section>
 
       {{/* Features */}}
-      <section className="py-24 bg-gray-50">
+      <section className="py-24 bg-muted">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">
+            <h2 className="text-3xl md:text-4xl font-extrabold text-foreground">
               Everything you need
             </h2>
-            <p className="mt-4 text-lg text-gray-500 max-w-xl mx-auto">
+            <p className="mt-4 text-lg text-muted-foreground max-w-xl mx-auto">
               Built for teams that want to move fast without breaking things.
             </p>
           </div>
@@ -480,13 +456,13 @@ export default function LandingPage() {{
           Join thousands of teams already using {_display_name} to power their workflows.
         </p>
         <Link to="/signup"
-          className="inline-flex items-center gap-2 bg-white text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl text-base">
+          className="inline-flex items-center gap-2 bg-card text-brand-800 font-bold px-8 py-4 rounded-xl hover:bg-brand-50 transition-all shadow-xl text-base">
           Start Free Trial <ArrowRight size={{18}} />
         </Link>
       </section>
 
       {{/* Footer */}}
-      <footer className="bg-gray-900 text-gray-400 py-10 text-center text-sm px-4">
+      <footer className="bg-muted text-muted-foreground py-10 text-center text-sm px-4">
         <p>© {{new Date().getFullYear()}} {_display_name}. All rights reserved.</p>
       </footer>
     </div>

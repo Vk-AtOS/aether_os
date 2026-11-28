@@ -91,15 +91,15 @@ export default function {pascal}KanbanPage() {{
 
   if (isLoading) {{
     return (
-      <div className="p-8 text-gray-500 dark:text-gray-400 text-sm">Loading board...</div>
+      <div className="p-8 text-muted-foreground text-sm">Loading board...</div>
     )
   }}
 
   return (
-    <div className="p-4 sm:p-8 bg-white dark:bg-gray-900 min-h-full">
+    <div className="p-4 sm:p-8 bg-card min-h-full">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{label} Board</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <h1 className="text-2xl font-bold text-foreground">{label} Board</h1>
+        <p className="text-sm text-muted-foreground mt-1">
           Drag cards between columns to update status
         </p>
       </div>
@@ -110,13 +110,13 @@ export default function {pascal}KanbanPage() {{
             key={{col}}
             onDragOver={{e => e.preventDefault()}}
             onDrop={{() => handleDrop(col)}}
-            className={{`flex flex-col gap-3 min-h-[200px] rounded-xl border-2 border-t-4 ${{COLUMN_COLORS[col]}} border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3`}}
+            className={{`flex flex-col gap-3 min-h-[200px] rounded-xl border-2 border-t-4 ${{COLUMN_COLORS[col]}} border-border bg-muted p-3`}}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+              <span className="text-sm font-semibold text-foreground uppercase tracking-wide">
                 {{COLUMN_LABELS[col]}}
               </span>
-              <span className="text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">
+              <span className="text-xs font-medium bg-muted text-muted-foreground rounded-full px-2 py-0.5">
                 {{itemsByStatus(col).length}}
               </span>
             </div>
@@ -127,9 +127,9 @@ export default function {pascal}KanbanPage() {{
                 draggable
                 onDragStart={{() => handleDragStart(item.id)}}
                 onDragEnd={{() => setDraggingId(null)}}
-                className={{`rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3 shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${{draggingId === item.id ? 'opacity-40' : 'opacity-100'}}`}}
+                className={{`rounded-lg bg-card border border-border p-3 shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${{draggingId === item.id ? 'opacity-40' : 'opacity-100'}}`}}
               >
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                <p className="text-sm font-medium text-foreground">
                   {{getTitle(item)}}
                 </p>
               </div>
@@ -137,7 +137,7 @@ export default function {pascal}KanbanPage() {{
 
             {{itemsByStatus(col).length === 0 && (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-xs text-gray-400 dark:text-gray-600">Drop items here</p>
+                <p className="text-xs text-muted-foreground">Drop items here</p>
               </div>
             )}}
           </div>
@@ -233,23 +233,23 @@ export default function {pascal}CalendarPage() {{
   const selectedItems = selectedDay ? (itemsByDay[selectedDay] ?? []) : []
 
   return (
-    <div className="p-4 sm:p-8 bg-white dark:bg-gray-900 min-h-full">
+    <div className="p-4 sm:p-8 bg-card min-h-full">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{label} Calendar</h1>
+        <h1 className="text-2xl font-bold text-foreground">{label} Calendar</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={{prevMonth}}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
+            className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
             aria-label="Previous month"
           >
             <ChevronLeft size={{18}} />
           </button>
-          <span className="text-base font-semibold text-gray-800 dark:text-gray-200 min-w-[140px] text-center">
+          <span className="text-base font-semibold text-foreground min-w-[140px] text-center">
             {{monthName}} {{year}}
           </span>
           <button
             onClick={{nextMonth}}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
+            className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
             aria-label="Next month"
           >
             <ChevronRight size={{18}} />
@@ -257,11 +257,11 @@ export default function {pascal}CalendarPage() {{
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         {{/* Weekday headers */}}
-        <div className="grid grid-cols-7 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="grid grid-cols-7 bg-muted border-b border-border">
           {{DAY_NAMES.map(d => (
-            <div key={{d}} className="py-2 text-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+            <div key={{d}} className="py-2 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               {{d}}
             </div>
           ))}}
@@ -273,7 +273,7 @@ export default function {pascal}CalendarPage() {{
             const dayNum = i - startWeekday + 1
             const isValid = dayNum >= 1 && dayNum <= daysInMonth
             if (!isValid) {{
-              return <div key={{i}} className="min-h-[80px] bg-gray-50 dark:bg-gray-800/50 border-b border-r border-gray-100 dark:border-gray-800" />
+              return <div key={{i}} className="min-h-[80px] bg-muted border-b border-r border-border" />
             }}
             const dateObj = new Date(year, month, dayNum)
             const ymd = toYMD(dateObj)
@@ -284,9 +284,9 @@ export default function {pascal}CalendarPage() {{
               <button
                 key={{i}}
                 onClick={{() => setSelectedDay(ymd === selectedDay ? null : ymd)}}
-                className={{`min-h-[80px] text-left p-1.5 border-b border-r border-gray-100 dark:border-gray-800 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors ${{isSelected ? 'bg-brand-50 dark:bg-brand-900/30' : ''}} ${{isToday ? 'ring-1 ring-inset ring-brand-400' : ''}}`}}
+                className={{`min-h-[80px] text-left p-1.5 border-b border-r border-border hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors ${{isSelected ? 'bg-brand-50 dark:bg-brand-900/30' : ''}} ${{isToday ? 'ring-1 ring-inset ring-brand-400' : ''}}`}}
               >
-                <span className={{`text-xs font-medium ${{isToday ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-gray-600 dark:text-gray-400'}}`}}>
+                <span className={{`text-xs font-medium ${{isToday ? 'bg-brand-600 text-white rounded-full w-5 h-5 flex items-center justify-center' : 'text-muted-foreground'}}`}}>
                   {{dayNum}}
                 </span>
                 <div className="mt-1 space-y-0.5">
@@ -296,7 +296,7 @@ export default function {pascal}CalendarPage() {{
                     </div>
                   ))}}
                   {{dayItems.length > 2 && (
-                    <div className="text-xs text-gray-400 dark:text-gray-500 pl-1">
+                    <div className="text-xs text-muted-foreground pl-1">
                       +{{dayItems.length - 2}} more
                     </div>
                   )}}
@@ -310,14 +310,14 @@ export default function {pascal}CalendarPage() {{
       {{/* Day detail modal */}}
       {{selectedDay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <div className="bg-card rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-base font-semibold text-foreground">
                 {{new Date(selectedDay + 'T00:00:00').toLocaleDateString('default', {{ weekday: 'long', month: 'long', day: 'numeric' }})}}
               </h2>
               <button
                 onClick={{() => setSelectedDay(null)}}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"
+                className="text-muted-foreground hover:text-muted-foreground p-1"
                 aria-label="Close"
               >
                 <X size={{18}} />
@@ -325,10 +325,10 @@ export default function {pascal}CalendarPage() {{
             </div>
             <div className="overflow-y-auto p-4 space-y-2">
               {{selectedItems.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No items on this day.</p>
+                <p className="text-sm text-muted-foreground">No items on this day.</p>
               ) : selectedItems.map(item => (
-                <div key={{item.id}} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{{getLabel(item)}}</p>
+                <div key={{item.id}} className="rounded-lg border border-border p-3 bg-muted">
+                  <p className="text-sm font-medium text-foreground">{{getLabel(item)}}</p>
                 </div>
               ))}}
             </div>

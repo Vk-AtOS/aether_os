@@ -33,36 +33,36 @@ interface FleetSummary {
 }
 
 const STATUS_CONFIG = {
-  online:      { icon: Wifi,         badge: 'bg-green-100 text-green-800',  dot: 'bg-green-500'  },
-  offline:     { icon: WifiOff,      badge: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400'   },
-  error:       { icon: AlertTriangle,badge: 'bg-red-100 text-red-800',      dot: 'bg-red-500'    },
-  maintenance: { icon: Activity,     badge: 'bg-amber-100 text-amber-800',  dot: 'bg-amber-400'  },
+  online:      { icon: Wifi,         badge: 'bg-success-soft text-success',  dot: 'bg-success'  },
+  offline:     { icon: WifiOff,      badge: 'bg-muted text-muted-foreground',    dot: 'bg-muted-foreground'   },
+  error:       { icon: AlertTriangle,badge: 'bg-destructive-soft text-destructive',      dot: 'bg-destructive'    },
+  maintenance: { icon: Activity,     badge: 'bg-warning-soft text-warning-foreground',  dot: 'bg-warning'  },
 } as const
 
 function DeviceCard({ device }: { device: Device }) {
   const cfg = STATUS_CONFIG[device.status] ?? STATUS_CONFIG.offline
   const Icon = cfg.icon
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-3">
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.badge}`}>
           <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
           <Icon className="h-3 w-3" />{device.status}
         </span>
-        <Server className="h-4 w-4 text-gray-400" />
+        <Server className="h-4 w-4 text-muted-foreground" />
       </div>
-      <h3 className="text-sm font-semibold text-gray-900 mb-1">{device.name}</h3>
-      <p className="text-xs text-gray-500 mb-1">{device.device_type}</p>
-      {device.location && <p className="text-xs text-gray-400 mb-1">{device.location}</p>}
+      <h3 className="text-sm font-semibold text-foreground mb-1">{device.name}</h3>
+      <p className="text-xs text-muted-foreground mb-1">{device.device_type}</p>
+      {device.location && <p className="text-xs text-muted-foreground mb-1">{device.location}</p>}
       {device.last_seen && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-muted-foreground">
           Last seen: {new Date(device.last_seen).toLocaleString()}
         </p>
       )}
-      <div className="mt-3 pt-3 border-t border-gray-100">
+      <div className="mt-3 pt-3 border-t border-border">
         <a
           href={`/app-preview/devices/${device.device_id}/readings`}
-          className="block rounded-lg bg-indigo-50 px-2 py-1.5 text-xs font-medium text-indigo-700 text-center hover:bg-indigo-100 transition-colors"
+          className="block rounded-lg bg-accent px-2 py-1.5 text-xs font-medium text-primary text-center hover:bg-accent transition-colors"
         >
           View Sensor Readings
         </a>
@@ -93,21 +93,21 @@ export default function DeviceFleetPage() {
   })
 
   const stats = [
-    { label: 'Total',    value: summary?.total_devices ?? devices.length,                                 color: 'text-gray-900'   },
-    { label: 'Online',   value: summary?.online  ?? devices.filter(d => d.status === 'online').length,   color: 'text-green-600'  },
-    { label: 'Offline',  value: summary?.offline ?? devices.filter(d => d.status === 'offline').length,  color: 'text-gray-400'   },
-    { label: 'In Alert', value: summary?.in_alert ?? devices.filter(d => d.status === 'error').length,   color: 'text-red-500'    },
+    { label: 'Total',    value: summary?.total_devices ?? devices.length,                                 color: 'text-foreground'   },
+    { label: 'Online',   value: summary?.online  ?? devices.filter(d => d.status === 'online').length,   color: 'text-success'  },
+    { label: 'Offline',  value: summary?.offline ?? devices.filter(d => d.status === 'offline').length,  color: 'text-muted-foreground'   },
+    { label: 'In Alert', value: summary?.in_alert ?? devices.filter(d => d.status === 'error').length,   color: 'text-destructive'    },
   ]
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Device Fleet</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Device Fleet</h1>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         {stats.map(s => (
-          <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
+          <div key={s.label} className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
             <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+            <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
           </div>
         ))}
       </div>
@@ -115,13 +115,13 @@ export default function DeviceFleetPage() {
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-44 rounded-xl bg-gray-100 animate-pulse" />
+            <div key={i} className="h-44 rounded-xl bg-muted animate-pulse" />
           ))}
         </div>
       ) : devices.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 py-16">
-          <Server className="h-10 w-10 text-gray-300 mb-3" />
-          <p className="text-gray-400 text-sm">No devices registered yet.</p>
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-input py-16">
+          <Server className="h-10 w-10 text-muted-foreground mb-3" />
+          <p className="text-muted-foreground text-sm">No devices registered yet.</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -151,7 +151,7 @@ import { Activity } from 'lucide-react'
 const API = import.meta.env.VITE_API_URL ?? ''
 const auth = () => ({ Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` })
 
-const COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--primary)']
 
 interface Reading {
   timestamp: string
@@ -206,37 +206,37 @@ export default function SensorChartPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="flex items-center gap-3 mb-6">
-        <Activity className="h-6 w-6 text-indigo-600" />
-        <h1 className="text-2xl font-bold text-gray-900">Sensor Readings</h1>
-        <span className="text-sm text-gray-400 font-mono">{deviceId}</span>
+        <Activity className="h-6 w-6 text-primary" />
+        <h1 className="text-2xl font-bold text-foreground">Sensor Readings</h1>
+        <span className="text-sm text-muted-foreground font-mono">{deviceId}</span>
       </div>
 
-      <div className="flex flex-wrap gap-4 mb-6 p-4 rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="flex flex-wrap gap-4 mb-6 p-4 rounded-xl border border-border bg-card shadow-sm">
         {([['From', startDate, setStartDate], ['To', endDate, setEndDate]] as const).map(([label, val, set]) => (
           <div key={label} className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600">{label}</label>
+            <label className="text-xs font-medium text-muted-foreground">{label}</label>
             <input
               type="datetime-local"
               value={val}
               onChange={e => set(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+              className="rounded-lg border border-input px-3 py-1.5 text-xs focus:ring-2 focus:ring-ring focus:border-primary outline-none"
             />
           </div>
         ))}
       </div>
 
       {isLoading ? (
-        <div className="h-80 rounded-xl bg-gray-100 animate-pulse" />
+        <div className="h-80 rounded-xl bg-muted animate-pulse" />
       ) : readings.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-80 rounded-xl border border-dashed border-gray-300 bg-white">
-          <Activity className="h-10 w-10 text-gray-300 mb-3" />
-          <p className="text-gray-400 text-sm">No readings in this time range.</p>
+        <div className="flex flex-col items-center justify-center h-80 rounded-xl border border-dashed border-input bg-card">
+          <Activity className="h-10 w-10 text-muted-foreground mb-3" />
+          <p className="text-muted-foreground text-sm">No readings in this time range.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="time" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
@@ -254,7 +254,7 @@ export default function SensorChartPage() {
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <p className="text-xs text-gray-400 mt-3 text-center">
+          <p className="text-xs text-muted-foreground mt-3 text-center">
             {readings.length} readings · {metrics.length} metric{metrics.length !== 1 ? 's' : ''}
           </p>
         </div>

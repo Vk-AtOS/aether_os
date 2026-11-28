@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from aether_os.core.domain_ir import AetherType
 from aether_os.phases.p04a_backend_codegen.ir_client_fields import is_user_entity
 from aether_os.phases.p05_frontend.dashboard_stats import ensure_real_stats
+from aether_os.core.rulepacks.provenance import record_model_files, write_model_file
 from aether_os.phases.p05_frontend.llm_page_writer import (
     write_entity_page_llm,
     write_dashboard_llm,
@@ -255,6 +256,7 @@ async def generate_domain_widget(
         )
         if domain_component:
             write_with_guard_fn(src_dir / "components" / "DomainWidget.tsx", domain_component)
+            record_model_files(src_dir.parent, ["src/components/DomainWidget.tsx"])   # KAN-243 gate: model-written
             dashboard_file = src_dir / "pages" / "Dashboard.tsx"
             if dashboard_file.exists():
                 content = dashboard_file.read_text()
@@ -384,7 +386,7 @@ async def assemble_domain_pages(
         if _refused:
             fallbacks["pages/Dashboard.tsx"] = "post_check: hard-coded counts or mock data"
         if _dash_llm and not _refused:
-            (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
+            write_model_file(src_dir / "pages" / "Dashboard.tsx", _dash_llm, src_dir.parent)
             llm_count += 1
         else:
             (src_dir / "pages" / "Dashboard.tsx").write_text(
@@ -423,6 +425,7 @@ async def assemble_domain_pages(
                 )
             if _llm_code:
                 write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _llm_code)
+                record_model_files(src_dir.parent, [f"src/pages/{pascal_name}Page.tsx"])
                 return 1, 0
             write_with_guard_fn(src_dir / "pages" / f"{pascal_name}Page.tsx", _gen_ent_page(ir_entity))
             return 0, 1
@@ -442,7 +445,7 @@ async def assemble_domain_pages(
         if _refused:
             fallbacks["pages/Dashboard.tsx"] = "post_check: hard-coded counts or mock data"
         if _dash_llm and not _refused:
-            (src_dir / "pages" / "Dashboard.tsx").write_text(_dash_llm)
+            write_model_file(src_dir / "pages" / "Dashboard.tsx", _dash_llm, src_dir.parent)
             llm_count += 1
         else:
             _dash_code = _dash_llm or generate_domain_dashboard_fn(domain, entities)
@@ -489,6 +492,8 @@ async def assemble_domain_pages(
                 )
             code = _llm_code if _llm_code else generate_entity_page_fn(ent, route_map, fk_refs=_global_fk_refs or None)
             write_with_guard_fn(src_dir / "pages" / f"{pascal}Page.tsx", code)
+            if _llm_code:
+                record_model_files(src_dir.parent, [f"src/pages/{pascal}Page.tsx"])
             return (1, 0) if _llm_code else (0, 1)
 
         _ent_results = await asyncio.gather(*[_write_non_ir_entity(e) for e in entities])
