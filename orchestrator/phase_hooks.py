@@ -104,8 +104,8 @@ async def _hook_quality_gate(
         if quality.total >= 80:
             logger.info("[quality] Gate passed: %.1f%%", quality.total)
             await emit_fn({"type": "quality_gate_passed", "score": quality.total}, run_id=run_id)
-            # WL2: mark healing as done so the scheduled s07_healing stage runs
-            # final validation only instead of re-executing the full repair loop.
+            # The STATIC score passed: s07 may skip its repair loop, but it still starts the app and probes it
+            # (a high static score once skipped the start entirely, KAN-247; see s07 run_task).
             accumulated_context["s07_healing_done"] = True
             accumulated_context["s07_healing_result"] = {
                 "trigger": "quality_gate_hook",

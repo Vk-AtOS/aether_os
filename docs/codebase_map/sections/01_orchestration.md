@@ -142,7 +142,7 @@ This slice is the **control plane of the code factory**. A run enters through `F
   - `api_routes_path`; `PatternSelector.apply_all` (pattern library)
   - **BackendAuditCouncil**: `run_council()` on main.py + crud/models/schemas/auth (12k chars, 90 s timeout). If score < `COUNCIL_THRESHOLD` (0.70), injects `council_feedback` and re-runs s03 (up to 2 retries).
 - **s06** `_hook_quality_gate` (:76): `score_project(project_dir)`.
-  - ≥80 → sets `s07_healing_done`.
+  - ≥80 → sets `s07_healing_done`: s07 may then skip its repair loop, but still starts and probes the app (KAN-247).
   - Otherwise injects `quality_score_details` and calls `run_phase_fn("s07_healing", phase_input)`, up to 2×. On the 3rd failure it sends a notification and raises `PipelineBlockedError`.
 
 ### 3.6 Spec review gate (spec_review_gate.py)

@@ -26,18 +26,24 @@ HEALTH LAYERS (probed by QualityMonitor):
   L3: CRUD         — GET /<entity>/ returns 200 with at least 1 record
   L4: Seed Data    — all entities have ≥10 seed records in the database
 
-REPAIR ATTEMPTS: up to 3 (attempt 1 = LLM repair, attempt 2+ = deterministic fallback)
-CRITICAL: No — pipeline continues even if healing fails (handoff includes failure report)
+REPAIR ATTEMPTS: up to 5 inside p07b (LLM repair, deterministic fallback on the last)
+GATE: blocks (ends the run) when the app did not start and answer /health, a spec'd list endpoint returned a 5xx
+      or 404, or healing ended with the unit tests still failing (stages/s07_healing/run_verdict.py, KAN-247).
+      A static quality score never skips the app start: it can only skip the repair loop when the app then
+      starts and answers. The perf / a11y / e2e tests deferred here from s06 run against the started app; any that
+      did not run or failed are listed in metadata["not_verified"], which keeps the run from "completed".
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import secrets
 from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.stages.s07_healing.run_verdict import decide, httpx_sender, probe_endpoints
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +79,9 @@ class HealingStageSupervisor(PhaseBase):
     """
 
     phase_name = "s07_healing"
+    # One gate attempt: the healer already loops up to 5 repair attempts inside run_task, so a gate retry would only
+    # repeat that whole loop on the same code (and the quality-gate hook runs this stage up to twice before).
+    max_retries = 1
 
     async def run_task(
         self, phase_input: Any, memory_ctx: List[Dict]
@@ -84,42 +93,22 @@ class HealingStageSupervisor(PhaseBase):
         output_dir = pm.get_output_dir(phase_input.project_id, self.phase_name)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # WL2: if the quality-gate hook already ran healing successfully (triggered
-        # from phase_hooks._hook_quality_gate after p07_testing), skip re-running the
-        # full repair loop to avoid a double-heal race where whichever pass runs last
-        # wins with no explicit reconciliation.  Run validate_gate() only instead.
+        # The quality-gate hook (phase_hooks._hook_quality_gate) sets s07_healing_done when the STATIC score
+        # reached 80. That may skip the repair loop, never the app start: the shortcut used to return
+        # healing_passed=True without starting the app, and 11 of 11 "completed" production runs shipped an app
+        # nobody had started (KAN-247). So: start + probe the app; only if that passes is healing skipped.
         _acc = phase_input.input_data if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict) else {}
-        if _acc.get("s07_healing_done"):
-            _prior = _acc.get("s07_healing_result", {})
-            logger.info(
-                "[s07] healing already completed via quality gate hook (score=%.1f, attempt=%s) "
-                "— running final validation only",
-                _prior.get("score", 0.0),
-                _prior.get("attempt", "?"),
-            )
-            return TaskResult(
-                success=True,
-                output_path=str(output_dir),
-                metadata={
-                    "skipped": True,
-                    "live_test_results": {"skipped": True, "reason": "live tests not run: already healed via gate hook"},
-                    "healing_passed": True,
-                    "repairs_applied": [],
-                    "error_patterns": [],
-                    "auto_validators": [],
-                    "self_healing_report": {
-                        "attempts": 0,
-                        "status": "skipped_already_healed",
-                        "exhausted": False,
-                        "quality_probe": {},
-                        "validator_violations": [],
-                    },
-                    "skipped_reason": "already_healed_via_gate",
-                    "prior_result": _prior,
-                },
-                issues=[],
-                confidence=1.0,
-            )
+
+        async def _live_hook(port: int) -> Dict[str, Any]:
+            return await _live_checks(phase_input, memory_ctx, output_dir, port)
+
+        if _acc.get("s07_healing_done") and _unit_tests_green(_acc):
+            probe_meta = await _probe_only(phase_input, output_dir, _live_hook)
+            if decide(probe_meta)["passed"]:
+                logger.info("[s07] static gate passed and the app started and answered: repair loop not needed")
+                return _finish(TaskResult(success=True, output_path=str(output_dir), metadata=probe_meta,
+                                          confidence=0.9), output_dir, str(phase_input.project_id))
+            logger.warning("[s07] static gate passed but the live check failed: running the repair loop")
 
         # ── Delegate to the pre-approved self-healing engine ──────────────────
         # p07b_self_healing.run() handles:
@@ -127,97 +116,123 @@ class HealingStageSupervisor(PhaseBase):
         #   - MAX_ATTEMPTS=5 repair loop (LLM → deterministic fallback)
         #   - QualityMonitor L1–L4 probe (startup, auth, CRUD, seed data)
         #   - ErrorRegistry recording + RepairLearning events
-        async def _live_hook(port: int) -> Dict[str, Any]:
-            return await _run_live_tests(phase_input, memory_ctx, output_dir, port)
-
         result = await heal_run(phase_input, memory_ctx, output_dir, live_hook=_live_hook)
-
-        # ── Post-heal: run static validators to surface structural violations ──
-        # This is additive — it never overwrites the repair result, only appends
-        # a validator_violations key so downstream stages can surface them.
-        backend_path = ""
-        if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict):
-            backend_path = phase_input.input_data.get("backend_output_path", "")
-        try:
-            from aether_os.core.validators import run_all_validators
-            if backend_path:
-                violations = run_all_validators(backend_path)
-                if result.output and isinstance(result.metadata, dict):
-                    result.metadata["validator_violations"] = violations
-                    logger.info(
-                        "s07_healing: post-heal validator found %d violation(s)",
-                        len(violations),
-                    )
-        except Exception as exc:
-            logger.warning("s07_healing: post-heal validator run failed (non-fatal): %s", exc)
-
-        # ── Record stage feedback for learning tracker ────────────────────────
-        try:
-            from aether_os.core.stage_feedback import record_stage_output, record_stage_fix
-            _run_id = str(getattr(phase_input, "project_id", "unknown"))
-            _heal_meta = result.metadata or {}
-            _qp = _heal_meta.get("quality_probe", {})
-            _quality_scores = {
-                "healing_attempts": float(_heal_meta.get("attempts", 0)),
-                "fixes_applied": float(len(_qp.get("fixes_applied", []))),
-            }
-            record_stage_output("s07_healing", _run_id, [], _quality_scores)
-            # Record each deterministic fix as a stage_fix event
-            for _fix in _qp.get("fixes_applied", []):
-                record_stage_fix("s07_healing", _run_id, str(_fix), "deterministic_fix")
-        except Exception as _fb_exc:
-            logger.warning("s07_healing: stage_feedback record failed (non-critical): %s", _fb_exc)
-
-        # ── Enrich metadata with stage-level output keys ──────────────────────
-        # The pipeline accumulates these keys into accumulated_context so Stage 8+
-        # can read healing_passed without parsing the raw self_healing.json file.
-        _meta = result.metadata or {}
-        _healing_passed = (
-            _meta.get("status") == "all_tests_passing"
-            and not _meta.get("self_healing_exhausted", False)
-        )
-        _repairs_applied = _build_repairs_list(_meta)
-        _auto_validators = _collect_validator_paths(output_dir)
-
-        result.metadata.update({
-            "healing_passed": _healing_passed,
-            "repairs_applied": _repairs_applied,
-            "error_patterns": _meta.get("quality_probe", {}).get("fixes_applied", []),
-            "auto_validators": _auto_validators,
-            "self_healing_report": {
-                "attempts": _meta.get("attempts", 0),
-                "status": _meta.get("status", "unknown"),
-                "exhausted": _meta.get("self_healing_exhausted", False),
-                "quality_probe": _meta.get("quality_probe", {}),
-                "validator_violations": _meta.get("validator_violations", []),
-            },
-        })
-
-        # ── Post-heal live tests (perf + a11y + E2E) ─────────────────────────
-        # They ran inside the probe (the app only lives there); record why if not.
-        _qp = _meta.get("quality_probe") or {}
-        _live = _qp.get("live_tests")
-        if _live is None:
-            _why = (_qp.get("reason") or "app not healthy (L1 failed)") if not _qp.get("l1_passed") else "no live tests"
-            _live = {"skipped": True, "reason": f"live tests not run: {_why}"}
-            logger.info("s07_healing: %s", _live["reason"])
-        result.metadata["live_test_results"] = _live
-
-        return result
+        if result.metadata is None:
+            result.metadata = {}
+        _run_validators(result, phase_input)
+        return _finish(result, output_dir, str(getattr(phase_input, "project_id", "unknown")))
 
     async def validate_gate(
         self, result: TaskResult, phase_input: Any
     ) -> GateOutcome:
-        # Gate always passes — even a failed healing run is non-critical.
-        # The healing_passed flag lets downstream stages adapt their behaviour.
-        return GateOutcome(
-            passed=True,
-            confidence=result.confidence,
-            issues=result.issues,
-        )
+        # Blocks when the app did not start, a spec'd endpoint failed or healing ended exhausted (KAN-247): this
+        # gate used to pass unconditionally, so a run whose app never started still reached "completed". Live
+        # tests that did not run or failed do not block; they are listed in metadata["not_verified"] instead.
+        verdict = (result.metadata or {}).get("app_verdict") or decide(result.metadata or {})
+        if verdict["passed"]:
+            return GateOutcome(passed=True, confidence=result.confidence,
+                               issues=list(result.issues) + list(verdict["not_verified"]))
+        return GateOutcome(passed=False, confidence=result.confidence,
+                           issues=[f"s07_healing: {r}" for r in verdict["reasons"]])
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+def _unit_tests_green(ctx: Dict[str, Any]) -> bool:
+    """s06's unit tests ran and none failed: only then may a passing static score skip the repair loop."""
+    tr = ctx.get("test_results") if isinstance(ctx.get("test_results"), dict) else {}
+    return int(tr.get("passed") or 0) > 0 and not int(tr.get("failed") or 0) and not tr.get("collection_error")
+
+
+async def _probe_only(phase_input: Any, output_dir: Path, live_hook) -> Dict[str, Any]:
+    """Start the app and run the live checks without the repair loop; metadata in the healer's shape."""
+    import os
+
+    from aether_os.phases.p07b_self_healing import task_agent as heal
+
+    project_dir = Path(os.path.expanduser(f"~/.aether_os/projects/{phase_input.run_id}"))
+    raw = (phase_input.input_data or {}).get("entities", [])
+    names = [e.get("name", "") if isinstance(e, dict) else str(e) for e in raw or [] if e]
+    probe = await heal._quality_probe(project_dir, names, output_dir, live_hook)
+    meta = {"success": True, "attempts": 0, "status": "probe_only_after_static_gate", "quality_probe": probe}
+    (output_dir / "self_healing.json").write_text(json.dumps(meta, indent=2, default=str))
+    return meta
+
+
+async def _live_checks(phase_input: Any, memory_ctx: List[Dict], output_dir: Path, port: int) -> Dict[str, Any]:
+    """Called by the probe while the app runs on `port`: spec'd endpoints first, then perf + a11y + e2e."""
+    from aether_os.core.sandbox import phase_exec
+
+    endpoints = await probe_endpoints(phase_exec.app_url(port), (phase_input.input_data or {}).get("entities", []),
+                                      httpx_sender, secrets.token_urlsafe(16))
+    return {"endpoints": endpoints, "tests": await _run_live_tests(phase_input, memory_ctx, output_dir, port)}
+
+
+def _run_validators(result: TaskResult, phase_input: Any) -> None:
+    """Post-heal static validators: additive, they only append validator_violations."""
+    backend_path = ""
+    if hasattr(phase_input, "input_data") and isinstance(phase_input.input_data, dict):
+        backend_path = phase_input.input_data.get("backend_output_path", "")
+    try:
+        from aether_os.core.validators import run_all_validators
+        if backend_path:
+            violations = run_all_validators(backend_path)
+            result.metadata["validator_violations"] = violations
+            logger.info("s07_healing: post-heal validator found %d violation(s)", len(violations))
+    except Exception as exc:
+        logger.warning("s07_healing: post-heal validator run failed (non-fatal): %s", exc)
+
+
+def _record_feedback(result: TaskResult, run_id: str) -> None:
+    try:
+        from aether_os.core.stage_feedback import record_stage_output, record_stage_fix
+        _qp = result.metadata.get("quality_probe", {}) or {}
+        record_stage_output("s07_healing", run_id, [], {
+            "healing_attempts": float(result.metadata.get("attempts", 0) or 0),
+            "fixes_applied": float(len(_qp.get("fixes_applied", []))),
+        })
+        for _fix in _qp.get("fixes_applied", []):
+            record_stage_fix("s07_healing", run_id, str(_fix), "deterministic_fix")
+    except Exception as _fb_exc:
+        logger.warning("s07_healing: stage_feedback record failed (non-critical): %s", _fb_exc)
+
+
+def _finish(result: TaskResult, output_dir: Path, run_id: str) -> TaskResult:
+    """Stage-level output keys from the healer's metadata, with healing_passed taken from the live verdict.
+
+    The pipeline accumulates these keys into accumulated_context so Stage 8+ read healing_passed directly.
+    """
+    _record_feedback(result, run_id)
+    _meta = result.metadata
+    verdict = decide(_meta)
+    _qp = _meta.get("quality_probe") or {}
+    hook = _qp.get("live_tests") if isinstance(_qp.get("live_tests"), dict) else {}
+    _live = hook.get("tests")
+    if _live is None:
+        _why = (_qp.get("reason") or "app not healthy (L1 failed)") if not _qp.get("l1_passed") else "no live tests"
+        _live = {"skipped": True, "reason": f"live tests not run: {_why}"}
+        logger.info("s07_healing: %s", _live["reason"])
+    _meta.update({
+        "healing_passed": verdict["passed"],
+        "app_verdict": verdict,
+        "not_verified": verdict["not_verified"],
+        "repairs_applied": _build_repairs_list(_meta),
+        "error_patterns": _qp.get("fixes_applied", []),
+        "auto_validators": _collect_validator_paths(output_dir),
+        "live_test_results": _live,
+        "self_healing_report": {
+            "attempts": _meta.get("attempts", 0),
+            "status": _meta.get("status", "unknown"),
+            "exhausted": _meta.get("self_healing_exhausted", False),
+            "quality_probe": _qp,
+            "validator_violations": _meta.get("validator_violations", []),
+        },
+    })
+    if not verdict["passed"]:
+        result.success = False
+        result.issues = list(result.issues or []) + verdict["reasons"]
+    return result
 
 
 async def _run_live_tests(phase_input: Any, memory_ctx: List[Dict], output_dir: Path,

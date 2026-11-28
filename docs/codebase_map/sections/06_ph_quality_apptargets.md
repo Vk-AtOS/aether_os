@@ -225,7 +225,8 @@ Callers: `stages/s05_quality`, `stages/s06_testing`, `stages/s07_healing`, `orch
 ## 4. Self-healing loop (p07b_self_healing/task_agent.py)
 
 - **Entry.** s07 calls `heal_run` (`stages/s07_healing/supervisor.py:127`).
-  - s07 skips the call if `accumulated_context["s07_healing_done"]` was already set by the quality hook (`supervisor.py:86-119`).
+  - If the quality hook set `accumulated_context["s07_healing_done"]` (static score ≥80) and s06's unit tests all passed, s07 first starts and probes the app without the repair loop (`_probe_only`); it calls `heal_run` only if that live check fails. The static score never skips the app start (KAN-247).
+  - The s07 gate blocks when the app did not start, a spec'd `/api/<table>` list endpoint returned 5xx/404, or healing ended exhausted (`stages/s07_healing/run_verdict.py`). Live perf/a11y/e2e tests that did not run or failed go to `metadata["not_verified"]`, which keeps the run from `completed` (`orchestrator/stage_gate.py:final_run_status`).
   - The quality hook calls `run_phase_fn("s07_healing")` up to 2 times when the score is below 80 (`orchestrator/phase_hooks.py:94-127`). Total worst case: 2 hook calls plus the scheduled s07 run, each with up to 5 attempts.
 - **Hard cap.** `_PHASE_HARD_TIMEOUT = 5 × (60 + 45 + 15) = 600 s` (:34-38). On timeout it returns `status=phase_timeout` with `success=True` (:95-109).
 - **Workspace.** `project_dir` is hard-coded to `~/.aether_os/projects/{phase_input.run_id}` (:116). It ignores `input_data.project_dir`, and other phases key on `project_id`.
