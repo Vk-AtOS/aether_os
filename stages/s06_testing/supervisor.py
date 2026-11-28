@@ -197,7 +197,11 @@ class TestingStageSupervisor(PhaseBase):
         gate = meta.get("gate") or _gate_report(meta)   # a cached result from before the field existed
         if gate["passed"]:
             return GateOutcome(passed=True, confidence=result.confidence, issues=result.issues)
-        why = "; ".join(str(i) for i in meta.get("skipped_phases") or []) or "pytest collected or ran nothing"
+        # p07a names a collection error / an app that does not import (KAN-250); "ran nothing" hid that cause.
+        unit = meta.get("test_results") if isinstance(meta.get("test_results"), dict) else {}
+        why = "; ".join(str(i) for i in meta.get("skipped_phases") or []) or (
+            f"collection error: {unit['collection_error']}" if unit.get("collection_error")
+            else "pytest collected or ran nothing")
         return GateOutcome(passed=False, confidence=result.confidence, issues=[f"no unit test ran: {why}"])
 
 
