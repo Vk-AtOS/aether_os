@@ -26,6 +26,7 @@ from aether_os.core.questionnaire.stage_questions import get_stage_questions
 from aether_os.core.models import Run as _Run_canc
 from aether_os.core.models import Run as _Run
 from aether_os.core.models import QuestionnaireSession, Run
+from aether_os.core.decisions.decision_engine import get_decision_engine
 from aether_os.core.models import Organisation
 from aether_os.core.llm.client import init_org_llm_context
 from aether_os.core.identity.zero_trust import issue_ticket as _zt_issue
@@ -188,6 +189,10 @@ class FactoryPipeline:
                 if run_id:
                     await publish_event(run_id, {"type": "pipeline_complete", "status": "timeout", "error": reason, "ts": time.time()})
                 return {"run_id": run_id, "status": "timeout", "error": reason}
+            finally:
+                # However the run ended, no approval may stay 'pending' forever (KAN-248).
+                if run_id:
+                    await get_decision_engine().expire_pending(run_id, "expired")
 
     async def _execute_pipeline(self,
                   client_id: str,

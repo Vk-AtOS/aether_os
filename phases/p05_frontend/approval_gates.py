@@ -10,6 +10,7 @@ from aether_os.core.decisions.decision_engine import Decision, get_decision_engi
 from aether_os.core.domain_ir import AetherType  # noqa: F401
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.pipeline_state import publish_event
+from aether_os.orchestrator.autonomy import halt_unless_approved, record_autonomous_decision
 from aether_os.orchestrator.events import ACTIVE_RUN_ID
 from aether_os.phases.p05_frontend.preview import vlm_rubric_critique
 
@@ -18,8 +19,7 @@ logger = logging.getLogger(__name__)
 
 def _halt_unless_approved(resolved: Any, gate: str) -> None:
     """A denied or unanswered (timeout) gate must stop the run; the engine only yields pending|approved|denied|timeout."""
-    if resolved.status in ("denied", "timeout"):
-        raise PipelineBlockedError(f"{gate} not approved ({resolved.status}) - pipeline halted at p05")
+    halt_unless_approved(resolved, gate)
 
 
 async def run_gate3_approval(
@@ -28,6 +28,7 @@ async def run_gate3_approval(
     data: Dict[str, Any],
     is_autonomous: bool,
     derive_admin_features_fn: Any,
+    autonomy_source: str = "request",
 ) -> List[str]:
     """Run Gate 3 — Admin Requirements Approval Gate.
 
@@ -69,8 +70,12 @@ async def run_gate3_approval(
                         admin_features = [f.strip() for f in resolved.human_choice.split(",") if f.strip()]
                 except Exception as _parse_exc:
                     logger.warning("p05: Gate 3 choice parse failed: %s", _parse_exc)
-        else:
-            logger.info("p05: Autonomous mode — bypassing Gate 3 approval.")
+        elif run_id:
+            logger.info("p05: Autonomous mode — Gate 3 auto-approved.")
+            await record_autonomous_decision(
+                run_id=run_id, org_id=data.get("org_id"), decision_type="admin_spec_approval",
+                title="Gate 3: Admin Portal Requirements", phase="p05_frontend",
+                what=f"Admin panel features: {', '.join(admin_features)}", source=autonomy_source)
     except PipelineBlockedError:
         raise
     except Exception as exc:
@@ -89,6 +94,7 @@ async def run_gate2_preview(
     is_autonomous: bool,
     take_screenshot_fn: Any,
     apply_revisions_fn: Any,
+    autonomy_source: str = "request",
 ) -> bool:
     """Run Gate 2 — Customer Portal Preview Approval Gate.
 
@@ -150,7 +156,12 @@ async def run_gate2_preview(
                 )
                 revised = True
         elif run_id:
-            logger.info("p05: Autonomous mode — bypassing Gate 2 approval.")
+            logger.info("p05: Autonomous mode — Gate 2 auto-approved.")
+            await record_autonomous_decision(
+                run_id=run_id, org_id=data.get("org_id"), decision_type="portal_preview_approval",
+                title="Gate 2: Customer Portal Preview", phase="p05_frontend",
+                what="Preview auto-approved (autonomous critique applied)." if revised else "Preview auto-approved.",
+                source=autonomy_source)
     except PipelineBlockedError:
         raise
     except Exception as _gate2_exc:

@@ -25,6 +25,8 @@ class Organisation(Base):
     trial_runs_limit: Mapped[int] = mapped_column(default=3)
     storage_used_mb: Mapped[float] = mapped_column(Float, default=0.0)
     autonomous_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Ceiling for approval gates: when on, no request mode can make a run autonomous (KAN-248).
+    require_human_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     data_region: Mapped[str] = mapped_column(String(20), default="global")
     scim_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # DB-H1: bcrypt hash; plaintext only returned at generation time
     # sha256 of the SCIM token (a 256-bit random value, so a plain digest is enough): lets a request find its org
