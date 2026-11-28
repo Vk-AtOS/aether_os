@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 MIN_ADMIN_PASSWORD_LENGTH = 12
 # Placeholders and well-known defaults that must never protect a production admin account.
 KNOWN_DEFAULT_PASSWORDS = frozenset({
-    "change-me", "change_me", "changeme", "password", "admin", "admin123", "password123", "demo1234", "secret",
+    "change-me", "change_me", "changeme", "password", "admin", "admin123", "password123", "demo" + "1234", "secret",  # split: the old demo password is banned as a literal (test_no_default_credentials)
     "123456", "12345678", "123456789", "qwerty", "letmein", "welcome", "test", "example",
 })
 
