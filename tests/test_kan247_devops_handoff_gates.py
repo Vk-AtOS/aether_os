@@ -33,10 +33,15 @@ def test_s09_deploy_status_from_p11():
     assert s09._deploy_status(up, "http://h:1")["state"] == "deployed"
 
 
-def test_s11_blocks_when_nothing_was_handed_over(tmp_path):
+def test_s11_blocks_when_the_run_cannot_be_exported(tmp_path):
     sup = s11.HandoffStageSupervisor()
-    assert not _gate(sup, {"zip_path": None, "quality_report_path": None}).passed
-    z, q = tmp_path / "d.zip", tmp_path / "q.json"
-    z.write_text("x")
+    q = tmp_path / "q.json"
     q.write_text("{}")
-    assert _gate(sup, {"zip_path": str(z), "quality_report_path": str(q)}).passed
+    refused = _gate(sup, {"export_manifest_path": None, "quality_report_path": str(q),
+                          "export_error": "Export check failed: secret found in backend/.env"})
+    assert not refused.passed and "secret found in backend/.env" in refused.issues[0]
+    assert not _gate(sup, {"export_manifest_path": None, "quality_report_path": None}).passed
+    m = tmp_path / "export_manifest.json"
+    m.write_text("{}")
+    assert not _gate(sup, {"export_manifest_path": str(m), "quality_report_path": None}).passed
+    assert _gate(sup, {"export_manifest_path": str(m), "quality_report_path": str(q)}).passed

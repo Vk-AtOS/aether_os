@@ -32,7 +32,7 @@ SUB-STEPS:
   3. [PARALLEL]   p15_handoff       — Postman collection + runbook + checklist + ZIP
 
 CRITICAL: No — a crash does not end the run.
-GATE: blocks when no delivery ZIP or quality report was produced (KAN-247); failed sub-steps are
+GATE: blocks when the run cannot be exported (no export manifest) or no quality report was written (KAN-247); failed sub-steps are
       listed in metadata["not_verified"] and keep the run from "completed".
 """
 from __future__ import annotations
@@ -152,6 +152,8 @@ class HandoffStageSupervisor(PhaseBase):
             "succeeded": succeeded,
             "failed": failed,
             "export_manifest_path": str(manifest_path) if manifest_path else None,
+            # Why the export was refused (secret scan, workflow paths, ...): the gate blocks on it.
+            "export_error": next((i for i in issues if i.startswith("Export check")), None) if not manifest_path else None,
             "quality_report_path": str(quality_report_path) if quality_report_path else None,
             "docs_written": docs_result.metadata.get("files_written", 0) if docs_result else 0,
             # A sub-step that failed or crashed leaves part of the delivery missing: say so at run level.
@@ -170,7 +172,7 @@ class HandoffStageSupervisor(PhaseBase):
             confidence=confidence,
             metadata=metadata,
             issues=issues,
-            success=zip_path is not None,  # no delivery archive = nothing was handed over
+            success=manifest_path is not None,  # the run cannot be exported = nothing can be handed over
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -287,15 +289,19 @@ class HandoffStageSupervisor(PhaseBase):
     async def validate_gate(
         self, result: TaskResult, phase_input: Any
     ) -> GateOutcome:
-        # Blocks when there is no delivery archive or quality report: then nothing was handed over. This gate used
-        # to pass in every case (KAN-247). Failed sub-steps (docs, portal, package) do not block; they are listed in
-        # metadata["not_verified"] so the run is not reported as fully passed.
+        # Blocks when the run cannot be exported (no export manifest: the export was refused by its secret scan or
+        # workflow-path checks, or crashed) or no quality report was written: then nothing can be handed over. This
+        # gate used to pass in every case (KAN-247). Failed sub-steps (docs, portal, package) do not block; they are
+        # listed in metadata["not_verified"] so the run is not reported as fully passed.
         meta = result.metadata or {}
-        missing = [what for key, what in (("zip_path", "delivery ZIP"), ("quality_report_path", "quality report"))
-                   if not meta.get(key) or not Path(meta[key]).exists()]
-        if missing:
+        problems = []
+        if not meta.get("export_manifest_path") or not Path(meta["export_manifest_path"]).exists():
+            problems.append(f"the run cannot be exported: {meta.get('export_error') or 'no export manifest written'}")
+        if not meta.get("quality_report_path") or not Path(meta["quality_report_path"]).exists():
+            problems.append("no quality report written")
+        if problems:
             return GateOutcome(passed=False, confidence=result.confidence,
-                               issues=[f"s11_handoff: {', '.join(missing)} not produced"] + list(result.issues or []))
+                               issues=[f"s11_handoff: {p}" for p in problems] + list(result.issues or []))
         if result.issues:
             logger.warning("s11_handoff gate: %d issue(s) noted (non-blocking): %s", len(result.issues), result.issues)
         return GateOutcome(passed=True, issues=result.issues, confidence=result.confidence)
