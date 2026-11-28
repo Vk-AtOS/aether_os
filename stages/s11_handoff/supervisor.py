@@ -45,6 +45,7 @@ from typing import Any, Dict, List
 
 from aether_os.core.project_export import ExportError, export_files
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import failure_issues
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +187,7 @@ class HandoffStageSupervisor(PhaseBase):
             result = await mod.run(sub_input, memory_ctx, out_dir)
             if not result.success:
                 logger.warning("s11: %s returned success=False", phase_name)
-                issues.append(f"{phase_name} reported success=False")
+                issues.extend(failure_issues("s11_handoff", phase_name, result))
             return result
         except Exception as e:
             logger.warning("s11: %s failed (non-critical): %s", phase_name, e)

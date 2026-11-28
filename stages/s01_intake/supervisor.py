@@ -44,6 +44,7 @@ from typing import Any, Dict, List
 
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import exception_issue, failure_issues
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ class IntakeStageSupervisor(PhaseBase):
                 output_path=str(output_dir),
                 confidence=0.0,
                 success=False,
-                issues=issues + [f"requirements extraction failed: {req_result}"],
+                issues=issues + [exception_issue("s01_intake", "p01_intake_requirements", req_result)],
                 metadata=dict(phase_input.input_data),
             )
         if not req_result.success:
@@ -157,7 +158,7 @@ class IntakeStageSupervisor(PhaseBase):
                 output_path=str(output_dir),
                 confidence=0.0,
                 success=False,
-                issues=issues + ["requirements extraction returned success=False"],
+                issues=issues + failure_issues("s01_intake", "p01_intake_requirements", req_result),
                 metadata=dict(phase_input.input_data),
             )
         # Propagate any data mutations req_input accumulated back to the main
@@ -218,7 +219,7 @@ class IntakeStageSupervisor(PhaseBase):
         if not result.success:
             return GateOutcome(
                 passed=False,
-                issues=["Requirements extraction failed — cannot continue"],
+                issues=result.issues or failure_issues("s01_intake", "requirements extraction", result),
             )
         required_keys = ["entities", "project_contract"]
         missing = [

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import failure_issues, sub_phase_causes
 from aether_os.core.projects import get_project_manager
 from aether_os.phases.targeted_retry import describe_failures
 from aether_os.stages.s04_frontend.repair import failed_files_from_metadata, repair_frontend_files
@@ -276,10 +277,11 @@ class FrontendStageSupervisor(PhaseBase):
         """
         if result.status == "failed" if hasattr(result, "status") else not result.success:
             failed = failed_files_from_metadata(result.metadata or {})
-            detail = describe_failures(failed) or (result.metadata or {}).get("build_errors") or "no build output recorded"
+            detail = describe_failures(failed)
             return GateOutcome(
                 passed=False,
-                issues=[f"s04_frontend: p05 build failed: {detail}"],
+                issues=[f"s04_frontend: p05 build failed: {detail}"] if detail
+                else failure_issues("s04_frontend", "p05_frontend", result),
                 failed_files=failed,
             )
 
@@ -287,7 +289,8 @@ class FrontendStageSupervisor(PhaseBase):
         if not frontend_path:
             return GateOutcome(
                 passed=False,
-                issues=["s04_frontend: frontend_output_path is empty — no frontend was generated"],
+                issues=["s04_frontend: frontend_output_path is empty — no frontend was generated"]
+                + sub_phase_causes(result),  # a p05 that raised leaves no path: say why, not just that it is empty
             )
 
         fp = Path(frontend_path)
@@ -315,7 +318,7 @@ class FrontendStageSupervisor(PhaseBase):
         if not result.success:
             return GateOutcome(
                 passed=False,
-                issues=["s04_frontend: sentinel files exist but p05 reported build failure — broken frontend not shipped"],
+                issues=failure_issues("s04_frontend", "p05_frontend", result),
             )
 
         # Policy: a bundled app passes even with leftover type errors; the count stays visible as a gate warning.

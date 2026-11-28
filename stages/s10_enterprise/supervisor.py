@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import failure_issues
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +242,7 @@ class EnterpriseStageSupervisor(PhaseBase):
                     phase_input.input_data[out_key] = result.output_path
                 if not result.success:
                     logger.warning("s10: %s returned success=False", phase_name)
-                    issues.append(f"{phase_name} reported success=False")
+                    issues.extend(failure_issues("s10_enterprise", phase_name, result))
             else:
                 logger.warning("s10: %s returned unexpected type: %s", phase_name, type(result))
                 results[phase_name] = None
@@ -281,7 +282,7 @@ class EnterpriseStageSupervisor(PhaseBase):
                 if isinstance(op_result, TaskResult) and op_result.output_path:
                     phase_input.input_data["k8s_operator_path"] = op_result.output_path
                 if isinstance(op_result, TaskResult) and not op_result.success:
-                    issues.append("p17_control_plane reported success=False")
+                    issues.extend(failure_issues("s10_enterprise", "p17_control_plane", op_result))
             except Exception as e:
                 logger.warning("s10: p17_control_plane failed (non-critical): %s", e)
                 issues.append(f"p17_control_plane failed: {e}")
