@@ -225,6 +225,25 @@ class DecisionEngine:
 
     # ── DB persistence ────────────────────────────────────────────────────────
 
+    async def expire_pending(self, run_id: str, status: str = "expired") -> int:
+        """Close every still-pending decision of a finished run so none stays pending forever (KAN-248)."""
+        from datetime import datetime
+        from sqlalchemy import update
+        from aether_os.core.db import get_session_factory
+        from aether_os.core.models import Decision as DecisionModel
+
+        try:
+            async with get_session_factory()() as session:
+                res = await session.execute(
+                    update(DecisionModel)
+                    .where(DecisionModel.run_id == run_id, DecisionModel.status == "pending")
+                    .values(status=status, decided_at=datetime.utcnow()))
+                await session.commit()
+            return res.rowcount or 0
+        except Exception as e:
+            logger.warning("[decisions] could not expire pending decisions of run %s: %s", run_id, e)
+            return 0
+
     async def _db_claim(self, decision_id: str, status: str, choice: Optional[str], decided_at: float) -> bool:
         """Atomically move a decision from pending to `status`. True for the one caller that did it."""
         from datetime import datetime

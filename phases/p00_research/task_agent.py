@@ -19,6 +19,7 @@ from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROM
 from aether_os.phases.p00_research.business_model_generator import generate_business_model
 from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.core.llm import client as _llm_client
+from aether_os.orchestrator.autonomy import halt_unless_approved, record_autonomous_decision, resolve_autonomy
 
 try:
     from playwright.async_api import async_playwright
@@ -91,7 +92,6 @@ async def _capture_screenshot(url: str, output_dir: Path) -> Optional[bytes]:
 
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
-    import os
 
     # `data` is referenced later (Gate 1 autonomous_mode check) but was never
     # bound — add a single alias at the top of the function so all downstream
@@ -200,12 +200,9 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         from aether_os.orchestrator.events import ACTIVE_RUN_ID
         from aether_os.core.errors import PipelineBlockedError
         run_id = ACTIVE_RUN_ID.get()
-        # FIX H1: Check both data and environment for autonomous mode
-        autonomous_mode = (
-            data.get("autonomous_mode") == True or 
-            data.get("decision_mode") == "autonomous" or
-            os.environ.get("AUTONOMOUS_MODE", "").lower() == "true"
-        )
+        # One resolver for every gate: request mode > org setting > env (KAN-248).
+        autonomy = resolve_autonomy(data)
+        autonomous_mode = autonomy.autonomous
         if run_id and not autonomous_mode:
             logger.info("p00: Waiting for Gate 1 (Design Brief) approval...")
             engine = get_decision_engine()
@@ -242,9 +239,14 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
                         logger.info("p00: Applied user input to design brief")
                     except Exception:
                         logger.warning("p00: Could not parse user input from decision")
-            elif resolved.status in ("denied", "timeout"):
+            else:
                 # An unanswered gate must not fall through as approved.
-                raise PipelineBlockedError(f"Gate 1: Design Brief not approved ({resolved.status}).")
+                halt_unless_approved(resolved, "Gate 1 (Design Brief)")
+        elif run_id:
+            await record_autonomous_decision(
+                run_id=run_id, org_id=data.get("org_id"), decision_type="phase_approval",
+                title="Gate 1: Design Brief", phase="p00_research",
+                what=f"Design brief for {domain} auto-approved.", source=autonomy.source)
     except PipelineBlockedError:
         raise
     except Exception as e:

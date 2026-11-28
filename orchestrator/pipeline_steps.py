@@ -16,6 +16,7 @@ import time
 from typing import Optional
 
 from aether_os.core.models import Run as _Run
+from aether_os.orchestrator.autonomy import gate_wait_reason
 from aether_os.orchestrator.events import ACTIVE_RUN_ID, ACTIVE_PHASE, ACTIVE_ORG_ID
 from aether_os.orchestrator.messages import PhaseInput
 from aether_os.orchestrator.pipeline_run import PipelineRun
@@ -24,6 +25,18 @@ from aether_os.orchestrator.pipeline_phase_post import after_phase_success
 logger = logging.getLogger(__name__)
 
 SKIPPED = object()
+
+
+async def _gate_wait_reason(run_id: str, seconds: float) -> Optional[str]:
+    """If the stage ran out of time while a human approval was pending, say so: the generic stage-timeout
+    text blames the model provider, which is wrong when the run was waiting for a person (KAN-248)."""
+    try:
+        from aether_os.core.decisions.decision_engine import get_decision_engine
+        pending = await get_decision_engine().list_for_run(run_id, status="pending")
+    except Exception as e:
+        logger.warning("[pipeline] could not look up pending approvals of run %s: %s", run_id, e)
+        return None
+    return gate_wait_reason(pending[0].title, seconds) if pending else None
 
 
 def _terminal(run: PipelineRun, status: str) -> dict:
@@ -205,8 +218,8 @@ async def run_phase(run: PipelineRun, phase_name: str):
                      ("report_stage_complete", (phase_name, int(phase_timeout)), {"success": False}))
         if phase_name in fp.CRITICAL_PHASES:
             logger.error("Critical phase %s timed out — aborting pipeline %s", phase_name, run_id)
-            return await run.pipeline._abort_run(
-                run_id, fp.timeout_reason(phase_timeout, phase_name), failed_stage=phase_name)
+            reason = await _gate_wait_reason(run_id, phase_timeout) or fp.timeout_reason(phase_timeout, phase_name)
+            return await run.pipeline._abort_run(run_id, reason, failed_stage=phase_name)
     except Exception as e:
         logger.error("%s failed: %s", phase_name, fp.redact_secrets(e))
         await run.pipeline._update_state(run_id, phase_name, "failed")

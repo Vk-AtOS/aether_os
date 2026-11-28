@@ -98,6 +98,7 @@ from aether_os.phases.p05_frontend.helpers import (
     _generate_sse_hook,
     write_ui_components,
 )
+from aether_os.orchestrator.autonomy import resolve_autonomy
 from aether_os.phases.p05_frontend.domain_pages import write_domain_pages
 from aether_os.phases.p05_frontend.governor_integration import run_frontend_governor
 from aether_os.phases.p05_frontend.domain_assembler import (
@@ -231,11 +232,8 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         return TaskResult(output_path=str(output_dir), confidence=0.0, success=False, issues=bad_names)
 
     # Robust autonomous mode detection
-    is_autonomous = (
-        data.get("autonomous_mode") is True
-        or data.get("decision_mode") == "autonomous"
-        or os.environ.get("AUTONOMOUS_MODE", "").lower() == "true"
-    )
+    _autonomy = resolve_autonomy(data)  # request mode > org setting > env (KAN-248)
+    is_autonomous = _autonomy.autonomous
 
     # 2b. Detect application domain
     domain = detect_domain(phase_input)
@@ -463,6 +461,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         domain_ir=_domain_ir,
         data=data,
         is_autonomous=is_autonomous,
+        autonomy_source=_autonomy.source,
         derive_admin_features_fn=_derive_admin_features,
     )
 
@@ -560,6 +559,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         project_name=project_name,
         data=data,
         is_autonomous=is_autonomous,
+        autonomy_source=_autonomy.source,
         take_screenshot_fn=take_preview_screenshot,
         apply_revisions_fn=apply_gate2_revisions,
     )

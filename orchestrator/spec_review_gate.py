@@ -39,6 +39,7 @@ from aether_os.core.audit.ledger import get_ledger
 from aether_os.core.db import get_session_factory
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.models import Organisation, Run
+from aether_os.orchestrator.autonomy import gate_wait_reason, record_autonomous_decision, resolve_autonomy
 from aether_os.orchestrator.run_state import save_checkpoint
 
 logger = logging.getLogger(__name__)
@@ -177,9 +178,7 @@ async def run_spec_review_gate(
             "so nothing was built past intake. Restart the run to review it again."
         ),
     })
-    raise PipelineBlockedError(
-        f"Spec review expired after {_spec_timeout}s with no decision; the run was not approved. "
-        "Restart it to review the specification again.")
+    raise PipelineBlockedError("Spec review expired: " + gate_wait_reason("the spec review", _spec_timeout))
 
 
 async def _org_of_run(run_id: str) -> Tuple[Optional[str], bool]:
@@ -210,21 +209,27 @@ async def apply_spec_review(
     Either way the outcome is stored under accumulated_context["spec_review"] and
     re-checkpointed, so a resumed run knows the gate was passed.
     """
-    org_id, autonomous = None, False
+    org_id, org_autonomous = None, False
     try:
-        org_id, autonomous = await _org_of_run(run_id)
+        org_id, org_autonomous = await _org_of_run(run_id)
     except Exception as exc:
         logger.warning("[spec_review_gate] could not read autonomous_mode for run %s — "
                        "reviewing: %s", run_id, exc)
-    if autonomous:
-        record = {"status": "skipped", "reason": "autonomous_mode", "at": time.time()}
-        logger.info("[spec_review_gate] run %s: review skipped (organisation autonomous_mode)", run_id)
+    # request mode > organisation setting (read now from the database) > env (KAN-248)
+    autonomy = resolve_autonomy(accumulated_context, org_autonomous=org_autonomous)
+    if autonomy.autonomous:
+        reason = "autonomous_mode"
+        record = {"status": "skipped", "reason": reason, "source": autonomy.source, "at": time.time()}
+        logger.info("[spec_review_gate] run %s: review skipped (%s)", run_id, autonomy.source)
         await get_ledger().async_log_audit_event(
             org_id=org_id or "-", user_id="system", action="run.spec_review_skipped",
-            resource_type="run", resource_id=run_id, metadata={"reason": "autonomous_mode"})
+            resource_type="run", resource_id=run_id, metadata={"reason": reason, "source": autonomy.source})
+        await record_autonomous_decision(
+            run_id=run_id, org_id=org_id, decision_type="spec_review_approval", title="Spec review",
+            phase="s01_intake", what="Specification auto-approved.", source=autonomy.source)
         await publish_event_fn(run_id, {
             "type": "spec_review_skipped", "run_id": run_id,
-            "message": "Spec review skipped: the organisation runs in autonomous mode.",
+            "message": f"Spec review skipped: the run is autonomous ({autonomy.source}).",
         })
     else:
         await run_spec_review_gate(
