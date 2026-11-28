@@ -15,13 +15,16 @@ TSC = [
 
 def test_only_crash_class_errors_in_model_written_surfaces_count():
     found = crashing_files(TSC)
-    assert set(found) == {"src/components/DomainWidget.tsx", "src/pages/ProjectPage.tsx"}
+    # customer Home joined the gated surfaces in KAN-255; TaskPage's TS2322 and App.tsx are not crash-class / not model-written
+    assert set(found) == {"src/components/DomainWidget.tsx", "src/pages/ProjectPage.tsx", "src/pages/customer/Home.tsx"}
     assert found["src/pages/ProjectPage.tsx"][0].startswith("TS2339: Property 'slice'")
 
 
 def test_crashing_pages_are_rewritten_from_their_templates(tmp_path):
     (tmp_path / "src/pages").mkdir(parents=True)
     (tmp_path / "src/components").mkdir(parents=True)
+    (tmp_path / "src/pages/customer").mkdir()
+    (tmp_path / "src/pages/customer/Home.tsx").write_text("<Foo />")
     (tmp_path / "src/pages/ProjectPage.tsx").write_text("p.id.slice(0, 8)")
     (tmp_path / "src/pages/TaskPage.tsx").write_text("untouched")
     (tmp_path / "src/components/DomainWidget.tsx").write_text("<ClipboardList />")
@@ -29,7 +32,7 @@ def test_crashing_pages_are_rewritten_from_their_templates(tmp_path):
     ir.entities = [IREntity(name="Project", table="projects", fields=[IRField(name="name", type="string")])]
     ents = [{"table": "tasks", "name": "Task", "fields": [{"name": "status", "enum_values": ["todo", "done"]}]}]
     replaced = replace_crashing_pages(tmp_path, TSC, domain_ir=ir, entities=ents, route_map={}, domain="saas")
-    assert sorted(replaced) == ["src/components/DomainWidget.tsx", "src/pages/ProjectPage.tsx"]
+    assert sorted(replaced) == ["src/components/DomainWidget.tsx", "src/pages/ProjectPage.tsx", "src/pages/customer/Home.tsx"]
     page = (tmp_path / "src/pages/ProjectPage.tsx").read_text()
     assert "export default function ProjectPage()" in page and ".slice(" not in page
     assert "ClipboardList" not in (tmp_path / "src/components/DomainWidget.tsx").read_text()
@@ -56,7 +59,8 @@ RUN27_PER_FILE = RUN27_TSC + [
 
 def _project(tmp_path):
     fe = tmp_path / "frontend"
-    (fe / "src/pages").mkdir(parents=True)
+    (fe / "src/pages/customer").mkdir(parents=True)
+    (fe / "src/pages/customer/Home.tsx").write_text("<div>>")
     (fe / "src/pages/ProjectPage.tsx").write_text("<AlertDialogFooter />")
     ir = DomainIR(domain="saas", app_name="T")
     ir.entities = [IREntity(name="Project", table="projects", fields=[IRField(name="name", type="string")])]
@@ -66,7 +70,8 @@ def _project(tmp_path):
 
 
 def test_plain_tsc_output_hides_the_crash_when_another_file_does_not_parse():
-    assert crashing_files(RUN27_TSC) == {}
+    # tsc reports only the syntax error: the gate sees (and now replaces) that file, but not ProjectPage's crash
+    assert set(crashing_files(RUN27_TSC)) == {"src/pages/customer/Home.tsx"}
 
 
 def test_gate_uses_per_file_diagnostics_and_loads_the_project_ir(tmp_path, monkeypatch):
@@ -77,7 +82,7 @@ def test_gate_uses_per_file_diagnostics_and_loads_the_project_ir(tmp_path, monke
 
     monkeypatch.setattr(crash_gate, "per_file_diagnostics", per_file)
     replaced = asyncio.run(crash_gate.run_crash_gate(fe, RUN27_TSC))      # no IR passed: s04 repair calls it so
-    assert replaced == ["src/pages/ProjectPage.tsx"]
+    assert sorted(replaced) == ["src/pages/ProjectPage.tsx", "src/pages/customer/Home.tsx"]
     assert "AlertDialogFooter" not in (fe / "src/pages/ProjectPage.tsx").read_text()
 
 

@@ -1,4 +1,5 @@
-"""p05 policy: the phase succeeds when `vite build` bundles; leftover tsc errors are warnings with a visible count."""
+"""p05 policy (KAN-251): the phase succeeds when `vite build` bundles AND `tsc --noEmit` is clean; leftover tsc errors fail
+it with a visible count (vite does not type-check, so they used to ship)."""
 from __future__ import annotations
 
 import asyncio
@@ -37,9 +38,9 @@ def _run(monkeypatch, tmp_path, tsc, build, make_dist=True, patches=None):
     return asyncio.run(run_build_loop(tmp_path, max_rounds=3)), calls
 
 
-def test_built_with_tsc_errors_is_success_with_count_and_messages(monkeypatch, tmp_path):
+def test_built_with_tsc_errors_fails_with_count_and_messages(monkeypatch, tmp_path):
     res, _ = _run(monkeypatch, tmp_path, _cp(2, TSC_OUT), _cp(0))
-    assert res["success"] is True and res["built"] is True
+    assert res["success"] is False and res["built"] is True
     assert res["tsc_errors"] == 14 and len(res["tsc_messages"]) == build_loop.MAX_TSC_MESSAGES
     meta, issues = result_summary(res)
     assert meta["tsc_errors"] == 14 and meta["build_ok"] and "14 TypeScript error" in issues[0]
@@ -66,7 +67,7 @@ def test_loop_keeps_trying_to_fix_tsc_errors(monkeypatch, tmp_path):
     (tmp_path / "src" / "a.tsx").write_text("const x = 1\n")
     patch = [{"file": "src/a.tsx", "find": "const x = 1", "replace": "const x = 2"}]
     res, calls = _run(monkeypatch, tmp_path, _cp(2, TSC_OUT), _cp(0), patches=patch)
-    assert res["success"] and res["tsc_errors"] == 14
+    assert not res["success"] and res["built"] and res["tsc_errors"] == 14
     assert [c[1] for c in calls].count("tsc") >= 2 or res["rounds"] >= 1  # tried at least once more or bailed on a no-op patch
     assert (tmp_path / "src" / "a.tsx").read_text() == "const x = 2\n"
 
