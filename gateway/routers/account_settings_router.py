@@ -29,7 +29,7 @@ from aether_os.gateway.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["account"])
-_ALLOWED = {"autonomous_mode", "org_name", "data_region", "require_admin_mfa"}
+_ALLOWED = {"autonomous_mode", "require_human_review", "org_name", "data_region", "require_admin_mfa"}
 _MFA_GRACE_DAYS = 7  # admins get this long to enrol after the policy is switched on
 
 
@@ -57,6 +57,8 @@ async def update_settings(
         raise HTTPException(status_code=400, detail=f"No valid fields to update; allowed: {sorted(_ALLOWED)}")
     if "autonomous_mode" in payload and not isinstance(payload["autonomous_mode"], bool):
         raise HTTPException(status_code=422, detail="autonomous_mode must be a boolean")
+    if "require_human_review" in payload and not isinstance(payload["require_human_review"], bool):
+        raise HTTPException(status_code=422, detail="require_human_review must be a boolean")
     if "require_admin_mfa" in payload and not isinstance(payload["require_admin_mfa"], bool):
         raise HTTPException(status_code=422, detail="require_admin_mfa must be a boolean")
     if payload.get("require_admin_mfa"):
@@ -91,6 +93,7 @@ async def get_org_settings(
         raise HTTPException(status_code=404, detail="Organisation not found")
     return {
         "autonomous_mode": org.autonomous_mode,
+        "require_human_review": bool(org.require_human_review),
         "data_region": org.data_region,
         "plan": org.plan,
         "name": org.name,

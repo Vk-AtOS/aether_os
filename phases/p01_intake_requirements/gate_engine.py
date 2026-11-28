@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from aether_os.orchestrator.autonomy import resolve_autonomy
+from aether_os.orchestrator.autonomy import resolve_run_autonomy
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,8 @@ async def run_entity_approval_gate(
 
     Raises PipelineBlockedError when the user explicitly rejects the extraction.
     """
-    _is_autonomous = resolve_autonomy(data).autonomous  # same rule as every other gate (KAN-248)
+    from aether_os.orchestrator.events import ACTIVE_RUN_ID
+    _is_autonomous = (await resolve_run_autonomy(ACTIVE_RUN_ID.get(), data)).autonomous  # same rule as every other gate (KAN-248)
     _needs_gate = (not _is_autonomous) and (confidence < 0.65 or data.get("intent_ambiguity"))
 
     if not _needs_gate:

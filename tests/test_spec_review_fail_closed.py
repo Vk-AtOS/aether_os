@@ -166,10 +166,24 @@ def test_unreadable_org_setting_means_review(gw, monkeypatch):
     run_id = _run(gw, owner.org_id)
     gate = AsyncMock()
     monkeypatch.setattr(gate_mod, "run_spec_review_gate", gate)
-    monkeypatch.setattr(gate_mod, "_org_of_run", AsyncMock(side_effect=RuntimeError("db down")))
+    monkeypatch.setattr(gate_mod, "load_org_policy", AsyncMock(return_value=None))  # load_org_policy returns None when the DB is down
 
     gw.client.portal.call(partial(gate_mod.apply_spec_review, **_gate_args(run_id, {}, Events())))
     gate.assert_awaited_once()
+
+
+def test_org_requiring_review_keeps_the_gate_whatever_the_request_says(gw, monkeypatch):
+    """KAN-248: the org's require_human_review is a ceiling over request mode and the autonomous flag."""
+    owner = gw.register("gateceiling")
+    gw.sql("UPDATE organisations SET autonomous_mode = 1, require_human_review = 1 WHERE id = ?", (owner.org_id,))
+    run_id = _run(gw, owner.org_id)
+    gate = AsyncMock()
+    monkeypatch.setattr(gate_mod, "run_spec_review_gate", gate)
+    ctx = {"mode": "autonomous", "decision_mode": "autonomous", "autonomous_mode": True}
+
+    gw.client.portal.call(partial(gate_mod.apply_spec_review, **_gate_args(run_id, ctx, Events())))
+    gate.assert_awaited_once()
+    assert ctx["spec_review"]["status"] == "approved"
 
 
 # ── Item 4: resume never skips an unpassed gate ──────────────────────────────

@@ -31,15 +31,12 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
-
-from sqlalchemy import select
+from typing import Any, Dict
 
 from aether_os.core.audit.ledger import get_ledger
-from aether_os.core.db import get_session_factory
 from aether_os.core.errors import PipelineBlockedError
-from aether_os.core.models import Organisation, Run
-from aether_os.orchestrator.autonomy import gate_wait_reason, record_autonomous_decision, resolve_autonomy
+from aether_os.orchestrator.autonomy import (
+    autonomy_for_policy, gate_wait_reason, load_org_policy, record_autonomous_decision)
 from aether_os.orchestrator.run_state import save_checkpoint
 
 logger = logging.getLogger(__name__)
@@ -181,19 +178,6 @@ async def run_spec_review_gate(
     raise PipelineBlockedError("Spec review expired: " + gate_wait_reason("the spec review", _spec_timeout))
 
 
-async def _org_of_run(run_id: str) -> Tuple[Optional[str], bool]:
-    """(org_id, autonomous_mode) for the run, read from the database: the setting in
-    force now, not a copy in the mutable run context."""
-    async with get_session_factory()() as session:
-        row = (await session.execute(
-            select(Run.org_id, Organisation.autonomous_mode)
-            .join(Organisation, Organisation.id == Run.org_id, isouter=True)
-            .where(Run.id == run_id))).first()
-    if row is None:
-        return None, False
-    return row[0], bool(row[1])
-
-
 async def apply_spec_review(
     run_id: str,
     accumulated_context: Dict[str, Any],
@@ -209,14 +193,10 @@ async def apply_spec_review(
     Either way the outcome is stored under accumulated_context["spec_review"] and
     re-checkpointed, so a resumed run knows the gate was passed.
     """
-    org_id, org_autonomous = None, False
-    try:
-        org_id, org_autonomous = await _org_of_run(run_id)
-    except Exception as exc:
-        logger.warning("[spec_review_gate] could not read autonomous_mode for run %s — "
-                       "reviewing: %s", run_id, exc)
-    # request mode > organisation setting (read now from the database) > env (KAN-248)
-    autonomy = resolve_autonomy(accumulated_context, org_autonomous=org_autonomous)
+    # request mode within the organisation's ceiling, read now from the database (KAN-248)
+    policy = await load_org_policy(run_id)
+    autonomy = autonomy_for_policy(run_id, accumulated_context, policy)
+    org_id = policy.org_id if policy else None
     if autonomy.autonomous:
         reason = "autonomous_mode"
         record = {"status": "skipped", "reason": reason, "source": autonomy.source, "at": time.time()}

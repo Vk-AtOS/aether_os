@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -89,7 +89,7 @@ class FactoryStartRequest(BaseModel):
     # ── Interactive Questionnaire fields ──────────────────────────────────────
     # mode: "autonomous" (default) skips questionnaire gates;
     #       "guided" pauses after each phase for respondent input.
-    mode: str = "autonomous"
+    mode: Literal["autonomous", "supervised", "manual", "guided"] = "autonomous"
     # intake_answers: pre-filled answers for autonomous mode (keyed by question id)
     intake_answers: Dict[str, Any] = {}
     # respondent_email: external client email for guided mode link delivery

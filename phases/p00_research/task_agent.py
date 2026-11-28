@@ -19,7 +19,7 @@ from aether_os.phases.p00_research.prompts import DESIGN_BRIEF_LLM_FALLBACK_PROM
 from aether_os.phases.p00_research.business_model_generator import generate_business_model
 from aether_os.core.domain_knowledge.loader import load_pack
 from aether_os.core.llm import client as _llm_client
-from aether_os.orchestrator.autonomy import halt_unless_approved, record_autonomous_decision, resolve_autonomy
+from aether_os.orchestrator.autonomy import halt_unless_approved, record_autonomous_decision, resolve_run_autonomy
 
 try:
     from playwright.async_api import async_playwright
@@ -201,7 +201,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         from aether_os.core.errors import PipelineBlockedError
         run_id = ACTIVE_RUN_ID.get()
         # One resolver for every gate: request mode > org setting > env (KAN-248).
-        autonomy = resolve_autonomy(data)
+        autonomy = await resolve_run_autonomy(run_id, data)
         autonomous_mode = autonomy.autonomous
         if run_id and not autonomous_mode:
             logger.info("p00: Waiting for Gate 1 (Design Brief) approval...")

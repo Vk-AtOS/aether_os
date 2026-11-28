@@ -17,7 +17,9 @@ from aether_os.core.decisions import decision_engine as de
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.core.stack_profiles import get_profile
 from aether_os.orchestrator import events
-from aether_os.orchestrator.autonomy import gate_wait_reason, halt_unless_approved, resolve_autonomy
+import aether_os.orchestrator.autonomy as autonomy_mod
+from aether_os.orchestrator.autonomy import (
+    OrgPolicy, gate_wait_reason, halt_unless_approved, resolve_autonomy)
 from aether_os.phases.p00_research import multimodal_intake
 from aether_os.phases.p00_research import task_agent as p00
 from aether_os.phases.p05_frontend import approval_gates
@@ -54,6 +56,19 @@ def engine(monkeypatch):
 
 
 @pytest.fixture
+def org(monkeypatch):
+    """The organisation policy as the database would return it; tests change org["policy"]."""
+    box = {"policy": OrgPolicy("org-1", False, False)}
+
+    async def load(run_id):
+        return box["policy"]
+
+    monkeypatch.setattr(autonomy_mod, "load_org_policy", load)
+    monkeypatch.setattr(gate_mod, "load_org_policy", load)
+    return box
+
+
+@pytest.fixture
 def run_id():
     tok = events.ACTIVE_RUN_ID.set("run-248")
     yield "run-248"
@@ -69,30 +84,36 @@ def _assert_auto_approved(eng, source="request"):
 
 # ── resolver precedence ──────────────────────────────────────────────────────
 
-def test_request_mode_beats_org_setting(monkeypatch):
+def test_request_mode_decides_when_org_has_no_ceiling(monkeypatch):
     monkeypatch.delenv("AUTONOMOUS_MODE", raising=False)
     assert resolve_autonomy({"mode": "autonomous"}, org_autonomous=False) == (True, "request")
-    for m in ("supervised", "manual", "guided"):
+    for m in ("supervised", "manual", "guided"):  # a request may always be stricter
         assert resolve_autonomy({"mode": m}, org_autonomous=True) == (False, "request")
-        assert resolve_autonomy({"mode": m, "decision_mode": "autonomous"}) == (False, "request")
 
 
-def test_org_setting_beats_env_and_default(monkeypatch):
+def test_org_review_requirement_is_a_ceiling(monkeypatch):
+    monkeypatch.setenv("AUTONOMOUS_MODE", "true")
+    assert resolve_autonomy({"mode": "autonomous"}, org_autonomous=True, org_requires_review=True) == (
+        False, "organisation_requires_review")
+
+
+def test_org_setting_then_env_then_default(monkeypatch):
     monkeypatch.delenv("AUTONOMOUS_MODE", raising=False)
     assert resolve_autonomy({}, org_autonomous=True) == (True, "organisation")
-    assert resolve_autonomy({"decision_mode": "autonomous"}) == (True, "organisation")
-    assert resolve_autonomy({"autonomous_mode": True}) == (True, "organisation")
-    # a value read from the database replaces the copy in the mutable context
-    assert resolve_autonomy({"decision_mode": "autonomous"}, org_autonomous=False) == (False, "default")
-
-
-def test_env_is_last_and_default_is_supervised(monkeypatch):
-    monkeypatch.delenv("AUTONOMOUS_MODE", raising=False)
-    assert resolve_autonomy({}) == (False, "default")
+    # org settings are parameters read from the database, not keys of the mutable context
+    assert resolve_autonomy({"decision_mode": "autonomous", "autonomous_mode": True}) == (False, "default")
     assert resolve_autonomy(None) == (False, "default")
     monkeypatch.setenv("AUTONOMOUS_MODE", "true")
     assert resolve_autonomy({}) == (True, "env")
     assert resolve_autonomy({"mode": "supervised"}) == (False, "request")
+
+
+def test_start_request_mode_is_validated():
+    from pydantic import ValidationError
+    from aether_os.gateway.routers.factory_start_router import FactoryStartRequest
+    assert FactoryStartRequest(raw_input="x", mode="supervised").mode == "supervised"
+    with pytest.raises(ValidationError):
+        FactoryStartRequest(raw_input="x", mode="yolo")
 
 
 def test_timeout_message_names_gate_not_a_model():
@@ -103,6 +124,13 @@ def test_timeout_message_names_gate_not_a_model():
         halt_unless_approved(SimpleNamespace(status="timeout", timeout_seconds=300), "Gate 2")
     with pytest.raises(PipelineBlockedError, match="denied"):
         halt_unless_approved(SimpleNamespace(status="denied"), "Gate 2")
+    halt_unless_approved(SimpleNamespace(status="approved"), "Gate 2")
+
+
+@pytest.mark.parametrize("status", ["expired", "pending", "cancelled", "", None, "weird"])
+def test_halt_fails_closed_on_any_status_but_approved(status):
+    with pytest.raises(PipelineBlockedError, match="not approved"):
+        halt_unless_approved(SimpleNamespace(status=status), "Gate 2")
 
 
 # ── p00 Gate 1 ───────────────────────────────────────────────────────────────
@@ -130,16 +158,35 @@ def _run_p00(monkeypatch, tmp_path, extra):
     return asyncio.run(p00.run(pi, [], Path(tmp_path) / "p00"))
 
 
-def test_p00_gate1_autonomous_does_not_wait(monkeypatch, tmp_path, engine, run_id):
+def test_p00_gate1_autonomous_does_not_wait(monkeypatch, tmp_path, engine, run_id, org):
     _run_p00(monkeypatch, tmp_path, {"mode": "autonomous"})
     _assert_auto_approved(engine)
     assert engine.requested[0].title == "Gate 1: Design Brief"
 
 
-def test_p00_gate1_supervised_waits_and_timeout_names_gate(monkeypatch, tmp_path, engine, run_id):
+def test_p00_gate1_supervised_waits_and_timeout_names_gate(monkeypatch, tmp_path, engine, run_id, org):
     with pytest.raises(PipelineBlockedError, match="human approval of Gate 1"):
         _run_p00(monkeypatch, tmp_path, {"mode": "supervised", "decision_mode": "autonomous"})
     assert engine.awaited == 1
+
+
+def test_p00_gate1_org_review_ceiling_beats_request_autonomous(monkeypatch, tmp_path, engine, run_id, org):
+    org["policy"] = OrgPolicy("org-1", True, True)
+    with pytest.raises(PipelineBlockedError, match="human approval of Gate 1"):
+        _run_p00(monkeypatch, tmp_path, {"mode": "autonomous"})
+    assert engine.awaited == 1 and engine.requested[0].status == "pending"
+
+
+def test_p00_gate1_context_mutation_cannot_raise_autonomy(monkeypatch, tmp_path, engine, run_id, org):
+    org["policy"] = OrgPolicy("org-1", False, True)
+    with pytest.raises(PipelineBlockedError, match="human approval of Gate 1"):
+        _run_p00(monkeypatch, tmp_path, {"decision_mode": "autonomous", "autonomous_mode": True})
+
+
+def test_p00_gate1_unreadable_org_policy_waits(monkeypatch, tmp_path, engine, run_id, org):
+    org["policy"] = None
+    with pytest.raises(PipelineBlockedError, match="human approval of Gate 1"):
+        _run_p00(monkeypatch, tmp_path, {"mode": "autonomous"})
 
 
 # ── p05 Gates 3 and 2 ────────────────────────────────────────────────────────
@@ -183,12 +230,12 @@ def test_p05_gate2_supervised_timeout_names_gate(engine, run_id, tmp_path):
 
 # ── spec review gate ─────────────────────────────────────────────────────────
 
-def _spec(monkeypatch, ctx, org_autonomous, run_gate):
+def _spec(monkeypatch, ctx, org_policy, run_gate):
     async def org(run_id):
-        return "org-1", org_autonomous
+        return org_policy
 
     ledger = SimpleNamespace(async_log_audit_event=_noop)
-    monkeypatch.setattr(gate_mod, "_org_of_run", org)
+    monkeypatch.setattr(gate_mod, "load_org_policy", org)
     monkeypatch.setattr(gate_mod, "get_ledger", lambda: ledger)
     monkeypatch.setattr(gate_mod, "save_checkpoint", _noop)
     monkeypatch.setattr(gate_mod, "run_spec_review_gate", run_gate)
@@ -202,7 +249,7 @@ def test_spec_review_request_mode_autonomous_skips_even_if_org_is_not(monkeypatc
         called.append(kw)
 
     ctx = {"mode": "autonomous"}
-    _spec(monkeypatch, ctx, False, gate)
+    _spec(monkeypatch, ctx, OrgPolicy("org-1", False, False), gate)
     assert not called
     assert ctx["spec_review"]["status"] == "skipped" and ctx["spec_review"]["source"] == "request"
     _assert_auto_approved(engine)
@@ -216,9 +263,31 @@ def test_spec_review_supervised_request_waits_even_if_org_is_autonomous(monkeypa
         called.append(kw)
 
     ctx = {"mode": "supervised"}
-    _spec(monkeypatch, ctx, True, gate)
+    _spec(monkeypatch, ctx, OrgPolicy("org-1", True, False), gate)
     assert len(called) == 1 and ctx["spec_review"]["status"] == "approved"
     assert engine.requested == []
+
+
+def test_spec_review_org_review_ceiling_beats_request_and_context(monkeypatch, engine):
+    called = []
+
+    async def gate(**kw):
+        called.append(kw)
+
+    ctx = {"mode": "autonomous", "decision_mode": "autonomous", "autonomous_mode": True}
+    _spec(monkeypatch, ctx, OrgPolicy("org-1", True, True), gate)
+    assert len(called) == 1 and ctx["spec_review"]["status"] == "approved"
+    assert engine.requested == []
+
+
+def test_spec_review_unreadable_org_policy_waits(monkeypatch, engine):
+    called = []
+
+    async def gate(**kw):
+        called.append(kw)
+
+    _spec(monkeypatch, {"mode": "autonomous"}, None, gate)
+    assert len(called) == 1
 
 
 def test_spec_review_timeout_says_waited_for_human(monkeypatch):
@@ -248,3 +317,25 @@ def test_expire_pending_closes_only_pending_rows_of_that_run(gw):
     assert [r[0] for r in gw.sql("SELECT status FROM decisions WHERE run_id = ? ORDER BY status", (run_id,))] == [
         "approved", "expired"]
     assert gw.sql("SELECT status FROM decisions WHERE run_id = ?", (other,))[0][0] == "pending"
+
+
+# ── what p00 / p01 / p05 call: the org policy comes from the database ────────
+
+def test_run_autonomy_ignores_context_and_honours_ceiling(org, run_id, monkeypatch):
+    monkeypatch.delenv("AUTONOMOUS_MODE", raising=False)
+    res = lambda ctx: asyncio.run(autonomy_mod.resolve_run_autonomy(run_id, ctx))  # noqa: E731
+    forged = {"decision_mode": "autonomous", "autonomous_mode": True}
+    assert res(forged) == (False, "default")                      # context copy is not a source
+    org["policy"] = OrgPolicy("o", True, False)
+    assert res({}) == (True, "organisation")
+    assert res({"mode": "supervised"}) == (False, "request")
+    org["policy"] = OrgPolicy("o", True, True)
+    assert res({"mode": "autonomous"}) == (False, "organisation_requires_review")
+    org["policy"] = None
+    assert res({"mode": "autonomous"}) == (False, "org_unreadable")
+
+
+def test_run_autonomy_without_a_run_uses_context_only(monkeypatch):
+    monkeypatch.delenv("AUTONOMOUS_MODE", raising=False)
+    assert asyncio.run(autonomy_mod.resolve_run_autonomy(None, {"autonomous_mode": True})).autonomous
+    assert not asyncio.run(autonomy_mod.resolve_run_autonomy(None, {})).autonomous
