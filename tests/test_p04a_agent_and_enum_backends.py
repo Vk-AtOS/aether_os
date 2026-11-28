@@ -186,3 +186,35 @@ def test_generated_agent_app_imports_and_runs_with_a_mocked_llm(agent_app):
     assert out["blank"] == 422
     assert out["list"]["items"] and out["list"]["items"][0]["message_count"] == 2
     assert (out["get"], out["delete"], out["gone"]) == (200, 204, 404)
+
+
+def test_agent_calculate_tool_is_bounded_and_returns_errors_instead_of_raising():
+    # Security review of PR #108: 9**9**9 or a long chain of huge factors must not burn CPU/memory in the generated app.
+    import time
+    import types
+    agent = types.ModuleType("agent_under_test")
+    ns = agent.__dict__
+    from aether_os.phases.patterns.agentic_ai import AGENTIC_AI_CODE
+    stub = types.ModuleType("auth"); stub.get_current_user = lambda: None
+    db = types.ModuleType("database"); db.AsyncSessionLocal = None; db.get_db = lambda: None
+    pytest.importorskip("sqlalchemy")
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+    db.Base = Base
+    sys.modules.update({"auth": stub, "database": db, "agent_under_test": agent})
+    try:
+        exec(compile(AGENTIC_AI_CODE, "agent.py", "exec"), ns)
+    finally:
+        [sys.modules.pop(m, None) for m in ("auth", "database", "agent_under_test")]
+    calc = lambda e: asyncio.run(ns["calculate"](e))      # noqa: E731
+    assert calc("(12.5 * 4) / 3 + 2 ** 10 - -1") == str((12.5 * 4) / 3 + 2 ** 10 + 1)
+    assert calc("7 // 2 % 2") == "1"
+    start = time.monotonic()
+    refused = ["9**9**9", "2**101", "10**7**3", "-" * 30 + "1", "1" * 201,
+               "*".join(["99999999999"] * 12), "1e308*10", "1/0", "__import__('os')", "1+"]
+    for expr in refused:
+        assert calc(expr).startswith("Error"), expr
+    assert calc("+".join(["1"] * 40)).startswith("Error")      # node count
+    assert time.monotonic() - start < 2

@@ -106,23 +106,55 @@ _BIN_OPS = {
 }
 
 
-def _eval_node(node: ast.AST) -> float:
+_MAX_EXPR_CHARS = 200
+_MAX_NODES = 50
+_MAX_DEPTH = 10
+_MAX_ABS = 1e100          # every intermediate result must stay below this
+_MAX_POW_BASE = 1e6
+_MAX_POW_EXP = 100
+
+
+def _bounded(value: float) -> float:
+    """Reject inf/nan and any magnitude above _MAX_ABS (a product chain of huge factors would otherwise grow without limit)."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        raise ValueError("result is not a finite number")
+    if abs(value) > _MAX_ABS:
+        raise ValueError("number too large")
+    return value
+
+
+def _eval_node(node: ast.AST, depth: int = 0) -> float:
+    if depth > _MAX_DEPTH:
+        raise ValueError("expression too deeply nested")
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-        return node.value
+        return _bounded(node.value)
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
-        left, right = _eval_node(node.left), _eval_node(node.right)
-        if isinstance(node.op, ast.Pow) and abs(right) > 100:
-            raise ValueError("exponent too large")
-        return _BIN_OPS[type(node.op)](left, right)
+        left, right = _eval_node(node.left, depth + 1), _eval_node(node.right, depth + 1)
+        if isinstance(node.op, ast.Pow) and (abs(right) > _MAX_POW_EXP or abs(left) > _MAX_POW_BASE):
+            raise ValueError("power operands too large")
+        return _bounded(_BIN_OPS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        value = _eval_node(node.operand)
+        value = _eval_node(node.operand, depth + 1)
         return -value if isinstance(node.op, ast.USub) else value
     raise ValueError("only numbers and + - * / // % ** are allowed")
 
 
 async def calculate(expression: str) -> str:
-    """Evaluate an arithmetic expression (numbers and + - * / // % ** only; never exec/eval)."""
-    return str(_eval_node(ast.parse(expression.strip(), mode="eval").body))
+    """Evaluate an arithmetic expression (numbers and + - * / // % ** only; never exec/eval).
+
+    Bounded so model- or user-written input cannot burn CPU/memory (9**9**9, long factor chains): any failure is
+    returned as an error string for the model to read, never raised.
+    """
+    expression = str(expression).strip()
+    if len(expression) > _MAX_EXPR_CHARS:
+        return f"Error: expression longer than {_MAX_EXPR_CHARS} characters"
+    try:
+        tree = ast.parse(expression, mode="eval")
+        if sum(1 for _ in ast.walk(tree)) > _MAX_NODES:
+            return "Error: expression too complex"
+        return str(_eval_node(tree.body))
+    except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, RecursionError, MemoryError) as exc:
+        return f"Error: {exc}"
 
 
 async def web_search(query: str) -> str:
