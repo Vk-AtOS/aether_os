@@ -21,6 +21,7 @@ from pathlib import Path
 
 from aether_os.core.run_app.safe_fs import safe_read_text
 from aether_os.core.sandbox import phase_exec
+from aether_os.phases.p04a_backend_codegen.templates_alembic import MigrationError, generate_initial_migration
 from aether_os.core.sandbox.runner import SandboxUnavailable
 from aether_os.core.services.run_app_service import _free_port
 
@@ -215,6 +216,14 @@ async def _smoke_test(src_dir: Path, emit) -> dict:
     if not errors:
         import_issues = _check_imports(src_dir)
         errors.extend(import_issues)
+
+    # Pass 2b: the initial Alembic migration, rendered from the models that were just written (runs the
+    # generated models, so it belongs with the other sandboxed steps). Without it the backend cannot be deployed.
+    if not errors:
+        try:
+            await generate_initial_migration(src_dir.parent)
+        except MigrationError as exc:
+            errors.append(str(exc))
 
     # Pass 3: live HTTP probe — start uvicorn briefly, hit /health.
     # Only run if syntax passes. The probe failure is RECORDED but does NOT

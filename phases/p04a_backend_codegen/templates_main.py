@@ -5,9 +5,11 @@ Dockerfile, and their builder functions.
 No LLM involvement — pure deterministic output.
 """
 from __future__ import annotations
-from pathlib import Path
 
 from aether_os.phases.p04a_backend_codegen.pre_gen_validator import safe_project_name
+from aether_os.phases.p04a_backend_codegen.templates_alembic import (  # noqa: F401  (re-exported for templates.py)
+    _ALEMBIC_ENV_PY, _ALEMBIC_INI, _ALEMBIC_SCRIPT_PY_MAKO, write_alembic_scaffold,
+)
 
 # ── Application entry-point template ──────────────────────────────────────────
 
@@ -51,6 +53,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from database import engine, Base
+from bootstrap import run_startup
 from routers.auth import router as auth_router
 from routers.users import router as users_router
 {ROUTER_IMPORTS}
@@ -73,14 +76,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting {PROJECT_NAME} API …")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    try:
-        from seed import seed_database
-        await seed_database()
-        logger.info("Database seeding complete")
-    except Exception as exc:
-        logger.warning("Seed skipped: %s", exc)
+    await run_startup(engine, Base)   # production: migrations only, no create_all, no seed (bootstrap.py)
     yield
     await engine.dispose()
     logger.info("{PROJECT_NAME} API shutting down")
@@ -239,107 +235,8 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \\
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
-"""
-
-_ALEMBIC_INI = """\
-[alembic]
-script_location = alembic
-prepend_sys_path = .
-[loggers]
-keys = root,sqlalchemy,alembic
-[handlers]
-keys = console
-[formatters]
-keys = generic
-[logger_root]
-level = WARN
-handlers = console
-qualname =
-[logger_sqlalchemy]
-level = WARN
-handlers =
-qualname = sqlalchemy.engine
-[logger_alembic]
-level = INFO
-handlers =
-qualname = alembic
-[handler_console]
-class = StreamHandler
-args = (sys.stderr,)
-level = NOTSET
-formatter = generic
-[formatter_generic]
-format = %(levelname)-5.5s [%(name)s] %(message)s
-datefmt = %H:%M:%S
-"""
-
-_ALEMBIC_ENV_PY = """\
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from alembic import context
-import os, sys
-# The app imports its modules as `database` / `models` with src/ on sys.path. Importing them as `src.database`
-# made a second module (and a second, empty Base), so autogenerate saw no tables.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from database import Base
-import models  # noqa: F401 — ensures all models are registered
-
-config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
-
-target_metadata = Base.metadata
-
-
-def run_migrations_offline():
-    url = os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True,
-                      dialect_opts={"paramstyle": "named"})
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-def run_migrations_online():
-    url = os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url", "sqlite:///./app.db"))
-    from sqlalchemy import create_engine
-    connectable = create_engine(url.replace("+aiosqlite", "").replace("+asyncpg", "").replace("+aiomysql", ""),
-                                poolclass=pool.NullPool)
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
-
-
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
-"""
-
-_ALEMBIC_SCRIPT_PY_MAKO = """\
-\"\"\"${message}
-
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-Create Date: ${create_date}
-\"\"\"
-from alembic import op
-import sqlalchemy as sa
-${imports if imports else ""}
-
-revision = ${repr(up_revision)}
-down_revision = ${repr(down_revision)}
-branch_labels = ${repr(branch_labels)}
-depends_on = ${repr(depends_on)}
-
-
-def upgrade() -> None:
-    ${upgrades if upgrades else "pass"}
-
-
-def downgrade() -> None:
-    ${downgrades if downgrades else "pass"}
+# the schema comes from the migrations, applied before the server starts (the app never create_all()s in production)
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn src.main:app --host 0.0.0.0 --port 8000"]
 """
 
 _SERVICES_INIT_PY = ""
@@ -381,7 +278,7 @@ migration:
 \t@read -p "Migration name: " name; alembic revision --autogenerate -m "$$name"
 
 seed:
-\tpython3 -c "import asyncio; from src.seed import seed_database; asyncio.run(seed_database())"
+\tSEED_DEMO_DATA=true python3 -c "import asyncio, sys; sys.path.insert(0, 'src'); import seed; asyncio.run(seed.seed_database())"
 
 docker:
 \tdocker-compose up --build
@@ -410,7 +307,6 @@ Auto-generated production backend by AetherOS.
 cp .env.example .env
 make install
 make migrate
-make seed
 make dev
 ```
 
@@ -431,9 +327,11 @@ GET  /api/auth/me        — current user (requires Bearer token)
 
 | Variable | Default | Description |
 |---|---|---|
-| DATABASE_URL | sqlite+aiosqlite:///./app.db | DB connection |
+| DATABASE_URL | (required) | DB connection, e.g. postgresql+asyncpg://user:pass@host:5432/db (sqlite+aiosqlite:///./app.db for local dev) |
 | CORS_ORIGINS | localhost dev origins | Comma-separated allowed origins |
-| ENVIRONMENT | development | development / production (production turns /docs and /openapi.json off) |
+| ENVIRONMENT | development | development / production. Production runs no create_all and no seed (apply `alembic upgrade head`), refuses a default or short ADMIN_PASSWORD, and turns /docs off |
+| ADMIN_EMAIL, ADMIN_PASSWORD | | The first admin, created at startup when both are set (password: 12+ characters in production) |
+| SEED_DEMO_DATA | false | true writes demo rows once (needs the admin above) |
 | ENABLE_DOCS | false | true keeps /docs in production |
 | ALLOW_SIGNUP | true | false = invite-only (only the seeded admin creates users) |
 | RSA_PRIVATE_KEY_PATH | private_key.pem | JWT signing key file (created 0600). All replicas must share it |
@@ -453,21 +351,6 @@ make migrate          # Apply all pending
 make migration        # Create a new migration
 ```
 """
-
-
-def write_alembic_scaffold(output_dir: Path) -> None:
-    """Write alembic.ini, env.py, script.py.mako and versions/ into *output_dir*."""
-    alembic_dir = output_dir / "alembic"
-    alembic_versions = alembic_dir / "versions"
-    alembic_versions.mkdir(parents=True, exist_ok=True)
-    (output_dir / "alembic.ini").write_text(_ALEMBIC_INI)
-    (alembic_dir / "env.py").write_text(_ALEMBIC_ENV_PY)
-    (alembic_dir / "script.py.mako").write_text(_ALEMBIC_SCRIPT_PY_MAKO)
-    (alembic_dir / "README").write_text(
-        "Generate a migration: alembic revision --autogenerate -m 'description'\n"
-        "Apply migrations:    alembic upgrade head\n"
-        "Rollback one step:   alembic downgrade -1\n"
-    )
 
 
 def patch_main_py(

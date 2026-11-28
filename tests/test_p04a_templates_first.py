@@ -65,7 +65,7 @@ def run_generated_tests(app, entities):
     for e in normalise_entities(entities, drop_auth_user=True):
         test_file = app / "tests" / f"test_crud_{e['table']}.py"
         test_file.write_text(_generate_crud_tests(app / "src", "Demo", [e]))
-        env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z",
+        env = {**os.environ, "ENVIRONMENT": "test", "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true",
                "DATABASE_URL": "sqlite+aiosqlite:///" + str(app / f"{e['table']}.db")}
         p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "asyncio_mode=auto", str(test_file)],
                            cwd=str(app), env=env, capture_output=True, text=True, timeout=300)

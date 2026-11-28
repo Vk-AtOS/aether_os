@@ -68,7 +68,7 @@ def test_enterprise_extensions_are_copied_into_the_app_wired_and_authenticated(t
     assert _autowire_enterprise_extensions(src, list(dirs), dirs) == wired            # idempotent
     assert (src / "main.py").read_text().count("auto-wired by s10") == 4
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
-    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
     env.pop("STRIPE_WEBHOOK_SECRET", None)
     env.pop("OPENMETER_URL", None)
 

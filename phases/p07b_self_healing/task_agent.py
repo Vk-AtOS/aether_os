@@ -439,6 +439,8 @@ async def _quality_probe(
             f"DATABASE_URL=sqlite+aiosqlite:///{backend_dir}/probe_q.db\n"
             f"SECRET_KEY={secrets.token_hex(32)}\n"
             f"ADMIN_PASSWORD={probe_password}\n"
+            "ADMIN_EMAIL=admin@example.com\n"
+            "SEED_DEMO_DATA=true\n"
             f"CORS_ORIGINS=http://localhost:3000\n"
         )
         _wrote_env = True

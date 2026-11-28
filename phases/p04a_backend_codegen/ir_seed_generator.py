@@ -159,49 +159,27 @@ def generate_seed_py(
     lines = [
         "from __future__ import annotations",
         "import logging",
-        "import os",
         "from datetime import date, datetime, timezone",
         "from sqlalchemy import select, func",
         "from database import AsyncSessionLocal",
-        "from auth import get_password_hash",
-        "from models import User",
+        "from bootstrap import ensure_admin",
     ]
     if entity_names:
         lines.append(f"from models import {', '.join(entity_names)}")
     lines += [
         "",
         "_logger = logging.getLogger(__name__)",
-        'def _admin_password() -> str:',
-        '    # ADMIN_PASSWORD from the environment, else a random one written once to a 0600 file.',
-        '    # Never a known default, and never logged.',
-        "    pw = os.environ.get('ADMIN_PASSWORD')",
-        '    if pw:',
-        '        return pw',
-        '    import secrets',
-        '    pw = secrets.token_urlsafe(16)',
-        "    path = os.path.join(os.getcwd(), 'admin_initial_password.txt')",
-        '    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)',
-        "    with os.fdopen(fd, 'w') as f:",
-        '        f.write(pw)',
-        "    _logger.warning('ADMIN_PASSWORD is not set: a random admin password was written to %s', path)",
-        '    return pw',
         "",
         "",
         "async def seed_database() -> None:",
+        "    # Demo rows only: the first admin comes from ADMIN_EMAIL / ADMIN_PASSWORD (bootstrap.ensure_admin).",
         "    async with AsyncSessionLocal() as db:",
-        "        count = (await db.execute(select(func.count()).select_from(User))).scalar_one()",
-        "        if count > 0:",
+        "        admin = await ensure_admin(db)",
+        "        if admin is None:",
+        "            _logger.warning('Demo seed skipped: set ADMIN_EMAIL and ADMIN_PASSWORD (demo rows belong to the admin)')",
         "            return",
-        "",
-        "        admin = User(",
-        "            email='admin@example.com',",
-        "            password_hash=get_password_hash(_admin_password()),",
-        "            role='admin',",
-        "            is_active=True,",
-        *(["            org_id='default',"] if multi_tenancy else []),
-        "        )",
-        "        db.add(admin)",
-        "        await db.flush()",
+        *([f"        if (await db.execute(select(func.count()).select_from({entity_names[0]}))).scalar_one() > 0:",
+           "            return  # already seeded"] if entity_names else []),
         "",
     ]
 
@@ -247,7 +225,7 @@ def generate_seed_py(
 
     lines += [
         "        await db.commit()",
-        "        _logger.info('Seeded admin user admin@example.com')",
+        "        _logger.info('Demo data seeded')",
     ]
     return "\n".join(lines) + "\n"
 

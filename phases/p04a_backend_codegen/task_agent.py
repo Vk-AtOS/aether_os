@@ -46,6 +46,7 @@ from aether_os.phases.p04a_backend_codegen.templates import (
     write_alembic_scaffold,
     patch_main_py,
 )
+from aether_os.phases.p04a_backend_codegen.templates_bootstrap import _BOOTSTRAP_PY
 from aether_os.phases.p04a_backend_codegen.templates_users import _USERS_ROUTER_PY
 from aether_os.phases.p04a_backend_codegen.schema_builder import (
     _fallback_models,
@@ -329,12 +330,16 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
     (output_dir / "Dockerfile").write_text(_DOCKERFILE)
     _admin_pw = _sec.token_urlsafe(16)
     _env_lines = (
-        "DATABASE_URL=sqlite+aiosqlite:///./app.db\n"
+        "{database_url}\n"
         "SECRET_KEY={secret}\n"
         "CORS_ORIGINS=http://localhost:3000,http://localhost:5173\n"
         "ENVIRONMENT=development\n"
         "DEBUG=false\n"
+        "# First admin, created at startup when both are set (production: password of 12+ characters, no default)\n"
+        "ADMIN_EMAIL={admin_email}\n"
         "ADMIN_PASSWORD={admin}\n"
+        "# Demo rows are written only when this is true (needs the admin above)\n"
+        "SEED_DEMO_DATA=false\n"
         "# REDIS_URL=redis://localhost:6379  # Uncomment to enable response caching\n"
         "# ALLOW_SIGNUP=true                 # false = invite-only\n"
         "# ENABLE_DOCS=false                 # true keeps /docs and /openapi.json when ENVIRONMENT=production\n"
@@ -343,11 +348,18 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         "# CACHE_TTL=30                      # Cache time-to-live in seconds\n"
     )
     # .env holds this app's own random secrets; .env.example is the committed copy and holds placeholders only.
-    (output_dir / ".env").write_text(_env_lines.format(secret=_secret, admin=_admin_pw))
-    _example = _env_lines.format(secret="change-me", admin="change-me")
+    # .env is this machine's local development setup (SQLite, random admin password); .env.example is what a
+    # deployment copies: a PostgreSQL URL placeholder (never a built-in SQLite default) and placeholder secrets.
+    (output_dir / ".env").write_text(_env_lines.format(
+        database_url="DATABASE_URL=sqlite+aiosqlite:///./app.db", secret=_secret, admin=_admin_pw,
+        admin_email="admin@example.com"))
+    _example = _env_lines.format(
+        database_url="DATABASE_URL=postgresql+asyncpg://app:change-me@localhost:5432/app",
+        secret="change-me", admin="change-me", admin_email="admin@example.com")
     if "agentic_ai" in _step_results["_active_patterns"]:
         _example += "\n" + AGENTIC_AI_ENV_EXAMPLE
     (output_dir / ".env.example").write_text(_example)
+    (src_dir / "bootstrap.py").write_text(_BOOTSTRAP_PY)
     (output_dir / ".gitignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n")
     (output_dir / ".dockerignore").write_text(".env\n*.pem\n*.db\nadmin_initial_password.txt\n__pycache__/\n.git\n")
     (output_dir / "Makefile").write_text(_generate_makefile(project_name))

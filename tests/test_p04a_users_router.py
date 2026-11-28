@@ -67,7 +67,7 @@ def run(request, tmp_path, monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     domain, use_ir, tenancy = request.param
     _, app = generate(tmp_path, domain=domain, use_ir=use_ir, tenancy=tenancy, monkeypatch=monkeypatch)
-    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {**os.environ, "ADMIN_PASSWORD": "Test-only-Admin-9z", "ADMIN_EMAIL": "admin@example.com", "SEED_DEMO_DATA": "true", "ENVIRONMENT": "test", "PYTHONDONTWRITEBYTECODE": "1"}
     p = subprocess.run([sys.executable, "-c", _RUNNER, str(app)], capture_output=True, text=True, env=env, timeout=180, cwd=str(app))
     line = next((ln for ln in p.stdout.splitlines() if ln.startswith("RESULT ")), None)
     assert line, f"generated app did not run:\n{p.stdout[-800:]}\n{p.stderr[-2000:]}"
