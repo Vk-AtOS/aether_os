@@ -492,7 +492,7 @@ class LLMClient:
         ollama_dim = _EMBEDDING_DIMS.get(ollama_model, 768)
         try:
             import httpx
-            from core.config.loader import get_config
+            from aether_os.core.config.loader import get_config
             cfg = get_config()
             base_url = cfg.get("llm.ollama_base_url", "http://localhost:11434")
 
