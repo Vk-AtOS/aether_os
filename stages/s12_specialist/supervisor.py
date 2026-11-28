@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import failure_issues
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +181,7 @@ class SpecialistStageSupervisor(PhaseBase):
                         phase_input.input_data[ctx_key] = result.output_path
                 else:
                     logger.warning("s12: %s returned success=False", phase_name)
-                    issues.append(f"{phase_name} reported success=False")
+                    issues.extend(failure_issues("s12_specialist", phase_name, result))
                     failed.append(phase_name)
             else:
                 logger.warning(

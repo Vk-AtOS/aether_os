@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, List
 
 from aether_os.phases.base import PhaseBase, TaskResult, GateOutcome
+from aether_os.phases.failure_reason import exception_issue, failure_issues
 from aether_os.phases.utils import get_domain_ir
 from aether_os.stages.s03_backend.helpers import get_entity_count
 
@@ -183,7 +184,8 @@ class BackendStageSupervisor(PhaseBase):
             confidence=round(confidence, 3),
             metadata=merged_data,
             success=overall_success,
-            issues=p04_result.issues if not overall_success else [],
+            issues=(p04_result.issues or failure_issues("s03_backend", "p04_backend", p04_result))
+            if not overall_success else [],
         )
 
     # ------------------------------------------------------------------ #
@@ -195,6 +197,11 @@ class BackendStageSupervisor(PhaseBase):
         from stages.s03_backend.helpers import validate_backend_output
 
         backend_path = (result.metadata or {}).get("backend_output_path", "")
+
+        if not result.success:
+            # The sub-phase failed: its own error is the reason. A missing path is only a symptom of that failure.
+            return GateOutcome(passed=False, confidence=0.0,
+                               issues=result.issues or failure_issues("s03_backend", "p04_backend", result))
 
         if not backend_path:
             return GateOutcome(
@@ -286,7 +293,7 @@ class BackendStageSupervisor(PhaseBase):
                 output_path=str(stage_output_dir.parent / "p04_backend"),
                 confidence=0.0,
                 success=False,
-                issues=[f"p04_backend error: {exc}"],
+                issues=[exception_issue("s03_backend", "p04_backend", exc)],
             )
 
     async def _run_p04b_business_logic(

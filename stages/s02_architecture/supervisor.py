@@ -43,6 +43,7 @@ from aether_os.orchestrator.clarifying import load_answers
 
 from aether_os.core.errors import PipelineBlockedError
 from aether_os.phases.base import GateOutcome, PhaseBase, TaskResult
+from aether_os.phases.failure_reason import failure_issues
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +261,7 @@ class ArchitectureStageSupervisor(PhaseBase):
         if not result.success:
             return GateOutcome(
                 passed=False,
-                issues=result.issues or ["Architecture stage failed"],
+                issues=result.issues or failure_issues("s02_architecture", "architecture", result),
             )
         # domain_ir_path must exist and the file must be non-empty.
         ir_path_str = phase_input.input_data.get("domain_ir_path", "")

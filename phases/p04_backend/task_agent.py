@@ -251,6 +251,7 @@ async def _run_node_backend(phase_input: Any, output_dir: Path) -> TaskResult:
 async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> TaskResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     results = {}
+    backend_error = ""  # why p04a failed, so the stage reports it instead of a generic message
 
     # Route to language-specific generator when build_profile requests it.
     # Falls through to the default FastAPI generator for "python" or missing profile.
@@ -391,6 +392,7 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         raise  # the run must stop: never downgrade a blocked gate or a missing sandbox to a warning
     except Exception as e:
         logger.warning("p04a_backend_codegen failed: %s", e)
+        backend_error = f"p04a_backend_codegen raised {type(e).__name__}: {e}"
 
     # Sub-task 2: UI/UX Design
     try:
@@ -419,5 +421,6 @@ async def run(phase_input: Any, memory_ctx: List[Dict], output_dir: Path) -> Tas
         confidence=0.85 if backend_ok else 0.3,
         metadata=summary,
         success=backend_ok,
-        issues=[] if backend_ok else ["Backend code generation failed or did not run"],
+        issues=[] if backend_ok else (list(backend.issues) if backend and backend.issues else None)
+        or [backend_error or "Backend code generation did not run (p04a returned no result and raised nothing)"],
     )

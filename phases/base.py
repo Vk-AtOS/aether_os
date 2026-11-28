@@ -1,5 +1,6 @@
 """AetherOS — Shared base classes for the 4-agent phase pattern."""
 from __future__ import annotations
+import asyncio
 import httpx
 import json
 import logging
@@ -14,6 +15,7 @@ from aether_os.core.memory.store import MemoryRecord, get_memory_store
 from aether_os.core.memory.vector_store import ChromaProjectMemory
 from aether_os.orchestrator.bus import get_bus
 from aether_os.orchestrator.messages import PhaseMessage, PhaseResult
+from aether_os.phases.failure_reason import failure_fingerprint, failure_issues, is_generic_failure
 from aether_os.phases.targeted_retry import describe_failures, failure_signature
 
 logger = logging.getLogger(__name__)
@@ -263,18 +265,33 @@ class PhaseBase:
                     # Stop early only when the gate names the exact files and errors: generic issue text such as
                     # "sub-step reported failure" looks identical for different model outputs, and a whole-stage
                     # rerun on a real model can pass (s04 passed on its third attempt on runs 9 and 10).
+                    # Same rule for a gate that names a real cause in its issues (KAN-257): nothing was repaired or
+                    # changed between the attempts, so an identical normalised error cannot succeed on a third try.
                     if gate.failed_files:
                         sig = failure_signature(gate.failed_files, gate.issues)
+                    elif not is_generic_failure(gate.issues):
+                        sig = failure_fingerprint(gate.issues)
+                    else:
+                        sig = ""
+                    if sig:
                         if sig == last_sig:
-                            last_error = f"identical gate failure repeated, not retrying again: {last_error}"
+                            last_error = f"{last_error} (identical failure on retry, not retried further)"
                             break
                         last_sig = sig
                     memory_ctx = [{"failure": last_error}] + memory_ctx
 
             except Exception as e:
-                last_error = str(e)
+                last_error = str(e) or type(e).__name__
                 self.logger.error("[%s] Task error attempt %d: %s",
                                   self.phase_name, attempt, e)
+                # A raised error that repeats word for word is deterministic (a rejected spec, a missing file);
+                # a timeout or dropped connection is transient and keeps its retries.
+                if not isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionError, httpx.TransportError)):
+                    sig = failure_fingerprint([last_error])
+                    if sig == last_sig:
+                        last_error = f"{last_error} (identical failure on retry, not retried further)"
+                        break
+                    last_sig = sig
 
         # All retries exhausted — escalate and signal the pipeline to block
         await self._escalate(phase_input, last_error)
@@ -349,4 +366,6 @@ class PhaseBase:
 
     async def validate_gate(self, result: TaskResult,
                             phase_input: Any) -> GateOutcome:
-        return GateOutcome(passed=result.success, issues=result.issues)
+        if result.success:
+            return GateOutcome(passed=True, issues=result.issues)
+        return GateOutcome(passed=False, issues=result.issues or failure_issues(self.phase_name, "task", result))
