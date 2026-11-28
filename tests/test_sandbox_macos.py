@@ -112,3 +112,13 @@ def test_profile_allows_only_the_run_dir():
     assert '(deny network-outbound (remote ip "localhost:*"))' in profile
     # A hostile path cannot break out of its string literal.
     assert '\\"' in macos_profile(Path('/private/var/folders/x/a"b'))
+
+
+def test_venv_root_under_a_denied_tree_is_readable(monkeypatch, tmp_path):
+    """A venv in ~/ or /tmp: python reads <venv>/pyvenv.cfg at startup, so the venv root must be readable
+    (28 Nov local e2e: every p04a smoke check died with 'Failed to import the site module')."""
+    from aether_os.core.sandbox import macos_backend
+    venv = (tmp_path / "venv").resolve()   # tmp_path lives under /private/var/folders, a denied tree
+    venv.mkdir()
+    monkeypatch.setattr(macos_backend.sys, "prefix", str(venv))
+    assert venv in macos_backend._toolchain_dirs()
